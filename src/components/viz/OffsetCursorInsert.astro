@@ -1,0 +1,61 @@
+---
+// 새 글이 끼어들 때 오프셋 vs 커서 2페이지. (읽는 양 비교는 db/OffsetVsCursor, 이건 중복 관점)
+// 왼쪽: 피드 목록(위가 최신) — 삽입 전/후 목록은 같은 자리 class="hide". 가운데: 구간 괄호·라벨. 오른쪽: B가 받은 화면.
+import Stepper from '../Stepper.astro';
+
+const steps = [
+  { caption: '피드는 숫자가 클수록 최신이에요. 한 페이지에 3개씩, 1페이지로 10·9·8을 받았어요.', show: ['before', 'bP1', 'p1'] },
+  { caption: '스크롤하는 사이 새 글 11·12가 맨 위에 들어왔어요. 아래 글들이 전부 두 칸씩 밀려요.', show: ['after', 'bNew', 'p1', 'n2'] },
+  { caption: '오프셋 2페이지는 "앞에서 3개 건너뛰고 3개"예요. 지금 앞 3개는 12·11·10이라 9·8·7을 받아요. 9와 8이 또 나와요.', show: ['after', 'bSkip', 'bOff', 'p1', 'p2off', 'hlOff', 'n3'] },
+  { caption: '커서 2페이지는 "마지막으로 본 8보다 작은 것 3개"예요. 7·6·5를 받아 중복이 없어요. 새 글 11·12는 위쪽 "새 글 2개" 배너로 따로 받아요(id > 10).', show: ['after', 'bBan', 'bCur', 'bCur2', 'p1', 'p2cur', 'hlCur', 'n4'] },
+];
+const ry = (i: number) => 44 + i * 36; // 행 i의 위쪽 y (높이 32)
+const before = [10, 9, 8, 7, 6, 5, 4, 3];
+const after = [12, 11, 10, 9, 8, 7, 6, 5];
+// 괄호: 행 a~b, 라벨은 가운데 행 높이에
+const br = (a: number, b: number) => `M66 ${ry(a) + 2}H72V${ry(b) + 30}H66`;
+const mid = (a: number, b: number) => (ry(a) + ry(b) + 32) / 2;
+const chipX = [166, 214, 262];
+---
+<Stepper title="새 글이 끼어들면: 오프셋 vs 커서" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 340" role="img" aria-label="피드 목록 10부터 3까지에서 1페이지로 10, 9, 8을 받은 뒤 새 글 11, 12가 맨 위에 들어온다. 오프셋 2페이지는 3개를 건너뛰어 9, 8, 7을 받아 9와 8이 중복된다. 커서 2페이지는 8보다 작은 7, 6, 5를 받아 중복이 없고 새 글은 배너로 따로 받는다.">
+    <text class="l" x="8" y="22" style="font-weight:700">피드 (위가 최신)</text>
+    <text class="l" x="164" y="22" style="font-weight:700">B가 받은 화면</text>
+
+    <!-- 피드 목록: 삽입 전 / 후 -->
+    <g data-id="before" class="hide">{before.map((n, i) => <><rect class="box" x="8" y={ry(i)} width="52" height="32" rx="6" /><text x="34" y={ry(i) + 16}>{n}</text></>)}</g>
+    <g data-id="after" class="hide">{after.map((n, i) => <><rect class={i < 2 ? 'chip' : 'box'} x="8" y={ry(i)} width="52" height="32" rx="6" /><text class={i < 2 ? 'hi' : ''} x="34" y={ry(i) + 16}>{n}</text></>)}</g>
+
+    <!-- 가운데 괄호·라벨 -->
+    <g data-id="bP1" class="hide"><path class="line" d={br(0, 2)} /><text class="l" x="78" y={mid(0, 2)}>1페이지</text></g>
+    <g data-id="bNew" class="hide"><path class="line" d={br(0, 1)} /><text class="l hi" x="78" y={mid(0, 1)}>새 글 2개</text></g>
+    <g data-id="bSkip" class="hide"><path class="line" d={br(0, 2)} /><text class="l sub" x="78" y={mid(0, 2)}>건너뜀 3개</text></g>
+    <g data-id="bOff" class="hide"><path class="line" d={br(3, 5)} /><text class="l err-t" x="78" y={mid(3, 5)}>2페이지</text></g>
+    <rect data-id="hlOff" class="hl" x="4" y={ry(3) - 3} width="60" height="106" rx="8" />
+    <g data-id="bBan" class="hide"><path class="line" d={br(0, 1)} /><text class="l sub" x="78" y={mid(0, 1)}>배너로 따로</text></g>
+    <g data-id="bCur" class="hide"><text class="l hi" x="78" y={ry(4) + 16}>← 커서 8</text></g>
+    <g data-id="bCur2" class="hide"><path class="line" d={br(5, 7)} /><text class="l hi" x="78" y={mid(5, 7)}>2페이지</text></g>
+    <rect data-id="hlCur" class="hl" x="4" y={ry(5) - 3} width="60" height="106" rx="8" />
+
+    <!-- 오른쪽: 받은 화면 -->
+    <g data-id="p1">
+      <text class="l sub" x="164" y="54">1페이지</text>
+      {[10, 9, 8].map((n, i) => <><rect class="box" x={chipX[i]} y="68" width="44" height="32" rx="6" /><text x={chipX[i] + 22} y="84">{n}</text></>)}
+    </g>
+    <g data-id="p2off" class="hide">
+      <text class="l sub" x="164" y="128">오프셋 2페이지</text>
+      {[9, 8, 7].map((n, i) => <><rect class={i < 2 ? 'err' : 'box'} x={chipX[i]} y="142" width="44" height="32" rx="6" /><text class={i < 2 ? 'err-t' : ''} x={chipX[i] + 22} y="158">{n}</text></>)}
+      <text class="l err-t" x="164" y="194">9·8 또 나옴 (중복)</text>
+    </g>
+    <g data-id="p2cur" class="hide">
+      <text class="l sub" x="164" y="128">커서 2페이지 (id &lt; 8)</text>
+      {[7, 6, 5].map((n, i) => <><rect class="chip" x={chipX[i]} y="142" width="44" height="32" rx="6" /><text x={chipX[i] + 22} y="158">{n}</text></>)}
+      <text class="l hi" x="164" y="194">중복 없음</text>
+    </g>
+
+    <!-- 오른쪽 아래 정리 상자 -->
+    <g data-id="n2" class="hide"><rect class="chip" x="164" y="220" width="148" height="56" rx="8" /><text x="238" y="239">12·11 도착</text><text class="sub" x="238" y="261">아래 글 두 칸 밀림</text></g>
+    <g data-id="n3" class="hide"><rect class="err" x="164" y="220" width="148" height="56" rx="8" /><text x="238" y="239">"몇 번째"로 셈</text><text class="sub" x="238" y="261">밀리면 겹침</text></g>
+    <g data-id="n4" class="hide"><rect class="chip" x="164" y="220" width="148" height="56" rx="8" /><text x="238" y="239">새 글 2개 ↑</text><text class="sub" x="238" y="261">id &gt; 10 따로 요청</text></g>
+  </svg>
+</Stepper>

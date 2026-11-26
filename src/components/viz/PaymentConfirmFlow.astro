@@ -1,0 +1,101 @@
+---
+// 결제 승인 흐름 시퀀스도: 브라우저 / 우리 서버 / PG. 6단계는 정상(ok)과 타임아웃(to)이 같은 자리에 번갈아 나온다(.hide).
+import Stepper from '../Stepper.astro';
+const steps = [
+  { caption: '사용자가 "결제하기"를 누르면 우리 서버가 먼저 주문을 만들어요. 주문번호와 서버가 계산한 금액을 READY 상태로 저장해요.', show: ['base', 's1'] },
+  { caption: '브라우저가 PG 결제창을 띄워요. 주문번호, 금액, 끝나면 돌아올 주소(successUrl)를 넘겨요.', show: ['base', 's1', 's2'] },
+  { caption: '사용자가 카드 인증을 마치면 successUrl로 paymentKey·orderId·amount가 돌아와요. 아직 돈은 안 빠졌어요.', show: ['base', 's1', 's2', 's3'] },
+  { caption: '서버는 저장해 둔 금액과 돌아온 amount를 비교해요. 다르면 누가 조작한 거라 여기서 멈춰요.', show: ['base', 's1', 's2', 's3', 's4'] },
+  { caption: '금액이 맞으면 서버가 PG 승인 API를 불러요. Idempotency-Key 헤더를 붙여서 재시도해도 한 번만 승인되게 해요. 이때 실제로 돈이 빠져요.', show: ['base', 's1', 's2', 's3', 's4', 's5'] },
+  { caption: '정상: PG가 DONE을 돌려주면 우리 주문도 DONE으로 바꾸고 끝나요.', show: ['base', 's1', 's2', 's3', 's4', 's5', 'ok'] },
+  { caption: '타임아웃: 응답이 안 오면 실패로 단정하지 않아요. 내부 상태를 UNKNOWN으로 두고, 사용자에겐 "결제 확인 중"을 보여줘요.', show: ['base', 's1', 's2', 's3', 's4', 's5', 'to'] },
+  { caption: '서버가 PG 조회 API에 우리 주문번호로 물어봐요. paymentKey가 없어도 확인할 수 있어요.', show: ['base', 's1', 's2', 's3', 's4', 's5', 'to', 'q'] },
+  { caption: 'DONE이면 확정, 승인이 안 됐으면 같은 키로 재시도하거나 실패 처리, 여전히 모르면 간격을 두고 다시 물어요. 오래가면 대사 배치와 알림으로 넘겨요.', show: ['base', 's1', 's2', 's3', 's4', 's5', 'to', 'q', 'res'] },
+];
+const halo = 'paint-order:stroke;stroke:var(--sl-color-gray-7, var(--sl-color-black));stroke-width:5px;stroke-linejoin:round';
+const acc = 'stroke:var(--sl-color-accent);stroke-width:2.4;fill:none';
+---
+<Stepper title="결제 승인 흐름과 타임아웃 처리" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 572" role="img" aria-label="서버가 주문과 금액을 저장하고, 브라우저가 PG 결제창에서 인증한 뒤, 서버가 금액을 검증하고 멱등 키로 승인 API를 부른다. 타임아웃이면 UNKNOWN으로 두고 조회 API로 결과를 확인하는 순서도">
+    <defs>
+      <marker id="pcf-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+    </defs>
+    <g data-id="base">
+      <rect class="box" x="6" y="6" width="88" height="34" rx="8" />
+      <text x="50" y="23" style="font-weight:700">브라우저</text>
+      <rect class="box" x="116" y="6" width="88" height="34" rx="8" />
+      <text x="160" y="23" style="font-weight:700">우리 서버</text>
+      <rect class="box" x="226" y="6" width="88" height="34" rx="8" />
+      <text x="270" y="23" style="font-weight:700">PG</text>
+      <line class="line" x1="50" y1="42" x2="50" y2="460" style="stroke-dasharray:4 4" />
+      <line class="line" x1="160" y1="42" x2="160" y2="460" style="stroke-dasharray:4 4" />
+      <line class="line" x1="270" y1="42" x2="270" y2="460" style="stroke-dasharray:4 4" />
+    </g>
+
+    <g data-id="s1">
+      <text x="105" y="52" style={`font-size:14px;${halo}`}>결제하기</text>
+      <line x1="50" y1="64" x2="156" y2="64" style={acc} marker-end="url(#pcf-a)" />
+      <rect class="chip" x="78" y="72" width="164" height="42" rx="6" />
+      <text x="160" y="85" style="font-size:14px">주문 저장 order-101</text>
+      <text x="160" y="103" style="font-size:14px">30,000원 · READY</text>
+    </g>
+
+    <g data-id="s2">
+      <text x="160" y="124" style={`font-size:14px;${halo}`}>결제창 (orderId·30,000원)</text>
+      <line x1="50" y1="136" x2="266" y2="136" style={acc} marker-end="url(#pcf-a)" />
+    </g>
+
+    <g data-id="s3">
+      <text x="160" y="160" style={`font-size:14px;${halo}`}>카드 인증 ✓ → successUrl</text>
+      <line x1="270" y1="172" x2="54" y2="172" style={acc} marker-end="url(#pcf-a)" />
+      <text x="105" y="194" style={`font-size:14px;${halo}`}>paymentKey·orderId·amount</text>
+      <line x1="50" y1="206" x2="156" y2="206" style={acc} marker-end="url(#pcf-a)" />
+    </g>
+
+    <g data-id="s4">
+      <rect class="chip" x="78" y="216" width="164" height="42" rx="6" />
+      <text x="160" y="229" style="font-size:14px">저장 30,000 = 받은 30,000?</text>
+      <text class="err-t" x="160" y="247" style="font-size:14px">다르면 여기서 중단</text>
+    </g>
+
+    <g data-id="s5">
+      <text x="215" y="272" style={`font-size:14px;${halo}`}>승인 API (confirm)</text>
+      <line x1="160" y1="284" x2="266" y2="284" style={acc} marker-end="url(#pcf-a)" />
+      <text class="hi" x="215" y="298" style={`font-size:14px;${halo}`}>Idempotency-Key: k1</text>
+    </g>
+
+    <g data-id="ok" class="hide">
+      <text class="hi" x="215" y="324" style={halo}>DONE</text>
+      <line x1="270" y1="334" x2="164" y2="334" style={acc} marker-end="url(#pcf-a)" />
+      <rect class="chip" x="100" y="346" width="120" height="30" rx="6" />
+      <text x="160" y="361" style="font-size:14px;font-weight:700">주문 DONE ✓</text>
+      <text class="sub" x="50" y="361" style={halo}>완료 화면</text>
+    </g>
+
+    <g data-id="to" class="hide">
+      <text class="err-t" x="215" y="324" style={`font-size:14px;${halo}`}>응답 없음 (타임아웃)</text>
+      <line class="line" x1="270" y1="334" x2="186" y2="334" style="stroke-dasharray:5 4" />
+      <text class="err-t" x="176" y="334">✕</text>
+      <rect class="bad" x="100" y="346" width="120" height="30" rx="6" />
+      <text x="160" y="361" style="font-size:14px;font-weight:700">UNKNOWN</text>
+      <text class="sub" x="50" y="361" style={halo}>결제 확인 중</text>
+    </g>
+
+    <g data-id="q" class="hide">
+      <text x="215" y="392" style={`font-size:14px;${halo}`}>조회 API</text>
+      <line x1="160" y1="404" x2="266" y2="404" style={acc} marker-end="url(#pcf-a)" />
+      <text class="mono" x="215" y="418" style={halo}>…/orders/order-101</text>
+    </g>
+
+    <g data-id="res" class="hide">
+      <text x="215" y="442" style={`font-size:14px;${halo}`}>PG 쪽 status</text>
+      <line x1="270" y1="454" x2="164" y2="454" style={acc} marker-end="url(#pcf-a)" />
+      <rect class="box" x="6" y="468" width="308" height="94" rx="8" />
+      <text class="l" x="16" y="488" style="font-size:14px"><tspan class="hi">DONE</tspan> → 우리도 DONE 확정</text>
+      <text class="l" x="16" y="515" style="font-size:14px"><tspan class="hi">승인 안 됨</tspan> → 같은 k1로 재시도/실패</text>
+      <text class="l" x="16" y="542" style="font-size:14px"><tspan class="hi">계속 모름</tspan> → 재조회, 오래가면 대사</text>
+    </g>
+  </svg>
+</Stepper>

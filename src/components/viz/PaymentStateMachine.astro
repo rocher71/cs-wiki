@@ -1,0 +1,56 @@
+---
+// 우리 서비스 내부 결제 상태 머신(일반 설계). UNKNOWN은 PG 공식 값이 아니라 점선 상자로 구분.
+import Stepper from '../Stepper.astro';
+const steps = [
+  { caption: 'READY: 주문을 만들었고 아직 인증 전이에요.', show: ['r', 'hl-r'] },
+  { caption: 'IN_PROGRESS: 인증이 끝나 PG에 승인 요청을 보낸 상태예요.', show: ['r', 'i', 'aRI', 'hl-i'] },
+  { caption: '응답이 오면 갈래가 나뉘어요. 승인되면 DONE, 거절되면 FAILED.', show: ['r', 'i', 'aRI', 'd', 'f', 'aID', 'aIF', 'hl-d', 'hl-f'] },
+  { caption: '응답이 아예 안 오면 UNKNOWN(모름)이에요. PG 공식 상태값이 아니라 우리가 내부에 두는 상태예요(일반 설계).', show: ['r', 'i', 'aRI', 'd', 'f', 'aID', 'aIF', 'u', 'aIU', 'hl-u'] },
+  { caption: 'UNKNOWN은 조회 API·웹훅·대사로 진짜 결과를 확인한 뒤 DONE 또는 FAILED로 확정해요.', show: ['r', 'i', 'aRI', 'd', 'f', 'aID', 'aIF', 'u', 'aIU', 'aUD', 'aUF', 'hl-d', 'hl-f'] },
+  { caption: 'DONE이 된 결제만 취소할 수 있어요. 전액이면 CANCELED, 일부면 PARTIAL_CANCELED.', show: ['r', 'i', 'aRI', 'd', 'f', 'aID', 'aIF', 'u', 'aIU', 'aUD', 'aUF', 'c', 'aDC', 'hl-c'] },
+  { caption: '허용 목록에 없는 전이는 거부해요. 조건부 UPDATE(WHERE status = 기대 상태)로 막으면 바뀐 행이 0개가 돼요.', show: ['r', 'i', 'aRI', 'd', 'f', 'aID', 'aIF', 'u', 'aIU', 'aUD', 'aUF', 'c', 'aDC', 'x'] },
+];
+const arr = 'fill:none;stroke:var(--sl-color-accent);stroke-width:2';
+const halo = 'paint-order:stroke;stroke:var(--sl-color-gray-7, var(--sl-color-black));stroke-width:5px;stroke-linejoin:round';
+---
+<Stepper title="결제 상태 머신 (우리 서비스 내부)" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 470" role="img" aria-label="READY에서 IN_PROGRESS, 그다음 DONE·FAILED·UNKNOWN으로 갈라지고, UNKNOWN은 조회·웹훅·대사로 DONE 또는 FAILED가 되며, DONE만 CANCELED·PARTIAL_CANCELED로 갈 수 있다. CANCELED→DONE, FAILED→DONE은 거부">
+    <defs>
+      <marker id="psm-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" /></marker>
+    </defs>
+
+    <!-- 전이 화살표 -->
+    <g data-id="aRI"><path d="M160 52 L160 86" style={arr} marker-end="url(#psm-a)" /><text x="208" y="69" style={`font-size:14px;${halo}`}>승인 요청</text></g>
+    <g data-id="aID"><path d="M120 126 L70 170" style={arr} marker-end="url(#psm-a)" /><text x="70" y="140" style={`font-size:14px;${halo}`}>승인</text></g>
+    <g data-id="aIF"><path d="M200 126 L250 170" style={arr} marker-end="url(#psm-a)" /><text x="252" y="140" style={`font-size:14px;${halo}`}>거절</text></g>
+    <g data-id="aIU"><path d="M160 126 L160 246" style={arr} marker-end="url(#psm-a)" /><text x="160" y="196" style={`font-size:14px;${halo}`}>응답 없음</text></g>
+    <g data-id="aUD"><path d="M114 252 L80 212" style={arr} marker-end="url(#psm-a)" /></g>
+    <g data-id="aUF"><path d="M206 252 L240 212" style={arr} marker-end="url(#psm-a)" /></g>
+    <g data-id="aUD"><text class="hi" x="160" y="312" style="font-size:14px">조회·웹훅·대사로 확정</text></g>
+    <g data-id="aDC"><path d="M40 212 L40 338" style={arr} marker-end="url(#psm-a)" /><text x="40" y="300" style={`font-size:14px;${halo}`}>취소</text></g>
+
+    <!-- 상태 -->
+    <g data-id="r"><rect class="box" x="100" y="14" width="120" height="36" rx="8" /><text x="160" y="32" style="font-weight:700">READY</text></g>
+    <g data-id="i"><rect class="box" x="92" y="88" width="136" height="36" rx="8" /><text x="160" y="106" style="font-weight:700">IN_PROGRESS</text></g>
+    <g data-id="d"><rect class="box" x="8" y="172" width="92" height="38" rx="8" /><text x="54" y="191" style="font-weight:700">DONE</text></g>
+    <g data-id="f"><rect class="box" x="220" y="172" width="92" height="38" rx="8" /><text x="266" y="191" style="font-weight:700">FAILED</text></g>
+    <g data-id="u"><rect class="bad" x="104" y="248" width="112" height="44" rx="8" /><text x="160" y="263" style="font-weight:700">UNKNOWN</text><text class="sub" x="160" y="282">PG엔 없는 값</text></g>
+    <g data-id="c"><rect class="box" x="8" y="340" width="240" height="36" rx="8" /><text x="128" y="358" style="font-size:14px;font-weight:700">CANCELED / PARTIAL_CANCELED</text></g>
+
+    <!-- 강조 테두리 -->
+    <rect data-id="hl-r" class="hl" x="97" y="11" width="126" height="42" rx="10" />
+    <rect data-id="hl-i" class="hl" x="89" y="85" width="142" height="42" rx="10" />
+    <rect data-id="hl-d" class="hl" x="5" y="169" width="98" height="44" rx="10" />
+    <rect data-id="hl-f" class="hl" x="217" y="169" width="98" height="44" rx="10" />
+    <rect data-id="hl-u" class="hl" x="101" y="245" width="118" height="50" rx="10" />
+    <rect data-id="hl-c" class="hl" x="5" y="337" width="246" height="42" rx="10" />
+
+    <!-- 금지 전이 -->
+    <g data-id="x" class="hide">
+      <rect class="err" x="8" y="392" width="304" height="70" rx="8" />
+      <text class="l err-t" x="18" y="412" style="font-size:14px">✕ 거부: CANCELED → DONE</text>
+      <text class="l err-t" x="18" y="434" style="font-size:14px">✕ 거부: FAILED → DONE</text>
+      <text class="sub" x="160" y="452">(사람 확인 없이 자동으로는 안 됨)</text>
+    </g>
+  </svg>
+</Stepper>

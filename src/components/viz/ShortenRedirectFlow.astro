@@ -1,0 +1,88 @@
+---
+// URL 단축기: 생성(ID → base62 → DB) / 리다이렉트(캐시 적중·미스) / 클릭 이벤트는 큐로 비동기.
+import Stepper from '../Stepper.astro';
+const steps = [
+  { caption: '[생성] 사용자가 긴 URL을 보내면, 서버는 ID 생성기에서 겹치지 않는 정수 1000000000을 받아요.', show: ['base', 'c-req', 'c-id'] },
+  { caption: '이 정수를 62글자(0-9, a-z, A-Z)로 적는 62진법으로 바꾸면 15FTGg, 6글자예요.', show: ['base', 'c-req', 'c-id', 'c-b62'] },
+  { caption: 'DB에 (15FTGg, 원본 URL)을 저장하고, 짧은 URL s.example/15FTGg를 돌려줘요.', show: ['base', 'c-req', 'c-id', 'c-b62', 'c-db', 'c-res'] },
+  { caption: '[리다이렉트, 캐시 적중] 누가 GET /15FTGg로 들어오면 Redis부터 봐요. 있으면 DB까지 안 가고 바로 302 + Location: 원본 URL로 답해요.', show: ['base', 'r-req', 'hit', 'r-res'] },
+  { caption: '[캐시 미스] Redis에 없으면 DB에서 찾고, Redis에 TTL(유효 기간)을 걸어 넣어 둔 뒤 302로 답해요. 다음 요청부터는 캐시에서 끝나요.', show: ['base', 'r-req', 'miss', 'r-res'] },
+  { caption: '클릭 이벤트는 큐에 던지고 기다리지 않아요(비동기). 통계를 쌓느라 이동이 늦어지면 안 되니까요.', show: ['base', 'r-req', 'hit', 'r-res', 'q'] },
+];
+const halo = 'paint-order:stroke;stroke:var(--sl-color-gray-7, var(--sl-color-black));stroke-width:5px;stroke-linejoin:round';
+const acc = 'stroke:var(--sl-color-accent);stroke-width:2.4;fill:none';
+---
+<Stepper title="짧은 URL 만들기와 리다이렉트" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 410" role="img" aria-label="브라우저, 앱 서버, ID 생성기, Redis, DB, 큐 사이에서 짧은 URL 생성과 리다이렉트 요청이 오가는 흐름도">
+    <defs>
+      <marker id="srf-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+    </defs>
+    <g data-id="base">
+      <rect class="box" x="80" y="8" width="160" height="40" rx="8" />
+      <text x="160" y="28" style="font-weight:700">브라우저</text>
+      <rect class="box" x="110" y="170" width="100" height="40" rx="8" />
+      <text x="160" y="190" style="font-weight:700">앱 서버</text>
+      <rect class="box" x="250" y="170" width="64" height="40" rx="8" />
+      <text x="282" y="190" style="font-weight:700">큐</text>
+      <rect class="box" x="6" y="358" width="96" height="40" rx="8" />
+      <text x="54" y="378">ID 생성기</text>
+      <rect class="box" x="112" y="358" width="96" height="40" rx="8" />
+      <text x="160" y="378">Redis</text>
+      <rect class="box" x="218" y="358" width="96" height="40" rx="8" />
+      <text x="266" y="378">DB</text>
+    </g>
+
+    <!-- 생성 -->
+    <g data-id="c-req" class="hide">
+      <line x1="150" y1="50" x2="150" y2="166" style={acc} marker-end="url(#srf-a)" />
+      <text x="144" y="80" style={`${halo};text-anchor:end`}>POST 긴 URL</text>
+    </g>
+    <g data-id="c-id" class="hide">
+      <line x1="60" y1="356" x2="124" y2="214" style={acc} marker-end="url(#srf-a)" />
+      <text class="mono hi" x="52" y="290" style={halo}>1000000000</text>
+    </g>
+    <g data-id="c-b62" class="hide">
+      <rect class="chip" x="6" y="166" width="96" height="48" rx="6" />
+      <text class="sub" x="54" y="181">base62</text>
+      <text class="mono hi" x="54" y="201">15FTGg</text>
+    </g>
+    <g data-id="c-db" class="hide">
+      <line x1="196" y1="212" x2="260" y2="354" style={acc} marker-end="url(#srf-a)" />
+      <text x="272" y="268" style={halo}>저장</text>
+      <text class="mono" x="268" y="294" style={halo}>15FTGg→원본</text>
+    </g>
+    <g data-id="c-res" class="hide">
+      <line x1="170" y1="168" x2="170" y2="52" style={acc} marker-end="url(#srf-a)" />
+      <text class="mono hi" x="160" y="130" style={halo}>s.example/15FTGg</text>
+    </g>
+
+    <!-- 리다이렉트 -->
+    <g data-id="r-req" class="hide">
+      <line x1="150" y1="50" x2="150" y2="166" style={acc} marker-end="url(#srf-a)" />
+      <text class="mono" x="144" y="80" style={`${halo};text-anchor:end`}>GET /15FTGg</text>
+    </g>
+    <g data-id="hit" class="hide">
+      <line x1="160" y1="214" x2="160" y2="354" style={acc} marker-start="url(#srf-a)" marker-end="url(#srf-a)" />
+      <text class="hi" x="160" y="284" style={halo}>있음 ✓ (적중)</text>
+    </g>
+    <g data-id="miss" class="hide">
+      <line x1="160" y1="214" x2="160" y2="354" style={acc} marker-start="url(#srf-a)" marker-end="url(#srf-a)" />
+      <text class="err-t" x="160" y="252" style={halo}>① 없음 ✕</text>
+      <text class="hi" x="160" y="316" style={halo}>③ TTL 걸어 저장</text>
+      <line x1="196" y1="212" x2="260" y2="354" style={acc} marker-start="url(#srf-a)" marker-end="url(#srf-a)" />
+      <text x="276" y="276" style={halo}>② 조회</text>
+    </g>
+    <g data-id="r-res" class="hide">
+      <line x1="170" y1="168" x2="170" y2="52" style={acc} marker-end="url(#srf-a)" />
+      <text class="hi" x="160" y="122" style={halo}>302 + Location:</text>
+      <text class="hi" x="160" y="142" style={halo}>원본 URL</text>
+    </g>
+    <g data-id="q" class="hide">
+      <line x1="212" y1="190" x2="248" y2="190" style={`${acc};stroke-dasharray:4 3`} marker-end="url(#srf-a)" />
+      <text x="282" y="156" style={`font-size:14px;${halo}`}>클릭 +1</text>
+      <text class="sub" x="282" y="226">비동기</text>
+    </g>
+  </svg>
+</Stepper>

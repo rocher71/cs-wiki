@@ -1,0 +1,89 @@
+---
+// 서버가 여러 대일 때 채팅 메시지 전달: 레지스트리 기록 → 전송 → 순번·DB 저장 → Pub/Sub 발행 → 다른 서버가 B에게 → ack → 오프라인 C 푸시.
+import Stepper from '../Stepper.astro';
+const steps = [
+  { caption: 'A는 서버1, B는 서버2에 WebSocket으로 붙어 있어요. 세션 레지스트리(Redis)에 "A→서버1, B→서버2"를 적어 둬요.', show: ['base', 'reg'] },
+  { caption: 'A가 서버1로 메시지를 보내요. 방 번호(42), 임시 ID(tmp-7), 내용이 같이 가요. A 화면엔 아직 "전송 중"이에요.', show: ['base', 'reg', 'send', 'pending'] },
+  { caption: '서버1이 방 42의 다음 순번 #105를 붙이고, DB에 먼저 저장해요. 저장이 끝나야 "보냈다"고 할 수 있어요.', show: ['base', 'reg', 'send', 'pending', 'seq', 'db'] },
+  { caption: '서버1이 Pub/Sub 채널 room:42에 발행해요. 서버1은 B가 어느 서버에 있든 신경 쓰지 않아도 돼요.', show: ['base', 'reg', 'send', 'pending', 'seq', 'db', 'pub'] },
+  { caption: 'room:42를 구독 중인 서버2가 메시지를 받아서, 자기에게 붙어 있는 B의 연결로 내려보내요.', show: ['base', 'reg', 'send', 'pending', 'seq', 'db', 'pub', 'sub'] },
+  { caption: '서버1이 A에게 ack(#105)를 돌려줘요. A 화면의 "전송 중"이 #105로 확정돼요.', show: ['base', 'reg', 'seq', 'db', 'pub', 'sub', 'ack', 'done'] },
+  { caption: '연결이 없는 C(오프라인)에게는 푸시 알림을 보내요. C는 나중에 앱을 열면 DB에서 받아 와요.', show: ['base', 'reg', 'seq', 'db', 'pub', 'sub', 'ack', 'done', 'push'] },
+];
+const halo = 'paint-order:stroke;stroke:var(--sl-color-gray-7, var(--sl-color-black));stroke-width:5px;stroke-linejoin:round';
+const acc = 'stroke:var(--sl-color-accent);stroke-width:2.4;fill:none';
+---
+<Stepper title="다른 서버에 있는 친구에게 메시지 전달" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 300" role="img" aria-label="A는 서버1, B는 서버2에 연결돼 있고, 서버1이 메시지에 순번을 붙여 DB에 저장한 뒤 Pub/Sub로 발행하면 서버2가 B에게 전달하고, 서버1은 A에게 ack, 오프라인 C에게는 푸시를 보내는 그림">
+    <defs>
+      <marker id="ccd-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+    </defs>
+    <g data-id="base">
+      <rect class="box" x="10" y="6" width="100" height="54" rx="8" />
+      <text x="60" y="22" style="font-weight:700">A</text>
+      <rect class="bad" x="125" y="6" width="70" height="54" rx="8" />
+      <text x="160" y="22" style="font-weight:700">C</text>
+      <text class="sub" x="160" y="44">오프라인</text>
+      <rect class="box" x="210" y="6" width="100" height="54" rx="8" />
+      <text x="260" y="22" style="font-weight:700">B</text>
+      <line class="line" x1="40" y1="62" x2="40" y2="118" />
+      <line class="line" x1="280" y1="62" x2="280" y2="118" />
+      <text class="sub" x="22" y="90">WS</text>
+      <text class="sub" x="298" y="90">WS</text>
+      <rect class="box" x="10" y="120" width="88" height="56" rx="8" />
+      <text x="54" y="138" style="font-weight:700">서버1</text>
+      <rect class="box" x="122" y="120" width="76" height="56" rx="8" />
+      <text x="160" y="138" style="font-weight:700">Pub/Sub</text>
+      <text class="mono" x="160" y="160">room:42</text>
+      <rect class="box" x="222" y="120" width="88" height="56" rx="8" />
+      <text x="266" y="138" style="font-weight:700">서버2</text>
+      <rect class="box" x="10" y="226" width="140" height="66" rx="8" />
+      <text x="80" y="242" style="font-weight:700">메시지 DB</text>
+      <rect class="box" x="170" y="226" width="140" height="66" rx="8" />
+      <text x="240" y="242" style="font-weight:700">세션 레지스트리</text>
+    </g>
+    <g data-id="reg" class="hide">
+      <text class="mono" x="240" y="262">A → 서버1</text>
+      <text class="mono" x="240" y="280">B → 서버2</text>
+    </g>
+    <g data-id="pending" class="hide">
+      <text class="sub" x="60" y="44">전송 중…</text>
+    </g>
+    <g data-id="done" class="hide">
+      <text class="hi" x="60" y="44">✓ #105 확정</text>
+    </g>
+    <g data-id="send" class="hide">
+      <line x1="72" y1="64" x2="72" y2="116" style={acc} marker-end="url(#ccd-a)" />
+      <text class="hi l" x="80" y="82" style={halo}>보냄</text>
+      <text class="mono l" x="80" y="100" style={halo}>tmp-7</text>
+    </g>
+    <g data-id="ack" class="hide">
+      <line x1="72" y1="116" x2="72" y2="64" style={acc} marker-end="url(#ccd-a)" />
+      <text class="hi l" x="80" y="82" style={halo}>ack</text>
+      <text class="mono l" x="80" y="100" style={halo}>#105</text>
+    </g>
+    <g data-id="seq" class="hide">
+      <text class="hi" x="54" y="160">#105 부여</text>
+    </g>
+    <g data-id="db" class="hide">
+      <line x1="40" y1="178" x2="40" y2="222" style={acc} marker-end="url(#ccd-a)" />
+      <text class="hi l" x="48" y="200" style={halo}>먼저 저장</text>
+      <rect class="chip" x="30" y="256" width="100" height="26" rx="5" />
+      <text class="mono" x="80" y="269">#105 tmp-7</text>
+    </g>
+    <g data-id="pub">
+      <line x1="98" y1="148" x2="120" y2="148" style={acc} marker-end="url(#ccd-a)" />
+    </g>
+    <g data-id="sub">
+      <line x1="198" y1="148" x2="220" y2="148" style={acc} marker-end="url(#ccd-a)" />
+      <line x1="248" y1="118" x2="248" y2="64" style={acc} marker-end="url(#ccd-a)" />
+      <text class="hi" x="260" y="44">#105 도착</text>
+    </g>
+    <g data-id="push" class="hide">
+      <line x1="160" y1="118" x2="160" y2="64" style="stroke:var(--sl-color-accent);stroke-width:2.4;fill:none;stroke-dasharray:5 4" marker-end="url(#ccd-a)" />
+      <text class="hi" x="160" y="90" style={halo}>푸시</text>
+    </g>
+  </svg>
+</Stepper>

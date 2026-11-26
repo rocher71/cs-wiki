@@ -1,0 +1,130 @@
+---
+// CDN 안에서 요청이 POP → 리전 캐시(상위 티어) → 오리진 실드 → 오리진으로 가고, 응답이 각 층에 저장되며 돌아오는 흐름.
+import Stepper from '../Stepper.astro';
+const y = (i: number) => 8 + i * 74; // 상자 i(0~4)의 위쪽, 높이 44
+const boxes = ['u', 'pop', 'reg', 'sh', 'org'];
+const down = ['r1', 'r2', 'r3', 'r4'];
+const up = ['p1', 'p2', 'p3', 'p4'];
+const steps = [
+  { caption: '사용자가 img.example.com/logo.png를 요청해요. DNS가 사용자와 가장 가까운 POP(CDN 캐시 서버가 모인 거점) 주소를 알려줘서, 요청은 거기로 가요.', show: [...boxes, 'r1', 'hlpop', 't1'] },
+  { caption: 'POP에 저장본이 있으면(HIT) 바로 응답하고 끝나요. 응답 헤더 cf-cache-status: HIT와 Age(오리진에서 만들어진 뒤 흐른 초)를 보면 캐시에서 나온 걸 알 수 있어요.', show: [...boxes, 'r1', 'p1', 'pop-hit', 'hlpop', 't2'] },
+  { caption: 'POP에 없으면(MISS) 바로 오리진으로 가지 않고, 여러 POP이 같이 쓰는 리전 캐시(상위 티어)에 먼저 물어요.', show: [...boxes, 'r1', 'r2', 'pop-miss', 'hlreg', 't3'] },
+  { caption: '리전 캐시에도 없으면 오리진 바로 앞의 마지막 캐시, 오리진 실드로 가요. 같은 순간 같은 파일 요청이 여러 개 몰려도 실드가 하나로 합쳐서 오리진엔 1개만 보내요(요청 합치기).', show: [...boxes, 'r1', 'r2', 'r3x', 'r4', 'pop-miss', 'reg-miss', 'hlsh', 't4'] },
+  { caption: '오리진이 응답해요(Cache-Control: max-age=86400, 하루 동안 캐시해도 된다는 뜻). 응답은 실드·리전·POP에 차례로 저장되면서 동시에 사용자에게 흘러가요.', show: [...boxes, ...down.filter((d) => d !== 'r3'), 'r3x', ...up, 'pop-save', 'reg-save', 'sh-save', 'hlorg', 't5'] },
+  { caption: '다음 사용자가 같은 로고를 요청하면 POP에서 바로 HIT로 끝나요. 리전 캐시·실드·오리진은 이 요청을 아예 못 봐요.', show: [...boxes, 'r1', 'p1', 'pop-hit', 'hlpop', 't6'] },
+  { caption: '로고를 바꿨는데 하루 동안 옛 로고가 나가면 곤란해요. 파일 이름을 logo.v2.png로 바꾸면 새 URL이라 캐시와 상관없이 새로 받아요. 퍼지(purge)로 CDN 사본을 지울 수도 있지만, 사용자 브라우저에 저장된 건 못 지워요.', show: [...boxes, 'hlpop', 't7'] },
+];
+---
+<Stepper title="CDN 안에서 요청이 지나가는 길" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 484" role="img" aria-label="사용자, CDN 엣지 POP, 리전 캐시, 오리진 실드, 오리진을 위에서 아래로 놓은 그림. 요청은 아래로 내려가며 각 캐시를 확인하고, 실드가 동시에 몰린 요청을 하나로 합쳐 오리진에 보낸다. 응답은 위로 올라오며 실드, 리전, POP에 저장된다. 맨 아래 칸에 단계별 응답 헤더와 설명이 나온다.">
+    <defs>
+      <marker id="csf-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+      <marker id="csf-arr-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+    </defs>
+
+    <!-- 상자 -->
+    <g data-id="u">
+      <rect class="box" x="40" y={y(0)} width="210" height="44" rx="7" />
+      <text x="145" y={y(0) + 15}>사용자 브라우저</text>
+      <text class="sub" x="145" y={y(0) + 32}>logo.png 요청</text>
+    </g>
+    <g data-id="pop">
+      <rect class="box" x="40" y={y(1)} width="210" height="44" rx="7" />
+      <text x="145" y={y(1) + 15}>CDN 엣지 (POP)</text>
+      <text class="sub" x="145" y={y(1) + 32}>사용자 가까운 도시</text>
+    </g>
+    <g data-id="reg">
+      <rect class="box" x="40" y={y(2)} width="210" height="44" rx="7" />
+      <text x="145" y={y(2) + 15}>리전 캐시 (상위 티어)</text>
+      <text class="sub" x="145" y={y(2) + 32}>여러 POP이 같이 씀</text>
+    </g>
+    <g data-id="sh">
+      <rect class="box" x="40" y={y(3)} width="210" height="44" rx="7" />
+      <text x="145" y={y(3) + 15}>오리진 실드</text>
+      <text class="sub" x="145" y={y(3) + 32}>오리진 앞 마지막 캐시</text>
+    </g>
+    <g data-id="org">
+      <rect class="box" x="40" y={y(4)} width="210" height="44" rx="7" />
+      <text x="145" y={y(4) + 15}>오리진</text>
+      <text class="sub" x="145" y={y(4) + 32}>우리 서버 (원본)</text>
+    </g>
+
+    <!-- 강조 테두리 -->
+    {boxes.slice(1).map((b, i) => (
+      <rect data-id={'hl' + b} class="hl" x="36" y={y(i + 1) - 4} width="218" height="52" rx="9" />
+    ))}
+
+    <!-- 요청(아래로, 왼쪽) · 응답(위로, 오른쪽) -->
+    {down.map((d, i) => (
+      <line data-id={d} class="hide line" x1="110" y1={y(i) + 44} x2="110" y2={y(i + 1) - 1} marker-end="url(#csf-arr)" />
+    ))}
+    <g data-id="r3x" class="hide">
+      <line class="line" x1="74" y1={y(2) + 44} x2="96" y2={y(3) - 1} marker-end="url(#csf-arr)" />
+      <line class="line" x1="110" y1={y(2) + 44} x2="110" y2={y(3) - 1} marker-end="url(#csf-arr)" />
+      <line class="line" x1="146" y1={y(2) + 44} x2="124" y2={y(3) - 1} marker-end="url(#csf-arr)" />
+      <text class="sub" x="40" y={y(2) + 59} style="text-anchor:start">×3</text>
+    </g>
+    <text data-id="r4" class="hide sub" x="122" y={y(3) + 59} style="text-anchor:start">1개만</text>
+    {up.map((p, i) => (
+      <line data-id={p} class="hide" x1="180" y1={y(i + 1) - 1} x2="180" y2={y(i) + 46} stroke="var(--sl-color-accent)" stroke-width="2" marker-end="url(#csf-arr-a)" />
+    ))}
+
+    <!-- 오른쪽 상태 칸: 같은 자리에 HIT/MISS/저장이 번갈아 나옴 -->
+    <g data-id="pop-hit" class="hide">
+      <rect class="chip" x="258" y={y(1) + 8} width="58" height="28" rx="5" />
+      <text class="hi mono" x="287" y={y(1) + 22}>HIT</text>
+    </g>
+    <g data-id="pop-miss" class="hide">
+      <rect class="bad" x="258" y={y(1) + 8} width="58" height="28" rx="5" />
+      <text class="sub mono" x="287" y={y(1) + 22}>MISS</text>
+    </g>
+    <g data-id="reg-miss" class="hide">
+      <rect class="bad" x="258" y={y(2) + 8} width="58" height="28" rx="5" />
+      <text class="sub mono" x="287" y={y(2) + 22}>MISS</text>
+    </g>
+    {['pop', 'reg', 'sh'].map((b, i) => (
+      <g data-id={b + '-save'} class="hide">
+        <rect class="chip" x="258" y={y(i + 1) + 8} width="58" height="28" rx="5" />
+        <text class="hi" x="287" y={y(i + 1) + 22} style="font-size:14px">저장</text>
+      </g>
+    ))}
+
+    <!-- 아래 설명 칸: 단계마다 같은 자리에 번갈아 나옴 -->
+    <rect class="frame" x="4" y="370" width="312" height="108" rx="8" />
+    <g data-id="t1" class="hide">
+      <text class="mono" x="160" y="404">img.example.com/logo.png</text>
+      <text class="sub" x="160" y="434">DNS → 가장 가까운 POP으로</text>
+    </g>
+    <g data-id="t2" class="hide">
+      <text class="mono" x="160" y="396">cf-cache-status: HIT</text>
+      <text class="mono" x="160" y="420">Age: 3412</text>
+      <text class="sub" x="160" y="448">만들어진 지 3412초</text>
+    </g>
+    <g data-id="t3" class="hide">
+      <text class="mono" x="160" y="404">cf-cache-status: MISS</text>
+      <text class="sub" x="160" y="434">POP에 없음 → 위층에 물어봄</text>
+    </g>
+    <g data-id="t4" class="hide">
+      <text x="160" y="404">동시 요청 3개 → 오리진엔 1개</text>
+      <text class="sub" x="160" y="434">요청 합치기 (request collapsing)</text>
+    </g>
+    <g data-id="t5" class="hide">
+      <text class="mono" x="160" y="404">Cache-Control: max-age=86400</text>
+      <text class="sub" x="160" y="434">= 하루(86400초) 캐시해도 됨</text>
+    </g>
+    <g data-id="t6" class="hide">
+      <text class="mono" x="160" y="404">cf-cache-status: HIT</text>
+      <text class="sub" x="160" y="434">실드·오리진은 이 요청을 모름</text>
+    </g>
+    <g data-id="t7" class="hide">
+      <text x="160" y="392" style="font-weight:700">로고를 바꾸려면</text>
+      <text class="sub" x="160" y="418">① 새 이름 logo.v2.png (새 URL)</text>
+      <text class="sub" x="160" y="442">② 퍼지: CDN 사본 지우기</text>
+      <text class="err-t" x="160" y="466" style="font-size:14px">브라우저 저장본은 퍼지로 못 지움</text>
+    </g>
+  </svg>
+</Stepper>

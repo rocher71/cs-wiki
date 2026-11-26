@@ -1,0 +1,114 @@
+---
+// 푸시 워커가 기기 토큰 3개로 보낸 뒤 응답 코드에 따라 기록 / 토큰 삭제 / 백오프 재시도로 나뉘는 그림. 토큰 값은 예시.
+import Stepper from '../Stepper.astro';
+const rows = [
+  { k: 'a', y: 64, name: '토큰 A · FCM', tok: '예시 aa11…', code: '200', msg: '접수', ok: true },
+  { k: 'b', y: 132, name: '토큰 B · FCM', tok: '예시 bb22…', code: '404', msg: 'UNREGISTERED', ok: false },
+  { k: 'c', y: 200, name: '토큰 C · APNs', tok: '예시 cc33…', code: '410', msg: 'Unregistered', ok: false },
+];
+const send = ['wk', 'tok', 'arr'];
+const s2 = [...send, 'r-a', 'r-b', 'r-c'];
+const s3 = [...s2, 'logbox', 'tbl', 'sent'];
+const s4 = [...s3, 'del', 'x-b', 'x-c'];
+const steps = [
+  { caption: '푸시 워커가 한 사용자의 기기 토큰 3개(휴대폰, 태블릿, 아이폰)로 알림을 보내요. 토큰은 "이 앱이 깔린 이 기기"를 가리키는 주소예요.', show: [...send, 'tbl', 'hl-send'] },
+  { caption: 'A는 200(접수), B는 404 UNREGISTERED, C는 410 Unregistered가 와요. 404·410은 앱을 지웠거나 등록이 풀려서 더는 그 주소로 못 보낸다는 뜻이에요.', show: [...s2, 'tbl', 'hl-res'] },
+  { caption: '200을 받은 A는 "발송됨"으로 기록해요. FCM이 받아 줬다는 뜻이고, 기기에 도착했다는 확인은 아니에요.', show: [...s3, 'hl-log'] },
+  { caption: 'B와 C는 토큰 테이블에서 지워요. 다시 보내도 계속 실패하고 전송 한도만 깎이니까 재시도하지 않아요.', show: [...s4, 'hl-tbl'] },
+  { caption: '429(한도 초과)나 503(서버 과부하)은 잠깐의 문제라 기다렸다 다시 보내요. 간격을 점점 늘리며(백오프) 큐에 다시 넣고, N회를 넘기면 DLQ(실패 보관 큐)로 옮겨요.', show: [...s4, 'tmp', 'hl-tmp'] },
+];
+---
+<Stepper title="응답 코드에 따라 갈리는 푸시 결과" steps={steps}>
+  <svg class="viz" viewBox="0 0 340 532" role="img" aria-label="푸시 워커가 토큰 A, B, C로 발송한다. A는 200 접수라 발송됨으로 기록하고, B의 404 UNREGISTERED와 C의 410 Unregistered는 토큰 테이블에서 삭제한다. 429나 503 같은 일시 오류는 백오프 후 큐에 다시 넣고 N회를 넘기면 DLQ로 보낸다. 토큰 값은 예시다.">
+    <defs>
+      <marker id="itc-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+
+    <g data-id="wk">
+      <rect class="box" x="10" y="8" width="320" height="40" rx="7" />
+      <text x="170" y="28">푸시 워커: 사용자 1명, 기기 3대</text>
+    </g>
+
+    <g data-id="tok">
+      {rows.map((r) => (
+        <g>
+          <rect class="box" x="10" y={r.y} width="140" height="56" rx="7" />
+          <text x="80" y={r.y + 19} style="font-size:14px">{r.name}</text>
+          <text class="sub mono" x="80" y={r.y + 39}>{r.tok}</text>
+        </g>
+      ))}
+    </g>
+    <g data-id="arr">
+      {rows.map((r) => (
+        <line class="line" x1="150" y1={r.y + 28} x2="186" y2={r.y + 28} marker-end="url(#itc-arr)" />
+      ))}
+    </g>
+    {rows.map((r) => (
+      <g data-id={'r-' + r.k}>
+        <rect class={r.ok ? 'chip' : 'err'} x="190" y={r.y} width="140" height="56" rx="7" />
+        <text class={r.ok ? 'hi' : 'err-t'} x="260" y={r.y + 19}>{r.code}</text>
+        <text x="260" y={r.y + 39} style="font-size:14px">{r.msg}</text>
+      </g>
+    ))}
+    <!-- 삭제된 토큰 위에 덮는 표시 -->
+    {rows.filter((r) => !r.ok).map((r) => (
+      <g data-id={'x-' + r.k} class="hide">
+        <rect class="bad" x="10" y={r.y} width="140" height="56" rx="7" style="fill:var(--sl-color-gray-6)" />
+        <text class="err-t" x="80" y={r.y + 19} style="font-size:14px">삭제됨</text>
+        <text class="sub" x="80" y={r.y + 39}>다시 안 보냄</text>
+      </g>
+    ))}
+
+    <!-- 발송 기록 -->
+    <g data-id="logbox">
+      <rect class="box" x="10" y="276" width="150" height="108" rx="7" />
+      <text x="85" y="294">발송 기록</text>
+    </g>
+    <g data-id="sent">
+      <rect class="chip" x="22" y="312" width="126" height="30" rx="6" />
+      <text class="hi" x="85" y="327" style="font-size:14px">A: 발송됨</text>
+      <text class="sub" x="85" y="364">도착 확인은 따로</text>
+    </g>
+
+    <!-- 토큰 테이블 -->
+    <g data-id="tbl">
+      <rect class="box" x="180" y="276" width="150" height="108" rx="7" />
+      <text x="255" y="294">토큰 테이블</text>
+      {rows.map((r, i) => (
+        <text class="mono l" x="194" y={318 + i * 24}>{r.tok.replace('예시 ', '')}</text>
+      ))}
+    </g>
+    <g data-id="del" class="hide">
+      {[1, 2].map((i) => (
+        <g>
+          <line x1="190" y1={318 + i * 24} x2="262" y2={318 + i * 24} style="stroke:var(--sl-color-red);stroke-width:2" />
+          <text class="err-t" x="318" y={318 + i * 24} style="text-anchor:end;font-size:14px">삭제</text>
+        </g>
+      ))}
+    </g>
+
+    <!-- 일시 오류 -->
+    <g data-id="tmp" class="hide">
+      <text x="170" y="408" style="font-weight:700">다른 경우: 일시 오류</text>
+      <rect class="bad" x="10" y="422" width="320" height="40" rx="7" />
+      <text x="170" y="442">429 한도 초과 · 503 과부하</text>
+      <line class="line" x1="85" y1="462" x2="85" y2="478" marker-end="url(#itc-arr)" />
+      <line class="line" x1="255" y1="462" x2="255" y2="478" marker-end="url(#itc-arr)" />
+      <rect class="chip" x="10" y="480" width="150" height="46" rx="7" />
+      <text class="hi" x="85" y="496" style="font-size:14px">백오프 후</text>
+      <text class="sub" x="85" y="514">다시 큐로</text>
+      <rect class="err" x="180" y="480" width="150" height="46" rx="7" />
+      <text class="err-t" x="255" y="496" style="font-size:14px">N회 넘으면</text>
+      <text class="sub" x="255" y="514">DLQ로 보관</text>
+    </g>
+
+    <!-- 강조 테두리 -->
+    <rect data-id="hl-send" class="hl" x="6" y="4" width="148" height="256" rx="9" />
+    <rect data-id="hl-res" class="hl" x="186" y="60" width="148" height="200" rx="9" />
+    <rect data-id="hl-log" class="hl" x="6" y="272" width="158" height="116" rx="9" />
+    <rect data-id="hl-tbl" class="hl" x="176" y="272" width="158" height="116" rx="9" />
+    <rect data-id="hl-tmp" class="hl" x="6" y="418" width="328" height="112" rx="9" />
+  </svg>
+</Stepper>

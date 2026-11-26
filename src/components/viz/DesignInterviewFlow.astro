@@ -1,0 +1,79 @@
+---
+// 시스템 설계 면접 7단계 진행 순서. 단계마다 해당 상자를 강조.
+import Stepper from '../Stepper.astro';
+const base = ['b1', 'a1', 'b2', 'a2', 'b3', 'a3', 'b4', 'a4', 'b5', 'a5', 'b6', 'a6', 'b7'];
+const upto = (n: number) => base.slice(0, base.indexOf('b' + n) + 1);
+const steps = [
+  { caption: '요구사항: 바로 그리지 않고 먼저 물어요. 꼭 필요한 기능(글쓰기, 피드 보기)과 비기능(사용자 수, 응답 속도, 가용성)을 정해 범위를 좁혀요.', show: [...upto(1), 'hl1'] },
+  { caption: '규모 추정: 하루 사용자(DAU)에서 초당 요청(QPS), 피크, 저장량까지 숫자로 잡아요. 이 숫자가 뒤의 설계 근거가 돼요.', show: [...upto(2), 'hl2'] },
+  { caption: 'API: 핵심 요청 2~3개만 정해요. 예: POST /posts로 글쓰기, GET /feed로 피드 받기.', show: [...upto(3), 'hl3'] },
+  { caption: '데이터 모델: 무엇을 저장하고 어디에 둘지 정해요. 글 본문은 DB, 큰 이미지는 객체 저장소처럼요.', show: [...upto(4), 'hl4'] },
+  { caption: '상위 설계: 큰 상자와 화살표로 단순하게 그려요. 클라이언트 → 로드밸런서 → 무상태 앱 서버 → 캐시 → DB, 필요하면 객체 저장소와 CDN.', show: [...upto(5), 'hl5'] },
+  { caption: '심화: 전부 깊게 볼 시간은 없어요. 면접관이 고른(또는 함께 정한) 한 부분만 자세히 파고들어요.', show: [...upto(6), 'hl6'] },
+  { caption: '병목·트레이드오프: 단일 장애점, 몰리는 곳(핫스팟)을 스스로 짚고, 무엇을 얻으려고 무엇을 포기했는지 말해요.', show: [...upto(7), 'hl7'] },
+];
+---
+<Stepper title="시스템 설계 면접 7단계" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 428" role="img" aria-label="요구사항, 규모 추정, API, 데이터 모델, 상위 설계, 심화, 병목·트레이드오프의 7단계를 위에서 아래로 쌓은 그림">
+    <defs>
+      <marker id="dif-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+    <g data-id="b1">
+      <rect class="box" x="34" y="8" width="252" height="46" rx="7" />
+      <circle class="badge" cx="54" cy="31" r="12" /><text class="on-badge" x="54" y="32">1</text>
+      <text x="174" y="23">요구사항</text>
+      <text class="sub" x="174" y="42">기능·비기능 질문으로 범위 좁히기</text>
+    </g>
+    <line data-id="a1" class="line" x1="160" y1="54" x2="160" y2="66" marker-end="url(#dif-arr)" />
+    <g data-id="b2">
+      <rect class="box" x="34" y="68" width="252" height="46" rx="7" />
+      <circle class="badge" cx="54" cy="91" r="12" /><text class="on-badge" x="54" y="92">2</text>
+      <text x="174" y="83">규모 추정</text>
+      <text class="sub" x="174" y="102">DAU → QPS → 피크 → 저장량</text>
+    </g>
+    <line data-id="a2" class="line" x1="160" y1="114" x2="160" y2="126" marker-end="url(#dif-arr)" />
+    <g data-id="b3">
+      <rect class="box" x="34" y="128" width="252" height="46" rx="7" />
+      <circle class="badge" cx="54" cy="151" r="12" /><text class="on-badge" x="54" y="152">3</text>
+      <text x="174" y="143">API</text>
+      <text class="sub" x="174" y="162">핵심 요청 2~3개 입력·출력</text>
+    </g>
+    <line data-id="a3" class="line" x1="160" y1="174" x2="160" y2="186" marker-end="url(#dif-arr)" />
+    <g data-id="b4">
+      <rect class="box" x="34" y="188" width="252" height="46" rx="7" />
+      <circle class="badge" cx="54" cy="211" r="12" /><text class="on-badge" x="54" y="212">4</text>
+      <text x="174" y="203">데이터 모델</text>
+      <text class="sub" x="174" y="222">무엇을 어디에 저장할지</text>
+    </g>
+    <line data-id="a4" class="line" x1="160" y1="234" x2="160" y2="246" marker-end="url(#dif-arr)" />
+    <g data-id="b5">
+      <rect class="box" x="34" y="248" width="252" height="46" rx="7" />
+      <circle class="badge" cx="54" cy="271" r="12" /><text class="on-badge" x="54" y="272">5</text>
+      <text x="174" y="263">상위 설계</text>
+      <text class="sub" x="174" y="282">LB → 앱 서버 → 캐시 → DB</text>
+    </g>
+    <line data-id="a5" class="line" x1="160" y1="294" x2="160" y2="306" marker-end="url(#dif-arr)" />
+    <g data-id="b6">
+      <rect class="box" x="34" y="308" width="252" height="46" rx="7" />
+      <circle class="badge" cx="54" cy="331" r="12" /><text class="on-badge" x="54" y="332">6</text>
+      <text x="174" y="323">심화</text>
+      <text class="sub" x="174" y="342">면접관이 고른 한 부분 깊게</text>
+    </g>
+    <line data-id="a6" class="line" x1="160" y1="354" x2="160" y2="366" marker-end="url(#dif-arr)" />
+    <g data-id="b7">
+      <rect class="box" x="34" y="368" width="252" height="46" rx="7" />
+      <circle class="badge" cx="54" cy="391" r="12" /><text class="on-badge" x="54" y="392">7</text>
+      <text x="174" y="383">병목·트레이드오프</text>
+      <text class="sub" x="174" y="402">단일 장애점·핫스팟·포기한 것</text>
+    </g>
+    <rect data-id="hl1" class="hl" x="30" y="4" width="260" height="54" rx="9" />
+    <rect data-id="hl2" class="hl" x="30" y="64" width="260" height="54" rx="9" />
+    <rect data-id="hl3" class="hl" x="30" y="124" width="260" height="54" rx="9" />
+    <rect data-id="hl4" class="hl" x="30" y="184" width="260" height="54" rx="9" />
+    <rect data-id="hl5" class="hl" x="30" y="244" width="260" height="54" rx="9" />
+    <rect data-id="hl6" class="hl" x="30" y="304" width="260" height="54" rx="9" />
+    <rect data-id="hl7" class="hl" x="30" y="364" width="260" height="54" rx="9" />
+  </svg>
+</Stepper>

@@ -1,0 +1,65 @@
+---
+// 301 vs 302: 두 번째 클릭부터 301은 브라우저가 기억한 답으로 단축 서버를 건너뛰고, 302는 매번 서버를 거쳐 클릭이 잡힘.
+import Stepper from '../Stepper.astro';
+const steps = [
+  { caption: '첫 클릭은 둘 다 같아요. 브라우저가 단축 서버에 물어보고, 서버가 "원본으로 가세요"(301 또는 302)라고 답하면 원본 사이트로 가요.', show: ['base', 'first-l', 'first-r'] },
+  { caption: '301 두 번째 클릭: 브라우저가 첫 답을 기억해 두었다가 단축 서버를 건너뛰고 바로 원본으로 가요. 서버는 이 클릭을 셀 수 없어요.', show: ['base', 'sec-l'] },
+  { caption: '302 두 번째 클릭: 매번 단축 서버를 다시 거쳐요. 그래서 클릭이 +1로 기록되고, 목적지를 바꾸거나 만료시켜도 바로 반영돼요.', show: ['base', 'sec-l', 'sec-r'] },
+];
+const halo = 'paint-order:stroke;stroke:var(--sl-color-gray-7, var(--sl-color-black));stroke-width:5px;stroke-linejoin:round';
+const acc = 'stroke:var(--sl-color-accent);stroke-width:2.4;fill:none';
+---
+<Stepper title="301과 302, 두 번째 클릭이 달라요" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 330" role="img" aria-label="왼쪽 301, 오른쪽 302 열에서 브라우저, 단축 서버, 원본 사이트를 거치는 첫 클릭과 두 번째 클릭 경로 비교">
+    <defs>
+      <marker id="r3-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+    </defs>
+    <g data-id="base">
+      <text x="68" y="14" style="font-weight:700">301 (영구)</text>
+      <text x="252" y="14" style="font-weight:700">302 (임시)</text>
+      <rect class="box" x="8" y="32" width="120" height="40" rx="8" />
+      <text x="68" y="52">브라우저</text>
+      <rect class="box" x="192" y="32" width="120" height="40" rx="8" />
+      <text x="252" y="52">브라우저</text>
+      <rect class="box" x="8" y="146" width="120" height="54" rx="8" />
+      <text x="68" y="164">단축 서버</text>
+      <rect class="box" x="192" y="146" width="120" height="54" rx="8" />
+      <text x="252" y="164">단축 서버</text>
+      <rect class="box" x="8" y="276" width="120" height="40" rx="8" />
+      <text x="68" y="296">원본 사이트</text>
+      <rect class="box" x="192" y="276" width="120" height="40" rx="8" />
+      <text x="252" y="296">원본 사이트</text>
+    </g>
+
+    <g data-id="first-l" class="hide">
+      <line x1="68" y1="74" x2="68" y2="142" style={acc} marker-end="url(#r3-a)" />
+      <text class="sub" x="68" y="108" style={halo}>1번째 클릭</text>
+      <line x1="68" y1="202" x2="68" y2="272" style={acc} marker-end="url(#r3-a)" />
+      <text class="hi" x="68" y="238" style={halo}>301 → 이동</text>
+    </g>
+    <g data-id="first-r" class="hide">
+      <line x1="252" y1="74" x2="252" y2="142" style={acc} marker-end="url(#r3-a)" />
+      <text class="sub" x="252" y="108" style={halo}>1번째 클릭</text>
+      <line x1="252" y1="202" x2="252" y2="272" style={acc} marker-end="url(#r3-a)" />
+      <text class="hi" x="252" y="238" style={halo}>302 → 이동</text>
+    </g>
+
+    <g data-id="sec-l" class="hide">
+      <rect class="bad" x="8" y="146" width="120" height="54" rx="8" />
+      <text class="sub" x="68" y="164">단축 서버</text>
+      <text class="err-t" x="68" y="186" style="font-size:14px">클릭 못 셈</text>
+      <text class="sub" x="68" y="90">기억한 답 사용</text>
+      <path d="M118 74 C176 120 176 226 118 272" style={acc} marker-end="url(#r3-a)" />
+      <text class="hi" x="160" y="238" style={`font-size:14px;${halo}`}>바로</text>
+    </g>
+    <g data-id="sec-r" class="hide">
+      <line x1="252" y1="74" x2="252" y2="142" style={acc} marker-end="url(#r3-a)" />
+      <text class="sub" x="252" y="108" style={halo}>2번째 클릭</text>
+      <text class="hi" x="252" y="186" style="font-size:14px">클릭 +1</text>
+      <line x1="252" y1="202" x2="252" y2="272" style={acc} marker-end="url(#r3-a)" />
+      <text class="hi" x="252" y="238" style={halo}>302 → 이동</text>
+    </g>
+  </svg>
+</Stepper>

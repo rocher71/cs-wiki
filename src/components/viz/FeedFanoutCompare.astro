@@ -1,0 +1,67 @@
+---
+// 뉴스피드 push / pull / 셀럽 문제 / 하이브리드 4단계.
+// 고정 뼈대: 글쓴이 → (글 DB, 팬아웃 워커) → B·C·D 피드 캐시 → B가 피드 열기. 단계마다 바뀌는 글자·정리 상자는 class="hide".
+// pull 읽기 화살표는 캐시 줄을 피해 왼쪽 통로(x=22)로 DB까지 올라간다.
+import Stepper from '../Stepper.astro';
+
+const steps = [
+  { caption: 'push(쓸 때 배달): A가 글을 쓰면 DB에 저장하고, 팬아웃 워커가 팔로워 B·C·D의 피드 캐시에 글 ID를 하나씩 넣어요. B는 피드를 열 때 자기 캐시만 읽어서 빨라요.', show: ['wA', 'aDB', 'wk', 'aW', 'aC', 'caches', 'cA', 'rPush', 'rdC', 'hlC', 'n1'] },
+  { caption: 'pull(읽을 때 모으기): A의 글은 DB에 저장만 하고 끝나요. 대신 B가 피드를 열 때 팔로우한 사람들의 최근 글을 DB에서 모아 시간순으로 합쳐요. 팔로잉이 많을수록 느려요.', show: ['wA', 'aDB', 'rPull', 'rdDB', 'hlDB', 'n2'] },
+  { caption: '셀럽 문제: 팔로워 1,000만 명인 셀럽 S의 글을 push하면 피드 캐시 쓰기 1,000만 건이 큐에 쌓여요. 마지막 팔로워에게 도착하기까지 한참 걸려요.', show: ['wS', 'aDB', 'wk', 'wErr', 'aW', 'aCe', 'caches', 'cS', 'rS', 'n3'] },
+  { caption: '하이브리드: 일반인 A의 글은 push로 캐시에 넣고, 셀럽 S의 글은 DB에 저장만 해요. B가 피드를 열면 내 캐시 + 내가 팔로우한 셀럽의 최근 글을 합쳐 정렬해서 보여줘요.', show: ['wAS', 'aDB', 'wk', 'aW', 'aC', 'caches', 'cA', 'rHy', 'rdC', 'rdDB', 'hlR', 'n4'] },
+];
+const cx = [83, 175, 267]; // 캐시 B·C·D 중심 x (폭 86)
+const names = ['B', 'C', 'D'];
+---
+<Stepper title="피드 만들기: push vs pull vs 하이브리드" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 392" role="img" aria-label="글쓴이, 글 DB, 팬아웃 워커, 팔로워 B·C·D의 피드 캐시, B가 피드를 여는 칸으로 된 그림. push는 쓸 때 팔로워 캐시마다 글 ID를 넣고 B는 캐시만 읽는다. pull은 DB에 저장만 하고 B가 읽을 때 DB에서 모아 병합한다. 셀럽 글을 push하면 쓰기 1,000만 건이 쌓인다. 하이브리드는 일반인 글만 push하고 셀럽 글은 읽을 때 DB에서 합친다.">
+    <defs>
+      <marker id="ffc-a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" /></marker>
+      <marker id="ffc-r" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--sl-color-red)" /></marker>
+    </defs>
+
+    <!-- 글쓴이 -->
+    <rect class="box" x="90" y="8" width="140" height="40" rx="8" />
+    <text data-id="wA" class="hide" x="160" y="28">A 글 작성</text>
+    <text data-id="wS" class="hide" x="160" y="28"><tspan class="err-t">셀럽 S</tspan> 글 작성</text>
+    <text data-id="wAS" class="hide" x="160" y="28">A 글 · <tspan class="hi">셀럽 S</tspan> 글</text>
+
+    <!-- 글쓴이 → DB / 워커 -->
+    <g data-id="aDB"><line class="line" x1="120" y1="48" x2="82" y2="83" marker-end="url(#ffc-a)" /><text class="sub" x="94" y="60" style="text-anchor:end">저장</text></g>
+    <g data-id="aW"><line class="line" x1="200" y1="48" x2="238" y2="83" marker-end="url(#ffc-a)" /><text class="sub l" x="226" y="60">팬아웃</text></g>
+
+    <!-- DB, 워커 -->
+    <rect class="box" x="8" y="86" width="130" height="44" rx="8" /><text x="73" y="108">글 DB</text>
+    <g data-id="wk"><rect class="box" x="182" y="86" width="130" height="44" rx="8" /><text x="247" y="108">팬아웃 워커</text></g>
+    <g data-id="wErr" class="hide"><rect class="err" x="182" y="86" width="130" height="44" rx="8" /><text class="err-t" x="247" y="100">팬아웃 워커</text><text class="err-t" x="247" y="120">큐 1,000만 건</text></g>
+
+    <!-- 워커 → 캐시 -->
+    <g data-id="aC">{cx.map((x) => <line class="line" x1="247" y1="130" x2={x} y2="173" marker-end="url(#ffc-a)" />)}</g>
+    <g data-id="aCe" class="hide">{cx.map((x) => <line x1="247" y1="130" x2={x} y2="173" style="stroke:var(--sl-color-red);stroke-width:2;stroke-dasharray:6 4" marker-end="url(#ffc-r)" />)}</g>
+
+    <!-- 피드 캐시 B·C·D -->
+    <g data-id="caches">{cx.map((x, i) => <><rect class="box" x={x - 43} y="176" width="86" height="56" rx="8" /><text x={x} y="194">{names[i]} 캐시</text></>)}</g>
+    <g data-id="cA" class="hide">{cx.map((x) => <text class="hi" x={x} y="216">A 글 ID</text>)}</g>
+    <g data-id="cS" class="hide">{cx.map((x) => <text class="err-t" x={x} y="216">S 글 ID</text>)}</g>
+    <rect data-id="hlC" class="hl" x="36" y="172" width="280" height="64" rx="10" />
+
+    <!-- B가 읽는 화살표: 캐시로 / 왼쪽 통로로 DB까지 -->
+    <line data-id="rdC" class="line" x1="83" y1="272" x2="83" y2="235" marker-end="url(#ffc-a)" />
+    <line data-id="rdDB" class="line" x1="22" y1="272" x2="22" y2="133" marker-end="url(#ffc-a)" />
+    <rect data-id="hlDB" class="hl" x="4" y="82" width="138" height="52" rx="10" />
+
+    <!-- B가 피드 열기 -->
+    <rect class="box" x="8" y="272" width="304" height="44" rx="8" />
+    <text data-id="rPush" class="hide" x="160" y="294">B: 내 캐시만 읽기 → <tspan class="hi">빠름</tspan></text>
+    <text data-id="rPull" class="hide" x="160" y="294">B: 팔로잉 글 모아 병합 → <tspan class="err-t">느림</tspan></text>
+    <text data-id="rS" class="hide" x="160" y="294">B·C·D… 1,000만 명이 <tspan class="err-t">줄 서서 대기</tspan></text>
+    <text data-id="rHy" class="hide" x="160" y="294">B: 내 캐시 + <tspan class="hi">셀럽 글</tspan> 합쳐 정렬</text>
+    <rect data-id="hlR" class="hl" x="4" y="268" width="312" height="52" rx="10" />
+
+    <!-- 정리 상자 (같은 자리, 번갈아) -->
+    <g data-id="n1" class="hide"><rect class="chip" x="8" y="330" width="304" height="56" rx="8" /><text x="160" y="349">push = 쓸 때 배달</text><text class="sub" x="160" y="371">쓰기 무겁고 · 읽기 빠름</text></g>
+    <g data-id="n2" class="hide"><rect class="chip" x="8" y="330" width="304" height="56" rx="8" /><text x="160" y="349">pull = 읽을 때 모으기</text><text class="sub" x="160" y="371">쓰기 가볍고 · 읽기 느림</text></g>
+    <g data-id="n3" class="hide"><rect class="err" x="8" y="330" width="304" height="56" rx="8" /><text x="160" y="349">팔로워 1,000만 → 쓰기 <tspan class="err-t">1,000만 건</tspan></text><text class="sub" x="160" y="371">셀럽 글 하나로 큐가 밀림</text></g>
+    <g data-id="n4" class="hide"><rect class="chip" x="8" y="330" width="304" height="56" rx="8" /><text x="160" y="349">일반인 = push · 셀럽 = pull</text><text class="sub" x="160" y="371">둘을 읽을 때 합침</text></g>
+  </svg>
+</Stepper>

@@ -1,0 +1,60 @@
+---
+// 자동완성 갱신 경로: 검색 로그 → 수집 → 배치 집계 → 금칙어 제거 → 트라이 빌드 → 스냅샷 → 서버 교체. 마지막에 스트림 급상승 보강.
+import Stepper from '../Stepper.astro';
+const rows = [
+  ['① 검색 실행', '로그가 한 줄씩 쌓임'],
+  ['② 로그 수집', '여러 서버 → 한곳으로'],
+  ['③ 배치 집계', '몇 시간마다 빈도 세기'],
+  ['④ 금칙어 제거', '목록에 있으면 아예 뺌'],
+  ['⑤ 새 트라이 빌드', '노드마다 top5 채움'],
+  ['⑥ 스냅샷 저장', '한 시점의 완성본 v2'],
+  ['⑦ 자동완성 서버들', 'v1 → v2 통째로 교체'],
+] as const;
+const upto = (k: number) => [...Array.from({ length: k }, (_, i) => 'b' + i), 'hl' + (k - 1)];
+const steps = [
+  { caption: '사용자가 검색을 실행할 때마다 "무엇을 검색했는지" 로그가 한 줄씩 쌓여요.', show: upto(1) },
+  { caption: '여러 서버에 흩어진 로그를 한곳으로 모아요.', show: upto(2) },
+  { caption: '몇 시간(또는 하루)마다 배치가 돌아 검색어별 빈도를 세요. 예: car 90, cat 70처럼요.', show: upto(3) },
+  { caption: '금칙어 목록에 있는 검색어는 여기서 아예 빼요. 트라이에 들어가지도 않아요.', show: upto(4) },
+  { caption: '남은 빈도로 새 트라이를 만들고, 노드마다 빈도 상위 5개를 미리 채워 둬요.', show: upto(5) },
+  { caption: '완성된 트라이를 스냅샷(한 시점의 완성본 파일)으로 저장해요. 지금 서비스 중인 v1은 그대로 돌아가요.', show: upto(6) },
+  { caption: '자동완성 서버들이 v2를 받아 통째로 바꿔 끼워요. 조회 서버는 읽기만 하니 단순하고 빨라요. 대신 새 검색어는 몇 시간 늦게 떠요.', show: upto(7) },
+  { caption: '보강: 그 늦음을 메우려고 스트림(Kafka 등)으로 최근 몇 분의 급상승어만 따로 세서 응답에 섞어요.', show: [...upto(7).filter((s) => s !== 'hl6'), 'sd', 'hlsd'] },
+];
+const y = (i: number) => 10 + i * 62;
+---
+<Stepper title="자동완성 순위는 이렇게 갱신돼요" steps={steps}>
+  <svg class="viz" viewBox="0 0 330 440" role="img" aria-label="검색 실행, 로그 수집, 배치 집계, 금칙어 제거, 새 트라이 빌드, 스냅샷 저장, 자동완성 서버 교체 순서의 세로 흐름. 오른쪽에는 로그 수집에서 갈라져 최근 몇 분의 급상승어를 세고 서버 응답에 섞는 스트림 경로가 있다.">
+    <defs>
+      <marker id="acp-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+
+    {rows.map(([t, s], i) => (
+      <g data-id={'b' + i}>
+        {i > 0 && <line class="line" x1="105" y1={y(i) - 16} x2="105" y2={y(i) - 2} marker-end="url(#acp-arr)" />}
+        <rect class={i === 6 ? 'chip' : 'box'} x="10" y={y(i)} width="190" height="46" rx="7" />
+        <text x="105" y={y(i) + 15}>{t}</text>
+        <text class="sub" x="105" y={y(i) + 33}>{s}</text>
+      </g>
+    ))}
+    {rows.map((_, i) => (
+      <rect data-id={'hl' + i} class="hl" x="6" y={y(i) - 4} width="198" height="54" rx="9" />
+    ))}
+
+    <!-- 스트림 보강 경로 -->
+    <g data-id="sd" class="hide">
+      <path class="line" d={`M200 ${y(1) + 23} H267 V${y(2) - 2}`} marker-end="url(#acp-arr)" />
+      <rect class="frame" x="215" y={y(2)} width="105" height={y(5) + 46 - y(2)} rx="8" />
+      <text x="267" y={y(2) + 24} style="font-weight:700">스트림</text>
+      <text class="sub" x="267" y={y(2) + 54}>최근 몇 분</text>
+      <text class="sub" x="267" y={y(2) + 76}>급상승어만</text>
+      <text class="sub" x="267" y={y(2) + 98}>따로 세기</text>
+      <text class="hi" x="267" y={y(5) - 6}>응답에</text>
+      <text class="hi" x="267" y={y(5) + 16}>섞기</text>
+      <path class="line" d={`M267 ${y(5) + 46} V${y(6) + 23} H202`} marker-end="url(#acp-arr)" />
+    </g>
+    <rect data-id="hlsd" class="hl" x="211" y={y(2) - 4} width="113" height={y(5) + 54 - y(2)} rx="10" />
+  </svg>
+</Stepper>

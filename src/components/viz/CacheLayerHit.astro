@@ -1,0 +1,106 @@
+---
+// 요청이 캐시 계층을 위에서 아래로 내려가며 적중/미스를 확인하는 그림 + 적중률 깔때기(예시 숫자).
+import Stepper from '../Stepper.astro';
+const y = (i: number) => 8 + i * 56; // 층 i(0~5)의 상자 위쪽
+const boxes = ['b1', 'b2', 'b3', 'b4', 'b5', 'b6'];
+// n층까지 내려온 단계: 위층들은 미스, n층은 적중
+const at = (n: number) => [...boxes, ...Array.from({ length: n - 1 }, (_, k) => 'm' + (k + 1)), 'h' + n, 'hl' + n];
+const steps = [
+  { caption: '먼저 브라우저가 자기 캐시를 봐요. 저장본이 아직 신선하면 네트워크를 아예 안 타고 여기서 끝나요.', show: at(1) },
+  { caption: '없으면 CDN 엣지(POP, 사용자 가까운 캐시 서버)에 물어요. 적중이면 가까운 도시에서 바로 응답해서, 우리 서버까지 오지 않아요.', show: at(2) },
+  { caption: 'CDN에도 없으면 오리진(우리 서버)에 도착해요. 앱 서버 메모리의 로컬 캐시(Caffeine 등)를 먼저 봐요. 제일 빠르지만 서버마다 따로 들고 있어요.', show: at(3) },
+  { caption: '로컬 캐시에 없으면 Redis를 봐요. 모든 앱 서버가 함께 쓰는 캐시라, 한 서버가 넣어 두면 다른 서버도 꺼내 써요.', show: at(4) },
+  { caption: 'Redis에도 없으면 드디어 DB에 쿼리가 가요. DB도 자주 읽는 페이지를 메모리(버퍼 풀)에 두고 있어서, 거기 있으면 디스크를 안 읽어요.', show: at(5) },
+  { caption: '버퍼 풀에도 없으면 디스크에서 읽어요. 가장 느리지만 가장 최신인 원본이에요.', show: at(6) },
+  { caption: '정리: 위층일수록 빠르고 싸지만, 바뀐 값을 지우기 어려워요(브라우저 캐시는 서버가 못 지워요). 각 층이 걸러 주면 DB까지 오는 요청은 확 줄어요. 숫자는 이해를 돕는 예시예요.', show: [...boxes, 'axis', 'funnel'] },
+];
+---
+<Stepper title="요청이 캐시 층을 내려가는 길" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 540" role="img" aria-label="브라우저 캐시, CDN 엣지, 앱 로컬 캐시, Redis, DB 버퍼 풀, 디스크를 위에서 아래로 쌓은 그림. 요청은 위에서부터 확인하고 적중하면 그 층에서 끝난다. 아래에는 요청 10,000건이 CDN을 지나 1,000건, Redis를 지나 50건만 DB에 가는 예시 깔때기가 있다.">
+    <defs>
+      <marker id="clh-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+
+    <!-- 층 상자 -->
+    <g data-id="b1">
+      <rect class="box" x="40" y={y(0)} width="200" height="46" rx="7" />
+      <text x="140" y={y(0) + 16}>브라우저 캐시</text>
+      <text class="sub" x="140" y={y(0) + 34}>내 기기 안 · 네트워크 0</text>
+    </g>
+    <g data-id="b2">
+      <rect class="box" x="40" y={y(1)} width="200" height="46" rx="7" />
+      <text x="140" y={y(1) + 16}>CDN 엣지 (POP)</text>
+      <text class="sub" x="140" y={y(1) + 34}>사용자 가까운 도시</text>
+    </g>
+    <g data-id="b3">
+      <rect class="box" x="40" y={y(2)} width="200" height="46" rx="7" />
+      <text x="140" y={y(2) + 16}>앱 로컬 캐시</text>
+      <text class="sub" x="140" y={y(2) + 34}>서버 메모리 (Caffeine)</text>
+    </g>
+    <g data-id="b4">
+      <rect class="box" x="40" y={y(3)} width="200" height="46" rx="7" />
+      <text x="140" y={y(3) + 16}>Redis</text>
+      <text class="sub" x="140" y={y(3) + 34}>모든 앱 서버가 공유</text>
+    </g>
+    <g data-id="b5">
+      <rect class="box" x="40" y={y(4)} width="200" height="46" rx="7" />
+      <text x="140" y={y(4) + 16}>DB 버퍼 풀</text>
+      <text class="sub" x="140" y={y(4) + 34}>DB의 메모리</text>
+    </g>
+    <g data-id="b6">
+      <rect class="box" x="40" y={y(5)} width="200" height="46" rx="7" />
+      <text x="140" y={y(5) + 16}>디스크</text>
+      <text class="sub" x="140" y={y(5) + 34}>원본 · 가장 느림</text>
+    </g>
+    {[0, 1, 2, 3, 4].map((i) => (
+      <line class="line" x1="140" y1={y(i) + 46} x2="140" y2={y(i + 1) - 1} marker-end="url(#clh-arr)" />
+    ))}
+
+    <!-- 강조 테두리 -->
+    {[1, 2, 3, 4, 5, 6].map((n) => (
+      <rect data-id={'hl' + n} class="hl" x="36" y={y(n - 1) - 4} width="208" height="54" rx="9" />
+    ))}
+
+    <!-- 오른쪽 상태 칸: 같은 자리에 미스/적중이 번갈아 나옴 -->
+    {[1, 2, 3, 4, 5].map((n) => (
+      <g data-id={'m' + n} class="hide">
+        <rect class="bad" x="248" y={y(n - 1) + 9} width="68" height="28" rx="5" />
+        <text class="sub" x="282" y={y(n - 1) + 23}>미스 ↓</text>
+      </g>
+    ))}
+    {[1, 2, 3, 4, 5].map((n) => (
+      <g data-id={'h' + n} class="hide">
+        <rect class="chip" x="248" y={y(n - 1) + 9} width="68" height="28" rx="5" />
+        <text class="hi" x="282" y={y(n - 1) + 23} style="font-size:14px">적중 끝</text>
+      </g>
+    ))}
+    <g data-id="h6" class="hide">
+      <rect class="chip" x="248" y={y(5) + 9} width="68" height="28" rx="5" />
+      <text class="hi" x="282" y={y(5) + 23} style="font-size:14px">원본 읽기</text>
+    </g>
+
+    <!-- 정리: 왼쪽 축 -->
+    <g data-id="axis" class="hide">
+      <line class="line" x1="28" y1="14" x2="28" y2="334" />
+      <path d="M22 22L28 10L34 22z" fill="var(--sl-color-gray-3)" />
+      <path d="M22 326L28 338L34 326z" fill="var(--sl-color-gray-3)" />
+      <text class="sub" transform="translate(14 92) rotate(-90)">빠름 · 지우기 어려움</text>
+      <text class="sub" transform="translate(14 258) rotate(-90)">느림 · 가장 최신</text>
+    </g>
+
+    <!-- 정리: 적중률 깔때기 (예시 숫자) -->
+    <g data-id="funnel">
+      <text x="160" y="362" style="font-weight:700">DB까지 오는 요청 (예시 숫자)</text>
+      <rect class="box" x="20" y="378" width="280" height="32" rx="6" />
+      <text x="160" y="394">사용자 요청 10,000건</text>
+      <text class="sub" x="160" y="426">↓ CDN이 90% 응답</text>
+      <rect class="box" x="65" y="442" width="190" height="32" rx="6" />
+      <text x="160" y="458">오리진 도착 1,000건</text>
+      <text class="sub" x="160" y="490">↓ 앱 캐시·Redis가 95% 응답</text>
+      <rect class="chip" x="105" y="506" width="110" height="32" rx="6" />
+      <text class="hi" x="160" y="522">DB 50건</text>
+    </g>
+  </svg>
+</Stepper>

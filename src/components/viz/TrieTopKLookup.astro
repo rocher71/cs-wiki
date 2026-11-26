@@ -1,0 +1,85 @@
+---
+// "ca" 입력 → 루트→c→a 두 칸만 내려가 a 노드에 붙은 top5 메모를 읽는 그림. 마지막 단계는 메모 없을 때 하위 전체 탐색과 비교.
+// 빈도 숫자는 예시: car 90 > cat 70 > cake 50 > card 40 > care 30 > cab 5
+import Stepper from '../Stepper.astro';
+const steps = [
+  { caption: '사용자가 검색창에 "ca"를 쳤어요. 트라이 맨 위 루트에서 출발해요.', show: ['inp', 'hlr'] },
+  { caption: '첫 글자 c를 따라 한 칸 내려가요.', show: ['inp', 'p1', 'hlc'] },
+  { caption: '두 번째 글자 a로 한 칸 더. 친 글자가 2개라 딱 2칸만 내려가요(O(p)). 단어가 1억 개여도 내려가는 칸 수는 같아요.', show: ['inp', 'p1', 'p2', 'hla'] },
+  { caption: 'a 노드에 미리 붙여 둔 top5 메모를 그대로 읽어요. 빈도순 car 90 > cat 70 > cake 50 > card 40 > care 30. cab(5)은 6등이라 빠졌어요. 숫자는 예시예요.', show: ['inp', 'p1', 'p2', 'hla', 'top5'] },
+  { caption: '비교: 메모가 없으면 a 아래 단어를 전부(점선 안) 모아 빈도순으로 정렬해야 해요. 여기선 6개지만 실제론 수만 개라 느려요.', show: ['inp', 'p1', 'p2', 'hla', 'scan'] },
+];
+// 노드: [x, y, 글자]
+const R = 18;
+const n = {
+  root: [70, 82], c: [70, 142], a: [70, 202],
+  r: [60, 278], t: [140, 278], k: [215, 278], b: [290, 278],
+  rd: [32, 370], re: [92, 370], ke: [215, 370],
+} as const;
+const letters: Record<string, string> = { c: 'c', a: 'a', r: 'r', t: 't', k: 'k', b: 'b', rd: 'd', re: 'e', ke: 'e' };
+// 끝나는 단어(예시 빈도) — 노드 아래 라벨
+const words: [keyof typeof n, string][] = [['r', 'car 90'], ['t', 'cat 70'], ['b', 'cab 5'], ['rd', 'card 40'], ['re', 'care 30'], ['ke', 'cake 50']];
+const top5 = [['car', 90], ['cat', 70], ['cake', 50], ['card', 40], ['care', 30]] as const;
+---
+<Stepper title={'"ca" 자동완성: 두 칸 내려가 메모 읽기'} steps={steps}>
+  <svg class="viz" viewBox="0 0 330 464" role="img" aria-label="트라이 그림. 루트에서 c, a로 두 칸 내려가면 a 노드에 car, cat, cake, card, care 상위 5개가 빈도순으로 미리 붙어 있다. 메모가 없으면 a 아래의 car, cat, cab, card, care, cake를 모두 모아 정렬해야 한다.">
+    <!-- 검색창 -->
+    <g data-id="inp">
+      <rect class="chip" x="20" y="8" width="290" height="36" rx="8" />
+      <text x="165" y="26">검색창: <tspan class="hi">ca</tspan>▏</text>
+    </g>
+
+    <!-- 간선 -->
+    <line class="line" x1={n.root[0]} y1={n.root[1] + R} x2={n.c[0]} y2={n.c[1] - R} />
+    <line class="line" x1={n.c[0]} y1={n.c[1] + R} x2={n.a[0]} y2={n.a[1] - R} />
+    {(['r', 't', 'k', 'b'] as const).map((k) => (
+      <line class="line" x1={n.a[0]} y1={n.a[1] + R} x2={n[k][0]} y2={n[k][1] - R} />
+    ))}
+    <!-- r의 자식 간선은 라벨 아래에서 시작 -->
+    <line class="line" x1={n.r[0] - 8} y1="318" x2={n.rd[0]} y2={n.rd[1] - R} />
+    <line class="line" x1={n.r[0] + 8} y1="318" x2={n.re[0]} y2={n.re[1] - R} />
+    <line class="line" x1={n.k[0]} y1={n.k[1] + R} x2={n.ke[0]} y2={n.ke[1] - R} />
+
+    <!-- 지나간 길 강조 -->
+    <line data-id="p1" class="hl" x1={n.root[0]} y1={n.root[1] + R} x2={n.c[0]} y2={n.c[1] - R} />
+    <line data-id="p2" class="hl" x1={n.c[0]} y1={n.c[1] + R} x2={n.a[0]} y2={n.a[1] - R} />
+
+    <!-- 노드 -->
+    <circle class="box" cx={n.root[0]} cy={n.root[1]} r={R + 4} />
+    <text class="sub" x={n.root[0]} y={n.root[1]}>루트</text>
+    {Object.entries(letters).map(([k, ch]) => (
+      <g>
+        <circle class="box" cx={n[k as keyof typeof n][0]} cy={n[k as keyof typeof n][1]} r={R} />
+        <text x={n[k as keyof typeof n][0]} y={n[k as keyof typeof n][1]}>{ch}</text>
+      </g>
+    ))}
+    {words.map(([k, w]) => (
+      <text class="sub" x={n[k][0]} y={n[k][1] + 30}>{w}</text>
+    ))}
+
+    <!-- 현재 위치 테두리 -->
+    <circle data-id="hlr" class="hl" cx={n.root[0]} cy={n.root[1]} r={R + 9} />
+    <circle data-id="hlc" class="hl" cx={n.c[0]} cy={n.c[1]} r={R + 5} />
+    <circle data-id="hla" class="hl" cx={n.a[0]} cy={n.a[1]} r={R + 5} />
+
+    <!-- a 노드의 top5 메모 -->
+    <g data-id="top5" class="hide">
+      <line class="line" x1={n.a[0] + R + 6} y1={n.a[1]} x2="135" y2={n.a[1]} stroke-dasharray="4 3" />
+      <rect class="chip" x="135" y="64" width="185" height="168" rx="8" />
+      <text x="227" y="84" style="font-weight:700">a 노드의 top5 메모</text>
+      {top5.map(([w, f], i) => (
+        <g>
+          <text class="l" x="148" y={112 + i * 26}>{i + 1}. {w}</text>
+          <text class="hi" x="306" y={112 + i * 26} style="text-anchor:end">{f}</text>
+        </g>
+      ))}
+    </g>
+
+    <!-- 비교: 메모가 없으면 하위 전체 탐색 -->
+    <g data-id="scan" class="hide">
+      <rect class="frame" x="6" y="250" width="318" height="164" rx="10" />
+      <text class="hi" x="165" y="432">메모 없으면: 점선 안 6개 전부 모아 정렬</text>
+      <text class="sub" x="165" y="452">실제론 수만 개 → 느림</text>
+    </g>
+  </svg>
+</Stepper>

@@ -1,0 +1,86 @@
+---
+// 예제 1(DAU 1,000만 SNS) 규모 추정 계산 사슬. 숫자는 design-approach.mdx 예제 1 표와 같아야 한다.
+import Stepper from '../Stepper.astro';
+const base = ['b1', 'a1', 'b2', 'a2', 'b3', 'a3', 'b4', 'a4', 'b5', 'a5', 'b6'];
+const upto = (n: number) => base.slice(0, base.indexOf('b' + n) + 1);
+const steps = [
+  { caption: '하루 1,000만 명이 글을 2개씩 쓴다고 가정하면 하루 2,000만 건(2×10^7)이에요.', show: [...upto(1), 'hl1'] },
+  { caption: '하루는 86,400초(약 10^5초)예요. 2,000만 ÷ 86,400 ≈ 231 QPS. 암산으로는 2×10^7 ÷ 10^5 = 200이면 충분해요.', show: [...upto(2), 'hl2'] },
+  { caption: '사람이 몰리는 시간대를 생각해 평균에 피크 계수 2~3을 곱해요(가정값). 약 463~694 QPS.', show: [...upto(3), 'hl3'] },
+  { caption: '읽기가 쓰기의 10배라고 가정하면 평균 읽기는 231 × 10 ≈ 2,315 QPS예요. 읽기가 많으니 캐시·읽기 복제가 효과적이에요.', show: [...upto(4), 'hl4'] },
+  { caption: '글 하나가 1KB면 하루 20GB, 5년 보관하면 20GB × 365 × 5 = 36.5TB예요.', show: [...upto(5), 'hl5'] },
+  { caption: '10%(200만 건)에 1MB 이미지가 붙으면 하루 2TB, 5년이면 3.65PB. 텍스트의 100배예요.', show: [...upto(6), 'hl6'] },
+  { caption: '결론: 저장량은 이미지가 지배해요. 텍스트는 DB에, 이미지는 객체 저장소에 두고 CDN으로 배달해요. 쓰기는 피크에도 수백 QPS라 DB 한 대(+읽기 복제)로 시작해도 돼요.', show: [...upto(6), 'end'] },
+];
+---
+<Stepper title="규모 추정: 하루 1,000만 명 SNS" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 576" role="img" aria-label="DAU 1,000만 곱하기 2는 하루 2,000만 건, 나누기 86,400초는 평균 약 231 QPS, 피크 2~3배는 약 463~694 QPS, 읽기 10배는 약 2,315 QPS, 텍스트 저장 5년 36.5TB, 이미지 저장 5년 3.65PB. 결론은 텍스트는 DB, 이미지는 객체 저장소와 CDN.">
+    <defs>
+      <marker id="cap-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+    <g data-id="b1">
+      <rect class="box" x="4" y="8" width="312" height="66" rx="7" />
+      <circle class="badge" cx="24" cy="41" r="12" /><text class="on-badge" x="24" y="42">1</text>
+      <text class="sub" x="176" y="22">하루 쓰기</text>
+      <text x="176" y="42">1,000만 명 × 2개</text>
+      <text class="hi" x="176" y="62">= 하루 2,000만 건</text>
+    </g>
+    <line data-id="a1" class="line" x1="160" y1="74" x2="160" y2="86" marker-end="url(#cap-arr)" />
+    <g data-id="b2">
+      <rect class="box" x="4" y="88" width="312" height="66" rx="7" />
+      <circle class="badge" cx="24" cy="121" r="12" /><text class="on-badge" x="24" y="122">2</text>
+      <text class="sub" x="176" y="102">평균 쓰기 QPS</text>
+      <text x="176" y="122">2,000만 ÷ 86,400초</text>
+      <text class="hi" x="176" y="142">≈ 231 QPS (암산 200)</text>
+    </g>
+    <line data-id="a2" class="line" x1="160" y1="154" x2="160" y2="166" marker-end="url(#cap-arr)" />
+    <g data-id="b3">
+      <rect class="box" x="4" y="168" width="312" height="66" rx="7" />
+      <circle class="badge" cx="24" cy="201" r="12" /><text class="on-badge" x="24" y="202">3</text>
+      <text class="sub" x="176" y="182">피크 쓰기 QPS</text>
+      <text x="176" y="202">231 × 2~3 (가정)</text>
+      <text class="hi" x="176" y="222">≈ 463~694 QPS</text>
+    </g>
+    <line data-id="a3" class="line" x1="160" y1="234" x2="160" y2="246" marker-end="url(#cap-arr)" />
+    <g data-id="b4">
+      <rect class="box" x="4" y="248" width="312" height="66" rx="7" />
+      <circle class="badge" cx="24" cy="281" r="12" /><text class="on-badge" x="24" y="282">4</text>
+      <text class="sub" x="176" y="262">평균 읽기 QPS</text>
+      <text x="176" y="282">231 × 10 (읽기:쓰기 10:1)</text>
+      <text class="hi" x="176" y="302">≈ 2,315 QPS</text>
+    </g>
+    <line data-id="a4" class="line" x1="160" y1="314" x2="160" y2="326" marker-end="url(#cap-arr)" />
+    <g data-id="b5">
+      <rect class="box" x="4" y="328" width="312" height="66" rx="7" />
+      <circle class="badge" cx="24" cy="361" r="12" /><text class="on-badge" x="24" y="362">5</text>
+      <text class="sub" x="176" y="342">텍스트 저장</text>
+      <text x="176" y="362">2,000만 × 1KB = 20GB/일</text>
+      <text class="hi" x="176" y="382">× 365 × 5년 = 36.5TB</text>
+    </g>
+    <line data-id="a5" class="line" x1="160" y1="394" x2="160" y2="406" marker-end="url(#cap-arr)" />
+    <g data-id="b6">
+      <rect class="box" x="4" y="408" width="312" height="66" rx="7" />
+      <circle class="badge" cx="24" cy="441" r="12" /><text class="on-badge" x="24" y="442">6</text>
+      <text class="sub" x="176" y="422">이미지 저장</text>
+      <text x="176" y="442">200만(10%) × 1MB = 2TB/일</text>
+      <text class="hi" x="176" y="462">× 365 × 5년 = 3.65PB</text>
+    </g>
+    <rect data-id="hl1" class="hl" x="1" y="4" width="318" height="74" rx="9" />
+    <rect data-id="hl2" class="hl" x="1" y="84" width="318" height="74" rx="9" />
+    <rect data-id="hl3" class="hl" x="1" y="164" width="318" height="74" rx="9" />
+    <rect data-id="hl4" class="hl" x="1" y="244" width="318" height="74" rx="9" />
+    <rect data-id="hl5" class="hl" x="1" y="324" width="318" height="74" rx="9" />
+    <rect data-id="hl6" class="hl" x="1" y="404" width="318" height="74" rx="9" />
+    <g data-id="end">
+      <text x="160" y="500">결론: 이미지가 텍스트의 100배</text>
+      <rect class="box" x="4" y="514" width="148" height="58" rx="7" />
+      <text class="sub" x="78" y="532">텍스트 36.5TB</text>
+      <text class="hi" x="78" y="554">→ DB</text>
+      <rect class="chip" x="160" y="514" width="156" height="58" rx="7" />
+      <text class="sub" x="238" y="532">이미지 3.65PB</text>
+      <text class="hi" x="238" y="554">→ 객체 저장소+CDN</text>
+    </g>
+  </svg>
+</Stepper>
