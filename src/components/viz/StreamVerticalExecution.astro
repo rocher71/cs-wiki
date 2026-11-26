@@ -1,0 +1,142 @@
+---
+// 스트림은 단계별 일괄 처리(가로)가 아니라 요소 하나가 끝까지 흐르는 세로 실행 + findFirst 단락.
+// 격자: 행 = 요소(a, bb, ccc, dd), 열 = 단계(소스 → filter → map → findFirst). 칸마다 토큰을 미리 그려 두고 data-id로 켠다.
+import Stepper from '../Stepper.astro';
+const COLX = [44, 122, 200, 278];        // 열 중심
+const COLW = 70;
+const ROWY = [184, 228, 272, 316];       // 행 중심
+const src = ['a', 'bb', 'ccc', 'dd'];
+// 단계 칸 토큰 (오해·실제 공용)
+const tokens = [
+  { id: 'f0', r: 0, c: 1, t: 'a 탈락', cls: 'err', tc: 'err-t' },
+  { id: 'f1', r: 1, c: 1, t: 'bb', cls: 'box' },
+  { id: 'f2', r: 2, c: 1, t: 'ccc', cls: 'box' },
+  { id: 'f3', r: 3, c: 1, t: 'dd', cls: 'box' },
+  { id: 'm1', r: 1, c: 2, t: 'BB', cls: 'chip' },
+  { id: 'm2', r: 2, c: 2, t: 'CCC', cls: 'chip' },
+  { id: 'm3', r: 3, c: 2, t: 'DD', cls: 'chip' },
+  { id: 'r1', r: 1, c: 3, t: 'BB', cls: 'badge', tc: 'on-badge' },
+];
+const cell = (r: number, c: number) => ({ x: COLX[c] - 32, y: ROWY[r] - 15, w: 64, h: 30 });
+const counts: [number, number][] = [[4, 0], [4, 3], [0, 0], [1, 0], [2, 1]];
+const cnt = (f: number, m: number) => `cnt-${f}-${m}`;
+const myth = ['mode-myth', 'stages'];
+const real = ['mode-real', 'stages'];
+const steps = [
+  { caption: '오해: filter가 4개를 전부 검사해서 통과한 3개로 중간 목록을 만든다고 생각하기 쉬워요.', show: [...myth, 'f0', 'f1', 'f2', 'f3', 'hl-fcol', cnt(4, 0)] },
+  { caption: '오해(계속): 그다음 map이 3개를 전부 바꾸고, 마지막에 findFirst가 첫 개를 집는다. 실제 스트림은 이렇게 돌지 않아요.', show: [...myth, 'f0', 'f1', 'f2', 'f3', 'm1', 'm2', 'm3', 'r1', 'hl-mcol', 'bigx', cnt(4, 3)] },
+  { caption: '실제 1: filter, map을 부르는 건 파이프라인을 조립하는 것뿐이에요. 아직 아무 요소도 검사하지 않았어요.', show: [...real, 'idle', 'hl-asm', cnt(0, 0)] },
+  { caption: '실제 2: 최종 연산 findFirst()를 부르는 순간 소스를 하나씩 꺼내기 시작해요.', show: [...real, 'hl-ff', 'hl-src', cnt(0, 0)] },
+  { caption: '실제 3: "a"가 filter에서 탈락해요. map은 "a"를 보지도 않아요.', show: [...real, 'f0', 't0', 'hl-f0', cnt(1, 0)] },
+  { caption: '실제 4: "bb"는 filter를 통과해 곧바로 map으로 가서 "BB"가 되고, findFirst가 받자마자 끝나요(단락).', show: [...real, 'f0', 't0', 'f1', 'm1', 'r1', 't1', 'hl-bb', cnt(2, 1)] },
+  { caption: '실제 5: "ccc", "dd"는 filter조차 거치지 않아요. 실행 횟수는 filter 2번, map 1번이에요(오해대로라면 4번, 3번).', show: [...real, 'f0', 't0', 'f1', 'm1', 'r1', 't1', 'skip', 'hl-skip', 'cmp'] },
+];
+const code = [
+  'Stream.of("a","bb","ccc","dd")',
+  '  .filter(s -> s.length() >= 2)',
+  '  .map(String::toUpperCase)',
+  '  .findFirst();',
+];
+const acc = 'fill:none;stroke:var(--sl-color-accent);stroke-width:2.2';
+---
+<Stepper title="스트림은 요소 하나씩 끝까지 흐른다" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 410" role="img" aria-label="filter, map, findFirst 스트림에서 요소가 단계별로 일괄 처리되지 않고 하나씩 끝까지 흐르는 과정과 실행 횟수">
+    <defs>
+      <marker id="sve-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+    </defs>
+
+    <!-- 코드 (고정) -->
+    {code.map((l, i) => <text class="mono l" x="12" y={16 + i * 18} style="white-space:pre" xml:space="preserve">{l}</text>)}
+    <rect data-id="hl-asm" class="hl" x="8" y="25" width="276" height="36" rx="4" />
+    <rect data-id="hl-ff" class="hl" x="8" y="61" width="130" height="18" rx="4" />
+
+    <!-- 모드 표시 -->
+    <g data-id="mode-myth" class="hide">
+      <rect class="err" x="12" y="92" width="150" height="28" rx="14" />
+      <text class="err-t" x="87" y="106">오해 · 가로 실행</text>
+    </g>
+    <g data-id="mode-real" class="hide">
+      <rect class="badge" x="12" y="92" width="150" height="28" rx="14" />
+      <text class="on-badge" x="87" y="106">실제 · 세로 실행</text>
+    </g>
+
+    <!-- 열 머리 -->
+    <g data-id="stages">
+      {['소스', 'filter', 'map', 'findFirst'].map((h, c) => (
+        <g>
+          <rect class="box" x={COLX[c] - COLW / 2} y="132" width={COLW} height="28" rx="6" />
+          <text x={COLX[c]} y="146" style="font-size:14px;font-weight:700">{h}</text>
+        </g>
+      ))}
+    </g>
+
+    <!-- 소스 요소 (고정) -->
+    {src.map((t, r) => {
+      const b = cell(r, 0);
+      return (
+        <g>
+          <rect class="box" x={b.x} y={b.y} width={b.w} height={b.h} rx="15" />
+          <text x={COLX[0]} y={ROWY[r]}>{t}</text>
+        </g>
+      );
+    })}
+
+    <!-- 진행 화살표 (실제) -->
+    <line data-id="t0" class="hide" x1={COLX[0] + 33} y1={ROWY[0]} x2={COLX[1] - 35} y2={ROWY[0]} style={acc} marker-end="url(#sve-a)" />
+    <g data-id="t1" class="hide">
+      {[0, 1, 2].map((c) => (
+        <line x1={COLX[c] + 33} y1={ROWY[1]} x2={COLX[c + 1] - 35} y2={ROWY[1]} style={acc} marker-end="url(#sve-a)" />
+      ))}
+    </g>
+
+    <!-- 단계 칸 토큰 -->
+    {tokens.map((k) => {
+      const b = cell(k.r, k.c);
+      return (
+        <g data-id={k.id} class="hide">
+          <rect class={k.cls} x={b.x} y={b.y} width={b.w} height={b.h} rx="15" />
+          <text class={k.tc} x={COLX[k.c]} y={ROWY[k.r]} style="font-size:14px;font-weight:700">{k.t}</text>
+        </g>
+      );
+    })}
+
+    <!-- 실제 1: 조립만 -->
+    <g data-id="idle" class="hide">
+      <text class="sub" x="200" y="236">아직 실행 0번</text>
+      <text class="sub" x="200" y="258">(등록만 됨)</text>
+    </g>
+    <!-- 실제 5: 안 거친 요소 -->
+    <g data-id="skip" class="hide">
+      {[2, 3].map((r) => <text class="sub" x={COLX[1]} y={ROWY[r]}>안 거침</text>)}
+    </g>
+
+    <!-- 강조 테두리 -->
+    <rect data-id="hl-fcol" class="hl" x={COLX[1] - 36} y="166" width="72" height="168" rx="8" />
+    <rect data-id="hl-mcol" class="hl" x={COLX[2] - 36} y="210" width="72" height="124" rx="8" />
+    <rect data-id="hl-f0" class="hl" x={COLX[1] - 36} y={ROWY[0] - 19} width="72" height="38" rx="8" />
+    <rect data-id="hl-bb" class="hl" x={COLX[1] - 36} y={ROWY[1] - 19} width={COLX[3] - COLX[1] + 72} height="38" rx="8" />
+    <rect data-id="hl-src" class="hl" x="8" y="166" width="72" height="168" rx="8" />
+    <rect data-id="hl-skip" class="hl" x="8" y={ROWY[2] - 19} width="152" height="82" rx="8" />
+
+    <!-- 오해에 X -->
+    <g data-id="bigx" class="hide">
+      <line x1="92" y1="172" x2="310" y2="330" style="stroke:var(--sl-color-red);stroke-width:5;stroke-linecap:round" />
+      <line x1="310" y1="172" x2="92" y2="330" style="stroke:var(--sl-color-red);stroke-width:5;stroke-linecap:round" />
+      <rect class="err" x="106" y="237" width="190" height="30" rx="15" />
+      <text class="err-t" x="201" y="252">이렇게 동작하지 않아요</text>
+    </g>
+
+    <!-- 실행 횟수 -->
+    <text class="sub l" x="12" y="358">실행 횟수</text>
+    {counts.map(([f, m]) => (
+      <text data-id={cnt(f, m)} class="hide l" x="88" y="358" style="font-weight:700">filter {f}번 · map {m}번</text>
+    ))}
+    <g data-id="cmp" class="hide">
+      <rect class="badge" x="84" y="344" width="196" height="28" rx="14" />
+      <text class="on-badge" x="182" y="358">실제: filter 2번 · map 1번</text>
+      <text class="sub" x="182" y="390">오해라면: filter 4번 · map 3번</text>
+    </g>
+  </svg>
+</Stepper>

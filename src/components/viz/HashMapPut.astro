@@ -1,0 +1,136 @@
+---
+// map.put(K, v) 한 번을 10단계로. 예시 hash 0x0001_0004 → 16칸 중 [4]. 버킷은 [4]만 펼치고 나머지는 "…"로 접는다.
+// 마지막 단계는 32칸으로 늘어나 [4] 노드가 hash & 16 값에 따라 [4]/[20]으로 갈라지는 장면.
+import Stepper from '../Stepper.astro';
+const BX = 76, BW = 117, BH = 28;           // 32비트 막대: 왼쪽 반 = 상위 16비트, 오른쪽 반 = 하위 16비트
+const bars = [
+  { id: 'b1', y: 30, label: 'h', hi: '상위 0001', lo: '하위 0005' },
+  { id: 'b2', y: 72, label: '^h>>>16', hi: '0000', lo: '0001' },
+  { id: 'b3', y: 114, label: 'hash', hi: '0001', lo: '0004' },
+];
+const R4 = 224, R20 = 326, RH = 66;         // 펼친 버킷 [4], [20]의 y
+const px = (i: number) => 48 + i * 66;      // 체인의 i번째 노드 x
+const chips = [
+  { id: 'k1', row: R4, pos: 0, t: 'K', isNew: true },
+  { id: 'cA', row: R4, pos: 0, t: 'A' },
+  { id: 'cB', row: R4, pos: 1, t: 'B' },
+  { id: 'cC', row: R4, pos: 2, t: 'C' },
+  { id: 'cK', row: R4, pos: 3, t: 'K', isNew: true },
+  { id: 'cDots', row: R4, pos: 2, t: '…' },
+  { id: 'c9', row: R4, pos: 3, t: '9번째', isNew: true },
+  { id: 'sB', row: R4, pos: 0, t: 'B' },
+  { id: 'sK', row: R4, pos: 1, t: 'K' },
+  { id: 'sA', row: R20, pos: 0, t: 'A' },
+  { id: 'sC', row: R20, pos: 1, t: 'C' },
+];
+// 노드 아래 표시: [id, row, pos, 줄(0/1), 글자, 강조?]
+const marks: [string, number, number, number, string, boolean?][] = [
+  ['mA', R4, 0, 0, 'hash ✗'], ['mB', R4, 1, 0, 'hash ✓'], ['mB', R4, 1, 1, 'equals?', true], ['mC', R4, 2, 0, 'hash ✗'],
+  ['mRep', R4, 1, 0, '값만 교체', true],
+  ['mK', R4, 3, 0, '꼬리에', true],
+  ['sm', R4, 0, 0, '&16 = 0'], ['sm', R4, 1, 0, '&16 = 0'], ['sm', R20, 0, 0, '&16 = 16'], ['sm', R20, 1, 0, '&16 = 16'],
+];
+const T16 = ['t16', 'r5-16']; // 1~9단계 공통: 16칸 테이블
+const steps = [
+  { caption: 'put(K, v)는 먼저 K.hashCode()로 32비트 정수 h를 받아요. 예: 0x0001_0005 (상위 16비트 0001, 하위 16비트 0005).', show: [...T16, 'b1'] },
+  { caption: 'h ^ (h >>> 16): 상위 16비트를 아래로 내려 하위 16비트와 XOR해요. 막대를 반으로 접어 겹치는 셈이에요. hash = 0x0001_0004.', show: [...T16, 'b1', 'b2', 'fold', 'b3'] },
+  { caption: '(16 − 1) & hash: 1111과 AND하면 하위 4비트(0100)만 남아요. 그래서 [4]번 칸이에요. 섞지 않았다면 위쪽 비트 차이는 칸 번호에 안 들어가요.', show: [...T16, 'b3', 'hl-low', 'idx', 'hl-4'] },
+  { caption: '[4]번 칸이 비어 있으면 새 노드(hash, K, v)를 그 칸에 바로 놓고 끝이에요.', show: [...T16, 'idx', 'k1', 'k1-t', 'hl-4'] },
+  { caption: '칸에 이미 노드가 있으면 첫 노드부터 비교해요. hash가 다르면 바로 넘어가고, hash가 같을 때만 equals를 불러요.', show: [...T16, 'cA', 'cB', 'cC', 'mA', 'mB', 'mC', 'hl-4'] },
+  { caption: 'equals가 true면 같은 키예요. 노드는 그대로 두고 값만 바꾼 뒤 이전 값을 돌려줘요. size는 그대로예요.', show: [...T16, 'cA', 'cB', 'cC', 'mRep', 'ret', 'hl-B'] },
+  { caption: 'equals도 false이고 끝까지 같은 키가 없으면, 리스트 꼬리에 새 노드 K를 이어 붙여요(체이닝).', show: [...T16, 'cA', 'cB', 'cC', 'cK', 'mK', 'hl-4'] },
+  { caption: '붙인 뒤 이 칸이 9개(원래 8개 + 1)가 되면 treeifyBin을 불러요. 배열 길이가 64 미만이면 트리 대신 resize, 64 이상이면 레드-블랙 트리로 바꿔요.', show: [...T16, 'cA', 'cB', 'cDots', 'c9', 'm9', 'tb', 'hl-tb'] },
+  { caption: '새 노드를 붙였으면 ++size가 threshold(16 × 0.75 = 12)를 넘는지 봐요. 13번째 엔트리라면 resize해요.', show: [...T16, 'cA', 'cB', 'cC', 'cK', 'sz', 'hl-sz', 'rs'] },
+  { caption: 'resize: 32칸 새 배열을 만들고 [4]의 노드마다 hash & 16을 봐요. 0이면 [4]에 남고, 16이면 [20](4 + 16)으로 가요. 두 줄 모두 원래 순서(A→C, B→K)를 지켜요.', show: ['t32', 'r5-32', 'r20', 'r21', 'sA', 'sB', 'sC', 'sK', 'sm', 'lo', 'hi', 'hl-4', 'hl-20'] },
+];
+const acc = 'fill:none;stroke:var(--sl-color-accent);stroke-width:2';
+const gry = 'fill:none;stroke:var(--sl-color-gray-3);stroke-width:1.6';
+---
+<Stepper title="HashMap.put 한 번에 일어나는 일" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 426" role="img" aria-label="HashMap.put이 해시를 섞고 칸을 고른 뒤 충돌 처리, 트리화 검사, 리사이즈까지 하는 과정">
+    <defs>
+      <marker id="hmp-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+      <marker id="hmp-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+
+    <text class="mono" x="160" y="12">map.put(K, v)</text>
+
+    <!-- 해시 계산: 32비트 막대 3줄 -->
+    {bars.map((b) => (
+      <g data-id={b.id}>
+        <text class="mono l" x="8" y={b.y + BH / 2}>{b.label}</text>
+        <rect class="box" x={BX} y={b.y} width={BW} height={BH} rx="4" />
+        <rect class="box" x={BX + BW} y={b.y} width={BW} height={BH} rx="4" />
+        <text class="mono" x={BX + BW / 2} y={b.y + BH / 2}>{b.hi}</text>
+        <text class="mono" x={BX + BW * 1.5} y={b.y + BH / 2}>{b.lo}</text>
+      </g>
+    ))}
+    <!-- 접기: 상위 반쪽이 하위 반쪽 자리로 -->
+    <path data-id="fold" class="hide" d={`M${BX + BW / 2} 58 C ${BX + BW / 2} 68, ${BX + BW * 1.5 - 20} 62, ${BX + BW * 1.5 - 6} 71`} style={acc} marker-end="url(#hmp-a)" />
+    <rect data-id="hl-low" class="hl" x="257" y="116" width="18" height="24" rx="4" />
+    <text data-id="idx" class="mono" x="160" y="160">1111 &amp; …0100 = 4 → [4]</text>
+
+    <!-- 테이블 -->
+    <text data-id="t16" class="l hide" x="10" y="184" style="font-weight:700">table: 16칸</text>
+    <text data-id="t32" class="l hide" x="10" y="184" style="font-weight:700">table: 32칸 (2배)</text>
+    <text data-id="sz" class="sub hide" x="306" y="184" style="text-anchor:end">++size 13 &gt; 12</text>
+    <rect data-id="hl-sz" class="hl" x="186" y="172" width="126" height="24" rx="6" />
+
+    <rect class="box" x="10" y="196" width="300" height="22" rx="5" />
+    <text class="sub l" x="18" y="207">[0] ~ [3]  …</text>
+    <rect class="box" x="10" y={R4} width="300" height={RH} rx="6" />
+    <text class="sub l" x="16" y={R4 + 22}>[4]</text>
+    <rect class="box" x="10" y="294" width="300" height="22" rx="5" />
+    <text data-id="r5-16" class="sub l hide" x="18" y="305">[5] ~ [15]  …</text>
+    <text data-id="r5-32" class="sub l hide" x="18" y="305">[5] ~ [19]  …</text>
+    <g data-id="r20" class="hide">
+      <rect class="box" x="10" y={R20} width="300" height={RH} rx="6" />
+      <text class="sub l" x="14" y={R20 + 22}>[20]</text>
+    </g>
+    <g data-id="r21" class="hide">
+      <rect class="box" x="10" y="396" width="300" height="22" rx="5" />
+      <text class="sub l" x="18" y="407">[21] ~ [31]  …</text>
+    </g>
+
+    <!-- 노드 -->
+    {chips.map((c) => (
+      <g data-id={c.id} class="hide">
+        {c.pos > 0 && <path d={`M${px(c.pos) - 12} ${c.row + 22} L${px(c.pos) - 2} ${c.row + 22}`} style={gry} marker-end="url(#hmp-g)" />}
+        <rect class={c.isNew ? 'chip' : 'box'} x={px(c.pos)} y={c.row + 8} width="54" height="28" rx="6" />
+        <text x={px(c.pos) + 27} y={c.row + 22} style={c.isNew ? 'font-weight:700' : undefined}>{c.t}</text>
+      </g>
+    ))}
+    {marks.map(([id, row, pos, line, t, hi]) => (
+      <text data-id={id} class={hi ? 'hi hide' : 'sub hide'} x={px(pos) + 27} y={row + 46 + line * 15} style="font-size:14px">{t}</text>
+    ))}
+    <text data-id="k1-t" class="sub l hide" x="114" y={R4 + 22}>빈 칸 → 바로 놓고 끝</text>
+    <text data-id="m9" class="sub hide" x="160" y={R4 + 52}>8개 + 1 = 9개 → treeifyBin</text>
+    <text data-id="lo" class="sub l hide" x="186" y={R4 + 22}>그대로 [4]</text>
+    <text data-id="hi" class="sub l hide" x="186" y={R20 + 22}>4 + 16 = [20]</text>
+
+    <!-- 아래 영역: 단계별 결과 -->
+    <g data-id="ret" class="hide">
+      <text class="sub" x="160" y="342">이전 값을 반환</text>
+      <text class="sub" x="160" y="364">size 그대로 · resize 없음</text>
+    </g>
+    <g data-id="tb" class="hide">
+      <rect class="badge" x="10" y="328" width="300" height="34" rx="17" />
+      <text class="on-badge" x="160" y="345">길이 16 &lt; 64 → resize() (지금)</text>
+      <rect class="box" x="10" y="372" width="300" height="34" rx="17" />
+      <text x="160" y="389">길이 ≥ 64였다면 → 레드-블랙 트리</text>
+    </g>
+    <g data-id="rs" class="hide">
+      <rect class="badge" x="60" y="336" width="200" height="34" rx="17" />
+      <text class="on-badge" x="160" y="353">13 &gt; 12 → resize()</text>
+    </g>
+
+    <rect data-id="hl-4" class="hl" x="7" y={R4 - 3} width="306" height={RH + 6} rx="8" />
+    <rect data-id="hl-20" class="hl" x="7" y={R20 - 3} width="306" height={RH + 6} rx="8" />
+    <rect data-id="hl-B" class="hl" x={px(1) - 4} y={R4 + 4} width="62" height="36" rx="8" />
+    <rect data-id="hl-tb" class="hl" x="7" y="325" width="306" height="40" rx="20" />
+  </svg>
+</Stepper>

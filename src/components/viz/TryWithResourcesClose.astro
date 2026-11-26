@@ -1,0 +1,86 @@
+---
+// try-with-resources: 역순 close, close 실패 예외는 원래 예외에 suppressed로 붙는다. 마지막에 옛 try-finally와 비교.
+import Stepper from '../Stepper.astro';
+const code = [
+  'try (A a = new A();',
+  '     B b = new B()) {',
+  '  work(); // 여기서 X',
+  '} catch (Exception e) {',
+  '  ...',
+  '} finally { ... }',
+];
+const steps = [
+  { caption: 'try ( ) 안의 자원을 적힌 순서대로 만들어요. A가 먼저, 그다음 B.', show: ['a', 'b', 'aOpen', 'bOpen', 'hlInit'] },
+  { caption: 'try 블록에서 예외 X가 터져요. 이게 원래 예외예요.', show: ['a', 'b', 'aOpen', 'bOpen', 'hlTry', 'x'] },
+  { caption: '블록을 빠져나가며 역순으로 닫아요. B.close()가 먼저 불리는데 실패해서 예외 Y가 나요. Y는 X.addSuppressed(Y)로 X 안에 붙어요.', show: ['a', 'b', 'aOpen', 'bFail', 'ordB', 'x', 'y', 'arrBY', 'arrYX', 'sup'] },
+  { caption: 'Y가 났다고 멈추지 않아요. 이어서 A.close()도 호출해요.', show: ['a', 'b', 'aClosed', 'bFail', 'ordB', 'ordA', 'x', 'y', 'sup'] },
+  { caption: '자원이 모두 닫힌 뒤에 catch가 X를 받고, 그다음 finally가 실행돼요.', show: ['a', 'b', 'aClosed', 'bFail', 'x', 'y', 'sup', 'hlCatch'] },
+  { caption: '결과: 밖으로 나오는 건 원래 예외 X예요. Y는 X.getSuppressed()로 꺼내 볼 수 있어요.', show: ['a', 'b', 'aClosed', 'bFail', 'x', 'sup', 'res'] },
+  { caption: '비교: 옛 try-finally에서 finally에 close()를 직접 쓰면, 거기서 난 Y가 X를 덮어써서 X는 흔적 없이 사라져요.', show: ['res', 'old'] },
+];
+---
+<Stepper title="try-with-resources: 닫는 순서와 suppressed 예외" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 476" role="img" aria-label="try-with-resources가 자원을 역순으로 닫고 close 중 난 예외를 원래 예외에 suppressed로 붙이는 과정">
+    <defs>
+      <marker id="twr-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+
+    <!-- 코드 -->
+    <rect class="box" x="4" y="8" width="312" height="132" rx="8" />
+    {code.map((c, i) => <text class="mono l" x="14" y={24 + i * 20} style="white-space:pre">{c}</text>)}
+    <rect data-id="hlInit" class="hl" x="8" y="13" width="304" height="42" rx="5" />
+    <rect data-id="hlTry" class="hl" x="8" y="54" width="304" height="21" rx="5" />
+    <rect data-id="hlCatch" class="hl" x="8" y="74" width="304" height="61" rx="5" />
+
+    <!-- 자원 -->
+    <text data-id="ordA" class="sub hide" x="84" y="158">② 다음에 닫음</text>
+    <text data-id="ordB" class="sub hide" x="236" y="158">① 먼저 닫음</text>
+    <g data-id="a">
+      <rect class="chip" x="16" y="168" width="136" height="56" rx="8" />
+      <text x="84" y="186" style="font-weight:700">자원 a (A)</text>
+    </g>
+    <g data-id="b">
+      <rect class="chip" x="168" y="168" width="136" height="56" rx="8" />
+      <text x="236" y="186" style="font-weight:700">자원 b (B)</text>
+    </g>
+    <text data-id="aOpen" class="sub hide" x="84" y="208">열림</text>
+    <text data-id="aClosed" class="hide" x="84" y="208" style="font-size:14px">close() 성공</text>
+    <text data-id="bOpen" class="sub hide" x="236" y="208">열림</text>
+    <text data-id="bFail" class="err-t hide" x="236" y="208" style="font-size:14px">close() 실패</text>
+
+    <!-- 예외 -->
+    <g data-id="x">
+      <rect class="err" x="16" y="246" width="196" height="64" rx="8" />
+      <text class="l" x="28" y="264" style="font-weight:700">X <tspan class="sub" style="font-weight:400">원래 예외</tspan></text>
+    </g>
+    <text data-id="sup" class="mono l" x="28" y="292">suppressed = [Y]</text>
+    <line data-id="arrBY" class="line" x1="270" y1="226" x2="270" y2="244" marker-end="url(#twr-arr)" />
+    <g data-id="y">
+      <rect class="err" x="236" y="246" width="68" height="32" rx="8" />
+      <text x="270" y="263" style="font-weight:700">Y</text>
+    </g>
+    <line data-id="arrYX" class="line" x1="250" y1="280" x2="196" y2="292" marker-end="url(#twr-arr)" />
+
+    <!-- 결과 -->
+    <g data-id="res" class="hide">
+      <rect class="badge" x="16" y="324" width="288" height="34" rx="17" />
+      <text class="on-badge" x="160" y="341">밖으로 나오는 예외: X (안에 Y)</text>
+    </g>
+
+    <!-- 옛 try-finally 비교 -->
+    <g data-id="old" class="hide">
+      <rect class="frame" x="4" y="372" width="312" height="98" rx="10" />
+      <text class="l" x="14" y="390" style="font-weight:700">옛 try-finally였다면</text>
+      <rect class="bad" x="16" y="404" width="64" height="32" rx="8" />
+      <text class="sub" x="48" y="421">X</text>
+      <line class="line" x1="22" y1="420" x2="74" y2="420" />
+      <text class="sub l" x="88" y="421">사라짐</text>
+      <rect class="err" x="170" y="404" width="64" height="32" rx="8" />
+      <text x="202" y="421" style="font-weight:700">Y</text>
+      <text class="sub l" x="242" y="421">만 던져짐</text>
+      <text class="sub l" x="14" y="454">finally의 예외가 원래 예외를 덮어씀</text>
+    </g>
+  </svg>
+</Stepper>

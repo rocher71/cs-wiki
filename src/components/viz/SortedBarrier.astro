@@ -1,0 +1,105 @@
+---
+// sorted()는 상태 있는 연산: 앞 단계 결과를 전부 모은 뒤에야 다음 단계로 내보낸다. findFirst가 있어도 앞부분은 전부 처리된다.
+// 세로 = 단계, 가로 = 칸(요소 자리). 위치별 토큰을 미리 그려 두고 data-id로 켠다.
+import Stepper from '../Stepper.astro';
+const COLX = [122, 172, 222, 272];
+const W = 46, H = 28;
+const ROW = { src: 128, f: 176, s: 226, m: 278, r: 326 };
+const tok = [
+  { id: 'f5', c: 0, y: ROW.f, t: '5', cls: 'box' },
+  { id: 'f2', c: 1, y: ROW.f, t: '2', cls: 'box' },
+  { id: 'f8', c: 2, y: ROW.f, t: '8', cls: 'box' },
+  { id: 'f1', c: 3, y: ROW.f, t: '1 탈락', cls: 'err', tc: 'err-t' },
+  { id: 'b5', c: 0, y: ROW.s, t: '5', cls: 'box' },
+  { id: 'b2', c: 1, y: ROW.s, t: '2', cls: 'box' },
+  { id: 'b8', c: 2, y: ROW.s, t: '8', cls: 'box' },
+  { id: 's2', c: 0, y: ROW.s, t: '2', cls: 'chip' },
+  { id: 's5', c: 1, y: ROW.s, t: '5', cls: 'chip' },
+  { id: 's8', c: 2, y: ROW.s, t: '8', cls: 'chip' },
+  { id: 'm20', c: 0, y: ROW.m, t: '20', cls: 'chip' },
+  { id: 'r20', c: 0, y: ROW.r, t: '20', cls: 'badge', tc: 'on-badge' },
+];
+const cnt = (f: number, m: number) => `cnt-${f}-${m}`;
+const all = ['f5', 'f2', 'f8', 'f1'];
+const steps = [
+  { caption: '5가 filter를 통과해요. 그런데 map으로 바로 가지 못하고 sorted 앞에 쌓여요.', show: ['f5', 'b5', 'a5', 'hl-c0', cnt(1, 0)] },
+  { caption: '2, 8도 하나씩 filter를 통과해 쌓여요. 1은 filter에서 탈락해요.', show: [...all, 'b5', 'b2', 'b8', 'hl-rest', cnt(4, 0)] },
+  { caption: 'sorted는 마지막 요소까지 다 받아야 정렬할 수 있어요. 그동안 map과 findFirst는 하나도 못 받아요(상태 있는 연산).', show: [...all, 'b5', 'b2', 'b8', 'wait', 'hl-sorted', 'hl-code-s', cnt(4, 0)] },
+  { caption: '다 모였으니 정렬해서 2, 5, 8 순서가 돼요. 이제야 맨 앞 2가 map으로 가서 20이 돼요.', show: [...all, 's2', 's5', 's8', 'm20', 'a2', 'hl-s2', cnt(4, 1)] },
+  { caption: 'findFirst가 20을 받고 끝나요. 5, 8은 map을 안 거쳤지만, filter와 정렬은 이미 전부 끝난 뒤예요.', show: [...all, 's2', 's5', 's8', 'm20', 'a2', 'r20', 'hl-r20', 'hl-code-f', 'note', 'note2', cnt(4, 1)] },
+];
+const code = [
+  'List.of(5, 2, 8, 1).stream()',
+  '  .filter(n -> n > 1)',
+  '  .sorted()',
+  '  .map(n -> n * 10)',
+  '  .findFirst();',
+];
+const acc = 'fill:none;stroke:var(--sl-color-accent);stroke-width:2.2';
+const down = (c: number, y1: number, y2: number) => ({ x: COLX[c], y1: y1 + H / 2 + 2, y2: y2 - H / 2 - 3 });
+const a5 = down(0, ROW.f, ROW.s), a2 = down(0, ROW.s, ROW.m);
+---
+<Stepper title="sorted()는 전부 모일 때까지 막는다" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 404" role="img" aria-label="filter 다음 sorted가 있으면 모든 요소가 sorted 앞에 모인 뒤에야 map과 findFirst로 넘어가는 과정">
+    <defs>
+      <marker id="sb-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+    </defs>
+
+    <!-- 코드 (고정) -->
+    {code.map((l, i) => <text class="mono l" x="12" y={16 + i * 18} style="white-space:pre" xml:space="preserve">{l}</text>)}
+    <rect data-id="hl-code-s" class="hl" x="8" y="43" width="100" height="18" rx="4" />
+    <rect data-id="hl-code-f" class="hl" x="8" y="79" width="130" height="18" rx="4" />
+
+    <!-- 단계 이름 (세로로 쌓음) -->
+    {[['소스', ROW.src], ['filter', ROW.f], ['sorted', ROW.s], ['map', ROW.m], ['findFirst', ROW.r]].map(([t, y]) => (
+      <text class="l" x="12" y={y} style="font-weight:700">{t}</text>
+    ))}
+    <line class="line" x1="88" y1={ROW.src} x2="88" y2={ROW.r} style="stroke-dasharray:3 4" />
+
+    <!-- sorted의 모아 두는 칸 -->
+    <rect class="frame" x="94" y={ROW.s - 22} width="210" height="44" rx="8" />
+
+    <!-- 소스 (고정) -->
+    {['5', '2', '8', '1'].map((t, c) => (
+      <g>
+        <rect class="box" x={COLX[c] - W / 2} y={ROW.src - H / 2} width={W} height={H} rx="14" />
+        <text x={COLX[c]} y={ROW.src}>{t}</text>
+      </g>
+    ))}
+
+    <!-- 위치별 토큰 -->
+    {tok.map((k) => (
+      <g data-id={k.id} class="hide">
+        <rect class={k.cls} x={COLX[k.c] - W / 2} y={k.y - H / 2} width={W} height={H} rx="14" />
+        <text class={k.tc} x={COLX[k.c]} y={k.y} style={k.t.length > 2 ? 'font-size:14px;font-weight:700' : 'font-weight:700'}>{k.t}</text>
+      </g>
+    ))}
+
+    <line data-id="a5" class="hide" x1={a5.x} y1={a5.y1} x2={a5.x} y2={a5.y2} style={acc} marker-end="url(#sb-a)" />
+    <line data-id="a2" class="hide" x1={a2.x} y1={a2.y1} x2={a2.x} y2={a2.y2} style={acc} marker-end="url(#sb-a)" />
+
+    <g data-id="wait" class="hide">
+      <text class="sub" x="210" y={ROW.m}>대기 중 · 받은 것 0개</text>
+      <text class="sub" x="210" y={ROW.r}>대기 중</text>
+    </g>
+    <g data-id="note" class="hide">
+      <text class="sub l" x={COLX[1] - 10} y={ROW.m}>5, 8은 map 안 감</text>
+    </g>
+
+    <!-- 강조 테두리 -->
+    <rect data-id="hl-c0" class="hl" x={COLX[0] - W / 2 - 4} y={ROW.f - H / 2 - 4} width={W + 8} height={ROW.s - ROW.f + H + 8} rx="8" />
+    <rect data-id="hl-rest" class="hl" x={COLX[1] - W / 2 - 4} y={ROW.f - H / 2 - 4} width={COLX[3] - COLX[1] + W + 8} height={ROW.s - ROW.f + H + 8} rx="8" />
+    <rect data-id="hl-sorted" class="hl" x="92" y={ROW.s - 24} width="214" height="48" rx="10" />
+    <rect data-id="hl-s2" class="hl" x={COLX[0] - W / 2 - 4} y={ROW.s - H / 2 - 4} width={W + 8} height={ROW.m - ROW.s + H + 8} rx="8" />
+    <rect data-id="hl-r20" class="hl" x={COLX[0] - W / 2 - 4} y={ROW.r - H / 2 - 4} width={W + 8} height={H + 8} rx="8" />
+
+    <!-- 실행 횟수 -->
+    <text class="sub l" x="12" y="366">실행 횟수</text>
+    {[[1, 0], [4, 0], [4, 1]].map(([f, m]) => (
+      <text data-id={cnt(f, m)} class="hide l" x="88" y="366" style="font-weight:700">filter {f}번 · map {m}번</text>
+    ))}
+    <text data-id="note2" class="hide sub l" x="12" y="390">findFirst여도 sorted 앞은 전부 처리돼요</text>
+  </svg>
+</Stepper>

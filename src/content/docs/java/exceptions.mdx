@@ -1,0 +1,321 @@
+---
+title: 예외 처리
+description: 자바 예외는 Throwable 아래 Error와 Exception으로 나뉘고, 컴파일러가 처리를 강제하는 checked와 강제하지 않는 unchecked로도 나뉘어요. 자원은 try-with-resources로 닫고, 예외를 감쌀 땐 원인을 꼭 넘겨요.
+sidebar: { order: 8 }
+tags: [면접빈출, 서술형]
+---
+import { Aside } from '@astrojs/starlight/components';
+import ExceptionHierarchy from '~/components/viz/ExceptionHierarchy.astro';
+import TryWithResourcesClose from '~/components/viz/TryWithResourcesClose.astro';
+
+:::tip[한 줄 요약]
+`Error`는 보통 복구를 기대하지 않는 JVM 수준 문제, `Exception`은 프로그램이 복구를 시도할 수 있는 문제예요. 이 중 컴파일러가 "잡거나 선언하라"고 강제하는 게 checked 예외이고, `RuntimeException`과 `Error` 계열은 강제하지 않는 unchecked 예외예요.
+:::
+
+## 쉽게 이해하기
+
+예외는 **회사의 보고 체계**와 비슷해요. 사원(메서드)이 일하다 문제가 생기면 그 자리에서 일을 멈추고 위로 보고해요. 팀장이 해결할 수 있으면 거기서 끝나고, 못 하면 부장, 사장까지 올라가요. 끝까지 아무도 처리하지 않으면 그 업무 라인(스레드)이 멈춰요.
+
+문제에도 급이 있어요. "거래처 서류가 없어요"(checked 예외)는 미리 대비할 수 있는 일이라, 회사가 "이건 대비책을 꼭 적어 두라"고 규칙으로 정해 둬요. "계산을 잘못했어요"(unchecked 예외)는 일하는 사람의 실수라 규칙으로 강제하진 않아요. "건물이 정전됐어요"(Error)는 사원이 손쓸 수 있는 일이 아니에요.
+
+단, 실제로는 Error도 문법상 잡을 수는 있어요. 잡아도 할 수 있는 게 거의 없어서 보통 잡지 않을 뿐이에요.
+
+## 그림으로 보기
+
+<ExceptionHierarchy />
+
+<TryWithResourcesClose />
+
+## 제대로 알기
+
+### 1. 예외 계층: Error와 Exception
+
+자바에서 던지고(`throw`) 잡을(`catch`) 수 있는 건 **Throwable**(모든 예외의 최상위 클래스)과 그 하위 클래스뿐이에요. Throwable 바로 아래에 두 갈래가 있어요.
+
+| 구분 | 의미 | 예 |
+|---|---|---|
+| `Error` | 보통의 프로그램이 복구를 기대하지 않는 문제 | `OutOfMemoryError`, `StackOverflowError`(둘 다 `VirtualMachineError` 하위), `LinkageError` |
+| `Exception` | 보통의 프로그램이 복구하고 싶을 수 있는 문제 | `IOException`, `SQLException`, `RuntimeException` 계열 |
+
+Error를 따로 둔 이유는 `catch (Exception e)` 한 줄로 복구 가능한 예외는 다 잡되, OOM 같은 에러까지 휩쓸어 잡지 않게 하려는 거예요. 그래서 `catch (Exception e)`로는 Error가 안 잡혀요. 정말 다 잡으려면 `Throwable`을 써야 해요.
+
+예외가 생기는 경우는 네 가지예요. 직접 `throw`할 때, 켜 둔 `assert`가 실패할 때, JVM이 비정상 상황(정수 0 나누기, 클래스 로딩 실패, 메모리 부족 등)을 감지할 때, 그리고 비동기 예외(항상 `VirtualMachineError` 계열)예요.
+
+### 2. checked와 unchecked
+
+| 구분 | 범위 | 컴파일러 |
+|---|---|---|
+| **checked** | unchecked가 아닌 나머지 전부. 사실상 `Exception` 중 `RuntimeException` 계열이 아닌 것 (`IOException` 등). 엄밀히는 `Throwable` 자신도 포함 | `catch`로 처리하거나 `throws`로 선언하지 않으면 **컴파일 에러** |
+| **unchecked** | `RuntimeException`과 그 하위 + `Error`와 그 하위 | 강제하지 않음 |
+
+"Exception = checked, Error = unchecked"라고 외우면 틀려요. `Exception` 안에도 `RuntimeException` 계열은 unchecked예요.
+
+왜 이렇게 나눴을까요? 자바 언어 명세(JLS)는 이렇게 설명해요.
+- **Error**: 프로그램 어디서든 날 수 있고 복구가 어렵거나 불가능해서 검사 대상에서 뺐어요.
+- **RuntimeException**: null 참조나 배열 범위 초과는 거의 모든 코드에서 날 수 있어요. 이걸 다 선언하게 해도 정확성에 별 도움이 안 되고 귀찮기만 해서 뺐어요.
+
+그럼 내가 예외 클래스를 만들 땐 뭘 고를까요? 오라클 자바 튜토리얼의 기준은 한 문장이에요. **호출한 쪽이 그 예외에서 합리적으로 복구할 수 있으면 checked, 할 수 있는 게 없으면 unchecked.** 그리고 "선언하기 귀찮아서" RuntimeException을 상속하지는 말라고 해요. 메서드가 던지는 예외는 매개변수나 반환값처럼 공개 API의 일부라서요.
+
+<Aside type="note" title="throws는 계약이에요">
+`throws` 절은 메서드 약속의 일부예요. 그래서 자식 클래스가 메서드를 **오버라이딩**(부모 메서드를 다시 정의)할 때, 부모의 `throws`가 허용하지 않는 checked 예외를 새로 던질 수 없어요.
+</Aside>
+
+### 3. 예외가 전파되는 방식
+
+예외가 던져지면 그 줄 이후 코드는 실행되지 않아요. 제어는 **호출 스택**(메서드가 호출된 순서대로 쌓인 목록)을 거꾸로 거슬러 올라가며, 그 예외 타입을 잡을 수 있는 가장 가까운 `catch`로 넘어가요. 예외가 난 코드로 다시 돌아가 이어서 실행하지도 않아요.
+
+끝까지 잡는 곳이 없으면, 거쳐 가는 finally를 모두 실행한 뒤 그 스레드가 끝나고, 스레드의 **uncaught exception handler**(아무도 안 잡은 예외를 마지막에 받는 처리기)가 호출돼요. 우리가 콘솔에서 보는 스택트레이스가 보통 이때 찍혀요.
+
+### 4. try / catch / finally의 함정
+
+```java
+try {
+    readFile();
+} catch (IOException | SQLException e) {   // multi-catch
+    log.error("실패", e);
+} finally {
+    cleanup();   // 예외가 나도, 맞는 catch가 없어도 실행됨
+}
+```
+
+- **multi-catch**(`catch (A | B e)`)에서 A와 B가 부모-자식 관계면 컴파일 에러예요. 이때 `e`는 자동으로 final이라 다시 대입할 수 없어요.
+- 앞 catch가 이미 잡는 타입의 하위 타입을 뒤 catch에 쓰면 도달할 수 없는 코드라서 컴파일 에러예요. 구체적인 예외부터 먼저 써요.
+
+<Aside type="caution" title="finally에서 return하면 예외가 사라져요">
+finally 블록 안에서 `return`하거나 다른 예외를 던지면, try나 catch에서 나던 원래 예외는 **버려져요.** 호출한 쪽은 아무 일 없었던 것처럼 반환값을 받아요. finally에는 정리 코드만 두세요.
+</Aside>
+
+### 5. try-with-resources와 suppressed 예외
+
+파일, DB 커넥션 같은 **자원**(다 쓰면 반드시 닫아야 하는 것)은 예전엔 finally에서 직접 닫았어요. 이 방식은 두 가지가 위험해요. close를 깜빡할 수 있고, try에서 예외가 난 뒤 close까지 실패하면 **close 예외가 원래 예외를 덮어써요.** 정작 진짜 원인이 로그에서 사라지는 거예요.
+
+**try-with-resources**(Java 7에 도입된, 블록을 빠져나갈 때 자원을 자동으로 닫아 주는 문법)가 이 문제를 풀어요.
+
+```java
+try (Connection conn = ds.getConnection();          // 1번째로 열림
+     PreparedStatement ps = conn.prepareStatement(sql)) { // 2번째로 열림
+    ps.executeUpdate();
+}   // 닫을 때는 역순: ps 먼저, conn 나중
+```
+
+| 규칙 | 내용 |
+|---|---|
+| 대상 타입 | `AutoCloseable`을 구현해야 해요. 아니면 컴파일 에러 |
+| 닫는 순서 | 연 순서의 **역순** |
+| 하나 닫다 실패하면 | 나머지 자원도 **계속 닫아요** |
+| null 자원 | close를 부르지 않아요 |
+| catch·finally 시점 | 자원이 **모두 닫힌 뒤** 실행돼요 |
+| 기존 변수 쓰기 | Java 9부터 `try (conn)`처럼 가능. 단 final이거나 사실상 final이어야 해요 |
+
+try 블록에서 예외 X가 나고 close에서 예외 Y가 나면, Y는 X에 **suppressed 예외**로 붙어요(`X.addSuppressed(Y)`). 던져지는 건 원래 예외 X이고, Y는 `X.getSuppressed()`로 꺼내 볼 수 있어요. 스택트레이스에는 `Suppressed:`로 들여써서 찍혀요.
+
+<Aside type="note" title="AutoCloseable과 Closeable">
+`Closeable`(java.io)은 `AutoCloseable`의 하위 인터페이스예요. `Closeable.close()`는 여러 번 불러도 결과가 같아야 하고(**멱등**), `AutoCloseable.close()`는 그게 필수가 아니라 권장이에요.
+</Aside>
+
+### 6. 예외 전환과 원인(cause) 체이닝
+
+**예외 전환**은 하위 계층의 예외를 잡아서 상위 계층에 맞는 예외로 바꿔 던지는 거예요. 이유는 두 가지예요.
+1. 서비스 계층이 `SQLException` 같은 구현 세부에 묶이지 않게 하려고요. DB 기술을 바꿔도 서비스 API는 그대로 둘 수 있어요.
+2. checked 예외를 허용하지 않는 인터페이스를 구현할 때, checked를 unchecked로 감싸 던지려고요.
+
+감쌀 때 원래 예외를 **cause**(원인)로 꼭 넘겨야 해요.
+
+```java
+try {
+    orderDao.insert(order);
+} catch (SQLException e) {
+    // 나쁜 예: throw new OrderSaveException("주문 저장 실패");  → 원인 소실
+    throw new OrderSaveException("주문 저장 실패", e);   // cause 전달
+}
+```
+
+cause를 넘기면 스택트레이스에 `Caused by: java.sql.SQLException ...`이 찍혀서 진짜 원인(SQL 오류 코드 등)을 추적할 수 있어요. 빠뜨리면 "주문 저장 실패"라는 말만 남아요.
+
+| | cause | suppressed |
+|---|---|---|
+| 뜻 | 이 예외를 **일으킨** 예외 | 이 예외를 던지는 **도중 옆에서** 난 예외(예: close) |
+| 설정 | `new X(msg, cause)` 또는 `initCause()`(한 번만) | `addSuppressed()`, try-with-resources가 자동 |
+| 출력 | `Caused by:` | `Suppressed:` |
+
+Spring도 이 방식을 써요. `SQLException` 같은 기술별 예외를 `DataAccessException`을 뿌리로 한 자체 계층으로 바꾸는데, 이 예외들은 전부 unchecked라서 DAO에 throws나 catch가 필요 없어요. 원래 예외는 cause로 감싸 두고, `@Repository`를 붙이면 이 변환이 켜져요.
+
+### 7. 예외 생성은 왜 비싸다고 할까
+
+표준 생성자는 예외를 만들 때 `fillInStackTrace()`를 불러 현재 스레드의 **스택 프레임**(호출 중인 메서드 하나당 하나씩 쌓인 기록)을 전부 기록해요. 이게 예외 객체 생성 비용의 주된 원인이에요. 그래서 "재고 부족"처럼 자주 일어나는 예상된 실패를 초당 수천 번 예외로 던지면 비용과 로그가 함께 불어나요. 이런 경우엔 결과 객체를 반환하는 방식이 대안이에요.
+
+스택트레이스를 아예 안 쓰는 방법도 있어요. protected 생성자 `Throwable(msg, cause, enableSuppression, writableStackTrace)`에서 `writableStackTrace`를 false로 주면 스택을 기록하지 않아요. 다만 javadoc은 이걸 "예외적인 경우"에만 쓰라고 해요.
+
+<Aside type="note" title="운영에서 NPE 스택트레이스가 안 찍힐 때">
+HotSpot JVM은 같은 위치에서 NullPointerException 같은 내장 예외가 반복되면, 최적화로 스택트레이스 없는 미리 만든 예외를 던질 수 있어요. `-XX:-OmitStackTraceInFastThrow` 옵션으로 끌 수 있어요. 공식 매뉴얼에서 직접 확인한 내용은 아니라 일반적으로 알려진 동작이에요.
+</Aside>
+
+### 8. Spring @Transactional의 롤백 규칙
+
+면접에서 예외 질문은 거의 여기로 이어져요. Spring 선언적 트랜잭션의 기본 규칙은 이래요.
+
+| 메서드 밖으로 나간 예외 | 기본 동작 |
+|---|---|
+| `RuntimeException`과 하위 | 롤백 |
+| `Error`와 하위 | 롤백 |
+| checked 예외 | **커밋** |
+| 메서드 안에서 catch하고 다시 안 던짐 | **커밋** |
+
+핵심은 "메서드 밖으로 나간" 예외만 본다는 거예요. 트랜잭션 인프라는 호출 스택을 타고 올라오는 처리되지 않은 예외를 보고 롤백할지 정해요. 안에서 잡아서 로그만 찍고 끝내면 인프라는 예외를 못 보고 그대로 커밋해요.
+
+규칙을 바꾸는 방법은 이래요.
+- `@Transactional(rollbackFor = IOException.class)`: 그 타입과 하위 타입에서 롤백. 반대는 `noRollbackFor`.
+- `rollbackForClassName` 같은 이름 패턴은 이름에 "포함"되면 매칭돼요. `CustomException` 패턴이 `CustomExceptionV2`도 잡으니 조심해요.
+- Spring 6.2부터는 `@EnableTransactionManagement(rollbackOn = ALL_EXCEPTIONS)`로 전역 기본값을 바꿔 checked 예외도 롤백시킬 수 있어요. 공식문서는 "커밋되는 비즈니스 예외"에 기대지 않는다면 이 설정을 권장해요.
+- catch한 상태로 롤백만 표시하려면 `TransactionAspectSupport.currentTransactionStatus().setRollbackOnly()`가 있지만, 코드가 Spring에 묶여서 공식문서도 권하지 않아요.
+
+트랜잭션 전파, 같은 클래스 안에서 호출하면 트랜잭션이 안 걸리는 self-invocation 문제는 Spring 섹션에서 자세히 다뤄요.
+
+### 9. 전역 예외 처리
+
+컨트롤러마다 try-catch를 쓰는 대신 `@RestControllerAdvice` 클래스에 `@ExceptionHandler`를 모아 둬요. `@RestControllerAdvice`는 `@ControllerAdvice`와 `@ResponseBody`를 합친 거라 반환값이 그대로 응답 본문이 돼요.
+
+- 컨트롤러 안에 있는 로컬 `@ExceptionHandler`가 advice의 전역 핸들러보다 먼저 적용돼요.
+- 반환 타입으로 `ResponseEntity`나 `ProblemDetail`(RFC 9457 형식의 표준 에러 응답)을 쓸 수 있어요.
+- 비즈니스 예외는 400/404, 예상 못 한 예외는 500으로 응답하고, 내부 스택트레이스나 SQL 메시지는 응답에 넣지 말고 로그로만 남겨요.
+
+## 면접 질문
+
+<details>
+<summary>Q. Error와 Exception의 차이는 무엇인가요?</summary>
+
+**답변(30초)** 둘 다 Throwable의 하위 클래스예요. Exception은 프로그램이 복구를 시도할 수 있는 문제이고, Error는 OutOfMemoryError나 StackOverflowError처럼 보통 복구를 기대하지 않는 JVM 수준의 문제예요. 둘을 나눈 덕분에 `catch (Exception e)`로 복구 가능한 예외만 잡고 Error는 건드리지 않을 수 있어요. Error도 문법상 잡을 수는 있지만 보통 잡지 않아요.
+
+**꼬리질문**
+- Q. `catch (Exception e)`로 StackOverflowError가 잡히나요? → 안 잡혀요. Error는 Exception의 하위가 아니라서 잡으려면 Throwable을 써야 해요.
+- Q. OutOfMemoryError는 어떤 계층에 있나요? → Error 아래 VirtualMachineError의 하위예요.
+</details>
+
+<details>
+<summary>Q. checked 예외와 unchecked 예외의 차이와, 각각 언제 쓰나요?</summary>
+
+**답변(30초)** checked 예외는 컴파일러가 catch로 처리하거나 throws로 선언하라고 강제하는 예외이고, RuntimeException과 Error 계열인 unchecked 예외는 강제하지 않아요. 기준은 호출한 쪽이 복구할 수 있느냐예요. 파일이 없을 때 다른 경로를 시도할 수 있다면 checked, null 인자처럼 프로그래밍 실수라 할 수 있는 게 없다면 unchecked가 맞아요. 선언이 귀찮다는 이유로 RuntimeException을 쓰는 건 피해요.
+
+**꼬리질문**
+- Q. Exception을 상속하면 다 checked인가요? → 아니요. RuntimeException을 상속하면 Exception의 하위여도 unchecked예요.
+- Q. Spring은 왜 데이터 접근 예외를 unchecked로 만들었나요? → SQLException 같은 예외는 서비스에서 복구할 방법이 거의 없어요. unchecked인 DataAccessException 계층으로 바꾸면 DAO마다 throws와 catch를 쓸 필요가 없고, 원래 예외는 cause로 남아요.
+</details>
+
+<details>
+<summary>Q. try-with-resources를 쓰는 이유는 무엇인가요?</summary>
+
+**답변(30초)** 자원을 자동으로, 안전하게 닫기 위해서예요. 옛 try-finally 방식은 close를 빠뜨릴 수 있고, try 예외 뒤 close까지 실패하면 close 예외가 원래 예외를 덮어써서 진짜 원인이 사라져요. try-with-resources는 AutoCloseable 자원을 연 순서의 역순으로 닫고, 하나가 실패해도 나머지를 계속 닫아요. close 예외는 원래 예외에 suppressed로 붙어서 둘 다 볼 수 있어요.
+
+**꼬리질문**
+- Q. suppressed 예외와 cause는 뭐가 다른가요? → cause는 이 예외를 일으킨 원인이고, suppressed는 이 예외를 던지는 도중 close 같은 옆 코드에서 난 예외예요. 서로 다른 목록이에요.
+- Q. try-with-resources의 catch 블록에서 자원은 열려 있나요? → 아니요. catch와 finally는 자원이 모두 닫힌 뒤 실행돼요.
+</details>
+
+<details>
+<summary>Q. finally에서 return하면 어떻게 되나요?</summary>
+
+**답변(30초)** try나 catch에서 던지던 예외가 사라져요. finally가 return이나 throw로 끝나면 try 문 전체가 그 결과로 끝나고, 원래 예외나 원래 반환값은 버려지거든요. 호출한 쪽은 실패한 줄도 모르고 반환값을 받아요. 그래서 finally에는 정리 코드만 둬요.
+
+**꼬리질문**
+- Q. 맞는 catch가 없어도 finally는 실행되나요? → 네. 예외가 위로 전파되는 도중에도 실행돼요.
+</details>
+
+<details>
+<summary>Q. 예외를 다른 예외로 바꿔 던질 때 주의할 점은 무엇인가요?</summary>
+
+**답변(30초)** 원래 예외를 cause로 꼭 넘겨야 해요. `new BizException("실패", e)`처럼 넘기면 로그에 `Caused by:`로 원래 SQLException이 찍혀 근본 원인을 추적할 수 있어요. 예외를 바꾸는 이유는 상위 계층이 하위 구현 기술에 묶이지 않게 하려는 거예요. cause를 빠뜨리면 이 장점은 얻고 원인 정보는 잃어요.
+
+**꼬리질문**
+- Q. initCause는 언제 쓰나요? → cause를 받는 생성자가 없는 예외에 나중에 원인을 붙일 때요. 단 한 번만 부를 수 있고, 이미 cause 생성자로 만든 예외에 부르면 IllegalStateException이 나요.
+</details>
+
+<details>
+<summary>Q. @Transactional 메서드에서 checked 예외가 나면 롤백되나요?</summary>
+
+**답변(30초)** 기본 설정에서는 롤백되지 않고 커밋돼요. Spring은 RuntimeException과 Error만 기본 롤백 대상으로 봐요. checked 예외에도 롤백하려면 `rollbackFor`를 지정하거나, 런타임 예외로 바꿔 던지거나, Spring 6.2부터는 `rollbackOn = ALL_EXCEPTIONS`로 전역 기본값을 바꿀 수 있어요.
+
+**꼬리질문**
+- Q. 메서드 안에서 RuntimeException을 catch하고 로그만 찍으면요? → 커밋돼요. 트랜잭션 인프라는 메서드 밖으로 나온 예외만 보기 때문이에요.
+- Q. 같은 클래스 안에서 @Transactional 메서드를 호출하면요? → 프록시를 거치지 않아 트랜잭션이 적용되지 않아요. 자세한 건 Spring 섹션에서 다뤄요.
+</details>
+
+<details>
+<summary>Q. 예외 생성이 비싸다는 말은 왜 나오나요?</summary>
+
+**답변(30초)** 예외 생성자가 fillInStackTrace로 현재 스레드의 스택 프레임을 전부 기록하기 때문이에요. 그래서 자주 일어나는 예상된 실패를 예외로 흐름 제어하면 비용과 로그가 함께 늘어요. 이런 경우엔 결과 객체를 반환하는 게 낫고, 꼭 예외가 필요하면 writableStackTrace를 false로 주는 생성자로 스택 기록을 끌 수 있어요.
+
+**꼬리질문**
+- Q. 운영 서버에서 NPE 스택트레이스가 안 찍히는 건 왜인가요? → HotSpot이 같은 위치에서 반복되는 내장 예외를 스택 없는 미리 만든 예외로 바꾸는 최적화를 할 수 있어요. `-XX:-OmitStackTraceInFastThrow`로 꺼요.
+</details>
+
+## 서술형 연습
+
+<details>
+<summary>상황: 주문 저장 중 포인트 차감이 실패했는데, 주문만 저장되고 포인트는 그대로입니다. 코드를 보니 포인트 차감을 try-catch로 감싸고 로그만 남기고 있었습니다.</summary>
+
+**상황 파악**
+주문과 포인트 차감은 하나의 트랜잭션으로 묶여야 하는 작업이에요. 그런데 한쪽만 반영됐다는 건 트랜잭션이 롤백되지 않고 **커밋됐다**는 뜻이에요. 로그만 남긴 catch가 핵심 단서예요.
+
+**원인 후보**
+1. **예외 삼키기**: 포인트 차감 예외를 catch하고 다시 던지지 않았어요. Spring 트랜잭션 인프라는 메서드 밖으로 나온 예외만 보고 롤백을 정하니, 예외를 못 본 채 커밋했어요.
+2. **checked 예외**: 설령 다시 던졌더라도 그게 checked 예외라면 기본 규칙상 역시 커밋돼요.
+3. 덤으로, `e.printStackTrace()`나 cause 없는 로그라면 왜 실패했는지도 추적하기 어려워요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. catch를 없애거나, 잡더라도 런타임 예외로 감싸서(cause 포함) 다시 던지기 | 기본 롤백 규칙이 그대로 동작. 원인도 로그에 남음. 가장 단순 | 호출한 쪽(컨트롤러, 전역 핸들러)이 이 예외를 응답으로 바꿔 줘야 함 |
+| B. catch 안에서 `setRollbackOnly()`로 롤백만 표시 | 예외를 밖으로 안 내보내고 정상 응답 흐름을 유지 | 코드가 Spring API에 묶이고 공식문서도 비권장. 롤백됐는데 성공처럼 보일 위험 |
+| C. checked 예외라면 `rollbackFor` 지정 또는 6.2+ `ALL_EXCEPTIONS` | 예외 타입을 바꾸지 않고 롤백 | 메서드마다 지정은 누락되기 쉬움. 전역 설정은 기존 "커밋되는 예외"에 기대던 코드의 동작을 바꿈 |
+
+**내가 고를 방법**
+A를 골라요. 포인트 차감 실패는 이 트랜잭션에서 복구할 방법이 없는 실패라 예외를 그대로 위로 올리는 게 맞아요. 의미 있는 비즈니스 예외(예: `PointDeductionException`)로 감싸 cause를 넘기고, `@RestControllerAdvice`에서 적절한 에러 응답으로 바꿔요. 팀에서 checked 예외를 쓰고 있다면 C의 전역 설정도 함께 검토해요.
+
+**채점 포인트**: 예외를 삼키면 프록시가 예외를 못 봐서 커밋, 기본 롤백 대상은 RuntimeException·Error, checked는 기본 커밋, 다시 던지기·예외 전환 시 cause 유지, setRollbackOnly는 침투적, 전역 예외 처리로 응답 변환, 해결책 2개 이상의 트레이드오프.
+</details>
+
+<details>
+<summary>상황: 외부 결제 API 클라이언트가 IOException을 던져서 서비스 메서드에 throws IOException을 붙였습니다. 결제가 실패했는데 주문 상태 변경이 DB에 커밋됐습니다.</summary>
+
+**상황 파악**
+예외는 메서드 밖으로 잘 나갔어요. 그런데도 커밋됐다면 예외 **타입**이 롤백 대상이 아니었던 거예요.
+
+**원인 후보**
+1. `IOException`은 checked 예외예요. Spring의 기본 롤백 규칙은 RuntimeException과 Error만 롤백하고 checked는 커밋해요.
+2. `rollbackFor`가 지정돼 있지 않고, 전역 `rollbackOn` 설정도 기본값이에요.
+3. 서비스 계층이 `IOException`이라는 외부 통신 세부에 묶여 있어서, 결제 클라이언트를 바꾸면 서비스 시그니처도 바꿔야 하는 구조예요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. 결제 클라이언트 경계에서 `IOException`을 잡아 런타임 예외(예: `PaymentFailedException`)로 전환, cause 전달 | 기본 규칙으로 롤백. 서비스가 통신 기술에 안 묶임. 원인은 `Caused by:`로 남음 | 예외 클래스를 하나 더 만들어야 함 |
+| B. `@Transactional(rollbackFor = IOException.class)` | 코드 변경이 가장 적음 | 메서드마다 붙여야 해서 새 메서드에서 빠뜨리기 쉬움. 서비스가 IOException에 계속 묶임 |
+| C. Spring 6.2+ `@EnableTransactionManagement(rollbackOn = ALL_EXCEPTIONS)` | 한 번 설정으로 모든 checked 예외 롤백. 누락 없음 | 기존에 checked 예외로 일부러 커밋하던 코드가 있으면 동작이 바뀜. 6.2 미만에서는 못 씀 |
+
+**내가 고를 방법**
+A를 기본으로 해요. 서비스 입장에서 결제 실패는 복구할 수 없는 실패이고, 하위 기술 예외를 경계에서 도메인 예외로 바꾸는 건 계층 분리에도 좋아요. Spring 6.2 이상이고 커밋되는 checked 예외에 기대는 코드가 없다면 C도 같이 켜서 같은 실수를 구조적으로 막아요. B는 급한 핫픽스로만 써요.
+
+**채점 포인트**: checked 예외는 기본 커밋, rollbackFor/noRollbackFor, 6.2 rollbackOn = ALL_EXCEPTIONS, 경계에서 예외 전환과 cause 유지, 계층이 구현 기술에 묶이는 문제, 전역 설정이 기존 동작에 주는 영향.
+</details>
+
+## 함께 보기
+
+- [JVM 구조와 GC](../jvm-gc/)
+- [제네릭과 타입 소거](../generics/)
+- [람다와 스트림](../lambda-stream/)
+- [Spring 공식문서: 선언적 트랜잭션 롤백](https://docs.spring.io/spring-framework/reference/data-access/transaction/declarative/rolling-back.html)
+
+## 출처
+
+- [JLS SE 21, Chapter 11 Exceptions](https://docs.oracle.com/javase/specs/jls/se21/html/jls-11.html)
+- [JLS SE 21, §14.20 The try statement](https://docs.oracle.com/javase/specs/jls/se21/html/jls-14.html#jls-14.20)
+- [Java SE 21 API, java.lang.Throwable](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/lang/Throwable.html)
+- [Java SE 21 API, java.lang.AutoCloseable](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/lang/AutoCloseable.html)
+- [The Java Tutorials, Unchecked Exceptions: The Controversy](https://docs.oracle.com/javase/tutorial/essential/exceptions/runtime.html)
+- [Spring Framework Reference, Rolling Back a Declarative Transaction](https://docs.spring.io/spring-framework/reference/data-access/transaction/declarative/rolling-back.html)
+- [Spring Framework Reference, Using @Transactional](https://docs.spring.io/spring-framework/reference/data-access/transaction/declarative/annotations.html)
+- [Spring Framework Reference, DAO Support](https://docs.spring.io/spring-framework/reference/data-access/dao.html)
+- [Spring Framework Reference, Controller Advice](https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller/ann-advice.html)
+- [Spring Framework Reference, @ExceptionHandler](https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller/ann-exceptionhandler.html)

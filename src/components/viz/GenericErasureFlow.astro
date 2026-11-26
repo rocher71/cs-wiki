@@ -1,0 +1,74 @@
+---
+// 위: 작성한 코드, 아래: 컴파일 후(소거된 모습). 360px에서 안 잘리게 전/후를 세로로 쌓는다.
+import Stepper from '../Stepper.astro';
+const X = 18, LH = 22;
+const top = ['class Box<T> {', 'T value;', 'T get() {…}', 'void set(T v) {…}', '}'];
+const IN = 34; // 들여쓰기는 공백 대신 x로 (SVG/HTML 압축이 공백을 접음)
+const steps = [
+  { caption: '작성한 코드예요. Box는 T라는 타입 자리를 두고, 쓰는 쪽에서 Box<String>으로 "String 전용"이라고 정해요.', show: ['src', 'use'] },
+  { caption: '컴파일러가 먼저 타입을 검사해요. b는 Box<String>이라 set(42)처럼 정수를 넣으려 하면 바로 컴파일 오류가 나요.', show: ['src', 'use', 'bad', 'hl-bad'] },
+  { caption: '검사가 끝나면 타입 정보를 지워요. T는 Object로, Box<String>은 그냥 Box로 바뀌어요.', show: ['src', 'use', 'bad', 'erased', 'use2', 'hl-erased', 'n-bound'] },
+  { caption: 'get()이 이제 Object를 돌려주니, 컴파일러가 꺼내는 자리에 (String) 캐스트를 대신 넣어 줘요.', show: ['src', 'use', 'bad', 'erased', 'use2', 'cast', 'hl-cast', 'n-cast'] },
+  { caption: '결과로 Box.class는 하나뿐이에요. 런타임에는 Box<String>과 Box<Integer>를 구분할 수 없어요.', show: ['src', 'use', 'bad', 'erased', 'use2', 'cast', 'res'] },
+];
+---
+<Stepper title="타입 소거: 컴파일 전과 후" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 560" role="img" aria-label="제네릭 코드가 컴파일되며 타입 검사, T를 Object로 소거, 캐스트 삽입을 거쳐 Box 클래스 하나가 되는 과정">
+    <defs>
+      <marker id="gef-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+
+    <!-- ① 작성한 코드 -->
+    <text class="l" x="6" y="14" style="font-weight:700">① 작성한 코드 (.java)</text>
+    <rect class="box" x="4" y="26" width="312" height="220" rx="8" />
+    <g data-id="src">
+      {top.map((t, i) => <text class="mono l" x={i % 4 ? IN : X} y={46 + i * LH}>{t}</text>)}
+    </g>
+    <g data-id="use">
+      <text class="mono l" x={X} y="164">Box&lt;String&gt; b = new Box&lt;&gt;();</text>
+      <text class="mono l" x={X} y="186">String s = b.get();</text>
+    </g>
+    <g data-id="bad" class="hide">
+      <text class="mono l" x={X} y="222">b.set(42);</text>
+      <rect class="err" x="124" y="208" width="132" height="28" rx="14" />
+      <text class="err-t" x="190" y="222" style="font-size:14px">✗ 컴파일 오류</text>
+    </g>
+    <rect data-id="hl-bad" class="hl" x="10" y="206" width="252" height="32" rx="8" />
+
+    <!-- 컴파일 화살표 -->
+    <line class="line" x1="40" y1="250" x2="40" y2="280" marker-end="url(#gef-arr)" />
+    <text class="sub l" x="56" y="266">javac: 검사 → 소거 → 캐스트</text>
+
+    <!-- ② 컴파일 후 -->
+    <text class="l" x="6" y="294" style="font-weight:700">② 컴파일 후 (소거된 모습)</text>
+    <rect class="frame" x="4" y="306" width="312" height="170" rx="8" />
+    <g data-id="erased" class="hide">
+      <text class="mono l" x={X} y="326">class Box {'{'}</text>
+      <text class="mono l" x={IN} y="348"><tspan class="hi">Object</tspan> value;</text>
+      <text class="mono l" x={IN} y="370"><tspan class="hi">Object</tspan> get() {'{'}…{'}'}</text>
+      <text class="mono l" x={IN} y="392">void set(<tspan class="hi">Object</tspan> v) {'{'}…{'}'}</text>
+      <text class="mono l" x={X} y="414">{'}'}</text>
+    </g>
+    <text data-id="use2" class="mono l hide" x={X} y="442"><tspan class="hi">Box</tspan> b = new <tspan class="hi">Box</tspan>();</text>
+    <text data-id="cast" class="mono l hide" x={X} y="464">String s = <tspan class="hi">(String)</tspan> b.get();</text>
+    <rect data-id="hl-erased" class="hl" x="8" y="312" width="304" height="142" rx="8" />
+    <rect data-id="hl-cast" class="hl" x="8" y="450" width="304" height="28" rx="8" />
+
+    <!-- 단계별 메모 (같은 자리에 하나씩) -->
+    <g data-id="n-bound" class="hide">
+      <text class="sub" x="160" y="500">bound가 있으면 Object 대신 그 bound로</text>
+      <text class="sub" x="160" y="522">예) T extends Comparable → Comparable</text>
+    </g>
+    <g data-id="n-cast" class="hide">
+      <text class="sub" x="160" y="500">(String)은 내가 안 쓴 코드예요.</text>
+      <text class="sub" x="160" y="522">컴파일러가 꺼내는 자리마다 넣어 줘요.</text>
+    </g>
+    <g data-id="res" class="hide">
+      <rect class="badge" x="50" y="488" width="220" height="34" rx="17" />
+      <text class="on-badge" x="160" y="505">Box.class 파일은 1개</text>
+      <text class="sub" x="160" y="542">Box&lt;String&gt;도 Box&lt;Integer&gt;도 런타임엔 Box</text>
+    </g>
+  </svg>
+</Stepper>

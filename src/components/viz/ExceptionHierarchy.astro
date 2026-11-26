@@ -1,0 +1,75 @@
+---
+// 예외 계층도(정적). CollectionHierarchy처럼 세로 들여쓰기 트리. 전부 클래스라 굵은 글씨 칩.
+// z: c=checked, u=unchecked, 없음=예외 아님(Object). 같은 z가 이어지는 행은 한 띠로 칠한다.
+type Row = { d: number; t: string; z?: 'c' | 'u'; note?: string };
+const rows: Row[] = [
+  { d: 0, t: 'Object', note: '예외 아님' },
+  { d: 1, t: 'Throwable', z: 'c' },
+  { d: 2, t: 'Error', z: 'u' },
+  { d: 3, t: 'VirtualMachineError', z: 'u' },
+  { d: 4, t: 'OutOfMemoryError', z: 'u' },
+  { d: 4, t: 'StackOverflowError', z: 'u' },
+  { d: 3, t: 'LinkageError', z: 'u' },
+  { d: 2, t: 'Exception', z: 'c' },
+  { d: 3, t: 'IOException', z: 'c' },
+  { d: 3, t: 'SQLException', z: 'c' },
+  { d: 3, t: 'RuntimeException', z: 'u' },
+  { d: 4, t: 'NullPointerException', z: 'u' },
+  { d: 4, t: 'IllegalArgumentException', z: 'u' },
+  { d: 4, t: 'IllegalStateException', z: 'u' },
+  { d: 4, t: 'ArithmeticException', z: 'u' },
+];
+const RH = 28, IND = 14, X0 = 14, H = 22, Y0 = 84;
+const w = (t: string) => Math.round(t.length * 8.9 + 14); // ponytail: 라틴 글자 폭 근사
+const pos = rows.map((r, i) => ({ ...r, x: X0 + r.d * IND, y: Y0 + i * RH }));
+const links = pos.flatMap((r, i) => {
+  if (r.d === 0) return [];
+  let p = i - 1; while (pos[p].d !== r.d - 1) p--;
+  return [`M${pos[p].x + 8} ${pos[p].y + H / 2} V${r.y + H / 2} H${r.x}`];
+});
+// 같은 z가 연속된 구간 → 띠 하나
+const runs: { z: 'c' | 'u'; y: number; h: number }[] = [];
+pos.forEach((r, i) => {
+  if (!r.z) return;
+  const last = runs[runs.length - 1];
+  if (last && pos[i - 1]?.z === r.z) last.h += RH;
+  else runs.push({ z: r.z, y: r.y - 3, h: RH });
+});
+const VH = Y0 + rows.length * RH + 8;
+---
+<figure class="viz-static">
+  <svg class="viz" viewBox={`0 0 320 ${VH}`} role="img" aria-label="자바 예외 계층도: Throwable 아래 Error와 Exception, checked와 unchecked 영역 구분">
+    <!-- 범례 -->
+    <rect class="zone-c" x="4" y="4" width="92" height="26" rx="6" />
+    <text x="50" y="18" style="font-weight:700;font-size:14px">checked</text>
+    <text class="sub l" x="104" y="18">잡거나 throws 선언 강제</text>
+    <rect class="zone-u" x="4" y="36" width="92" height="26" rx="6" />
+    <text x="50" y="50" style="font-weight:700;font-size:14px">unchecked</text>
+    <text class="sub l" x="104" y="50">컴파일러가 강제 안 함</text>
+
+    {runs.map((r) => (
+      <g>
+        <rect class={r.z === 'c' ? 'zone-c' : 'zone-u'} x="4" y={r.y} width="312" height={r.h} rx="6" />
+        <g>
+          <rect class={r.z === 'c' ? 'badge' : 'box'} x="222" y={r.y + 4} width="90" height="20" rx="10" />
+          <text class={r.z === 'c' ? 'on-badge' : ''} x="267" y={r.y + 14} style="font-size:14px;font-weight:700">{r.z === 'c' ? 'checked' : 'unchecked'}</text>
+        </g>
+      </g>
+    ))}
+    {links.map((d) => <path class="line" d={d} />)}
+    {pos.map((r) => (
+      <g>
+        <rect class={r.z ? 'chip' : 'box'} x={r.x} y={r.y} width={w(r.t)} height={H} rx="5" />
+        <text class="l" x={r.x + 7} y={r.y + H / 2 + 1} style="font-weight:700">{r.t}</text>
+        {r.note && <text class="sub l" x={r.x + w(r.t) + 8} y={r.y + H / 2 + 1}>{r.note}</text>}
+      </g>
+    ))}
+  </svg>
+  <figcaption>Error 계열 전체와 RuntimeException 계열 전체가 unchecked예요. JLS는 checked를 "unchecked가 아닌 나머지 전부"로 정의해서, Throwable 자신과 Exception, IOException 등이 checked가 돼요. 부모가 checked라고 자식이 다 checked인 건 아니에요. Error와 RuntimeException 두 가지만 빠져나가요.</figcaption>
+</figure>
+
+<style>
+  .viz-static { margin: 1.25rem 0; padding: .75rem; border-radius: .75rem; border: 1px solid var(--sl-color-gray-5); }
+  .viz-static svg { width: 100%; height: auto; display: block; }
+  .viz-static figcaption { margin-top: .6rem; font-size: .9rem; line-height: 1.6; color: var(--sl-color-gray-2); }
+</style>

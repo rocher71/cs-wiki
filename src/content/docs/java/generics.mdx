@@ -1,0 +1,384 @@
+---
+title: 제네릭과 타입 소거
+description: 제네릭은 컬렉션 같은 클래스에 "무슨 타입을 담는지"를 적어 컴파일 때 타입을 검사하게 하는 기능이고, 검사가 끝나면 타입 정보는 지워져(타입 소거) 런타임에는 일반 클래스로 돌아가요.
+sidebar: { order: 7 }
+tags: [면접빈출, 서술형]
+---
+import { Aside } from '@astrojs/starlight/components';
+import GenericErasureFlow from '~/components/viz/GenericErasureFlow.astro';
+import GenericInvariance from '~/components/viz/GenericInvariance.astro';
+
+:::tip[한 줄 요약]
+제네릭은 `List<String>`처럼 담을 타입을 정해 두고, 잘못된 타입을 **컴파일 때** 막아 주는 기능이에요. 검사가 끝나면 컴파일러가 타입 정보를 지우고(타입 소거) 필요한 캐스트를 대신 넣어 주기 때문에, 런타임에는 `List<String>`과 `List<Integer>`가 똑같은 `List`예요.
+:::
+
+## 쉽게 이해하기
+
+제네릭은 **보관함에 붙이는 라벨**과 비슷해요. 그냥 `List`는 라벨 없는 상자라 아무거나 들어가요. 사과를 기대하고 꺼냈는데 양말이 나오면 그때서야 문제가 터져요. `List<사과>`는 상자에 "사과 전용" 라벨을 붙인 거예요. 입구의 검수원(컴파일러)이 라벨을 보고 양말을 넣으려는 순간 바로 막아 줘요.
+
+재미있는 건 **검수가 끝나면 라벨을 떼어 버린다**는 점이에요. 창고(런타임)에 들어간 상자에는 라벨이 없어요. 대신 검수원이 "여기서 꺼낼 땐 사과로 꺼내세요"라는 메모(캐스트)를 꺼내는 자리마다 미리 붙여 둬요. 이게 **타입 소거**예요.
+
+또 하나 헷갈리는 규칙이 있어요. 사과는 과일이지만, **"사과 상자"를 "과일 상자"라고 불러 줄 수는 없어요.** 그렇게 부르게 해 주면 누군가 "과일 상자니까" 하고 바나나를 넣을 수 있거든요. 그래서 자바는 "과일 중 무언가가 든 상자"(`? extends 과일`)라는 이름표를 따로 둬요. 이 이름표로는 꺼낼 때 과일인 건 확실하지만, 넣는 건 막혀요.
+
+단, 실제로는 라벨이 완전히 사라지는 건 아니에요. 객체에는 없지만, 클래스 설계도(필드·메서드 선언부)에 적힌 제네릭 정보는 남아 있어서 리플렉션으로 읽을 수 있어요.
+
+## 그림으로 보기
+
+<GenericErasureFlow />
+
+<GenericInvariance />
+
+## 제대로 알기
+
+### 1. 왜 쓰나: 실수를 런타임에서 컴파일 타임으로
+
+**제네릭**(generics, 클래스나 메서드가 다룰 타입을 매개변수처럼 받는 기능)이 없던 시절에는 컬렉션이 모든 걸 `Object`로 받았어요. 그래서 꺼낼 때마다 캐스트가 필요했고, 잘못 넣은 값은 꺼내는 순간 `ClassCastException`(캐스트하려는 타입이 실제 타입과 달라서 나는 예외)으로 터졌어요.
+
+```java
+// 제네릭 없이
+List list = new ArrayList();
+list.add("hello");
+String s = (String) list.get(0);   // 꺼낼 때마다 캐스트
+
+// 제네릭으로
+List<String> names = new ArrayList<>();
+names.add("hello");
+String t = names.get(0);           // 캐스트 불필요
+names.add(42);                     // 컴파일 오류! 실행 전에 막힘
+```
+
+오라클 튜토리얼이 드는 이점은 세 가지예요.
+
+| 이점 | 뜻 |
+|---|---|
+| 더 강한 컴파일 타임 타입 검사 | 런타임 오류보다 컴파일 오류가 찾고 고치기 쉬워요 |
+| 캐스트 제거 | 꺼낼 때 `(String)`을 직접 쓸 필요가 없어요 |
+| 범용 알고리즘 | 한 번 짠 코드를 여러 타입에 타입 안전하게 써요 |
+
+- 제네릭은 Java 5에서 들어왔고, 오른쪽 타입을 생략하는 **다이아몬드 연산자** `new ArrayList<>()`는 Java 7부터예요.
+- 타입 매개변수 이름은 관례가 있어요. `E`(Element, 컬렉션 원소), `K`(Key), `V`(Value), `N`(Number), `T`(Type), 여러 개면 `S`, `U`도 써요.
+- 타입 인자에는 **참조 타입만** 와요. `List<int>`는 안 되고 `List<Integer>`를 써야 해요. 기본형은 박싱(감싸기)이 필요하다는 게 제네릭의 비용이에요. 자세한 건 [기본형·참조형과 Call by Value](../primitive-reference/)를 보세요.
+
+### 2. 타입 소거: 컴파일러가 하는 세 가지 일
+
+**타입 소거**(type erasure, 컴파일 후 제네릭 타입 정보를 지우는 것)는 컴파일러가 제네릭을 구현하는 방식이에요. 하는 일은 세 가지예요.
+
+1. 타입 매개변수를 **bound**(상한, `T extends Comparable`의 `Comparable`처럼 "이 타입 이하만 와라"는 제한)로 바꾸고, bound가 없으면 `Object`로 바꿔요.
+2. 타입 안전을 위해 필요한 자리에 **캐스트를 넣어요**.
+3. 제네릭 클래스를 상속했을 때 다형성이 깨지지 않도록 **브리지 메서드**를 만들어요(아래 3번).
+
+```java
+// 작성한 코드                         // 소거 후 (개념상)
+class Node<T> { T data; }             // class Node { Object data; }
+class Node<T extends Comparable<T>>   // class Node { Comparable data; }
+  { T data; }
+<T extends Comparable<T>> T max(T a, T b)
+                                      // Comparable max(Comparable a, Comparable b)
+
+Box<String> b = new Box<>();          // Box b = new Box();
+String s = b.get();                   // String s = (String) b.get();
+```
+
+- bound가 여러 개(`T extends A & B`)면 **가장 왼쪽 bound**로 소거돼요.
+- 파라미터화 타입마다 새 클래스를 만들지 않으니 **런타임 오버헤드가 없어요.** "소거 때문에 느리다"는 오해예요.
+- 그래서 `new ArrayList<String>().getClass() == new ArrayList<Integer>().getClass()`는 `true`예요. 런타임엔 둘 다 그냥 `ArrayList`예요.
+
+<Aside type="note" title="왜 굳이 지우는 설계를 했나?">
+제네릭은 Java 5에 뒤늦게 들어왔어요. 이미 제네릭 없이 짠 코드와 라이브러리가 많았기 때문에, 바이트코드를 예전 형태(일반 클래스)로 유지해 **기존 코드와 섞여 돌아가게** 하는 쪽을 택했어요. JLS도 raw 타입(아래 6번)을 "레거시 코드 호환을 위한 양보"라고 설명해요.
+</Aside>
+
+### 3. 브리지 메서드
+
+```java
+class Node<T> { public void setData(T data) { ... } }
+class MyNode extends Node<Integer> {
+    @Override public void setData(Integer data) { ... }
+}
+```
+
+소거하면 부모는 `setData(Object)`, 자식은 `setData(Integer)`라 시그니처가 달라서 오버라이드가 깨져요. 그래서 컴파일러가 `MyNode`에 몰래 이런 메서드를 하나 더 만들어요.
+
+```java
+// 컴파일러가 만든 브리지 메서드
+public void setData(Object data) { setData((Integer) data); }
+```
+
+raw 타입으로 `Node n = myNode; n.setData("Hello");`를 하면 경고만 나고 컴파일돼요. 실행하면 브리지 메서드의 `(Integer)` 캐스트에서 `ClassCastException`이 나요.
+
+### 4. 불공변: `List<Integer>`는 `List<Number>`가 아니다
+
+`Integer`는 `Number`의 하위 타입이지만, **`List<Integer>`는 `List<Number>`의 하위 타입이 아니에요.** 이걸 **불공변**(invariant, 원소 타입의 상하 관계가 제네릭 타입으로 이어지지 않는 성질)이라고 해요. JLS도 "서브타이핑은 파라미터화 타입을 통해 확장되지 않는다"고 적고 있어요.
+
+```java
+List<Integer> ints = new ArrayList<>();
+List<Number> nums = ints;   // 컴파일 오류
+// 만약 허용되면?
+nums.add(3.14);             // Double도 Number니까 통과
+Integer i = ints.get(0);    // Integer 리스트에서 Double이 나옴!
+```
+
+- 그래서 컴파일러는 대입 자체를 막아요.
+- **타입 인자가 같으면** 상속 관계는 그대로예요. `ArrayList<String>`은 `List<String>`이고, `List<String>`은 `Collection<String>`이에요.
+- `List<Integer>`가 하위 타입인 건 `List<? extends Number>`와 `List<? super Integer>` 쪽이에요(다음 절).
+- 아무 리스트나 받고 싶으면 `List<Object>`가 아니라 `List<?>`를 써요. `List<Object>`에는 `List<String>`을 넘길 수 없어요.
+
+**배열은 반대로 공변**(covariant, 원소의 상하 관계가 그대로 이어지는 성질)이에요.
+
+| | 배열 | 제네릭 |
+|---|---|---|
+| `Integer`→`Number` 관계 | `Integer[]`는 `Number[]`의 하위 | `List<Integer>`와 `List<Number>`는 무관 |
+| 잘못 넣으면 | 컴파일 통과, 런타임 `ArrayStoreException` | 컴파일 오류 |
+| 런타임 타입 정보 | 원소 타입을 알고 있음 | 소거되어 모름 |
+
+```java
+Number[] na = new Integer[1];  // 허용(공변)
+na[0] = 3.14;                  // 컴파일 OK → 실행 시 ArrayStoreException
+```
+
+배열은 저장할 때마다 런타임에 원소 타입을 검사해서 잡고, 제네릭은 런타임 정보가 없으니 컴파일 때 미리 막는 거예요. 참고로 기본형 배열은 공변이 아니에요(`int[]`는 `Object[]`가 아님).
+
+### 5. 와일드카드와 PECS
+
+**와일드카드**(wildcard, `?`로 "어떤 타입인지 정확히는 모름"을 표현)는 세 가지 형태예요.
+
+| 형태 | 뜻 | 넣기(add) | 꺼내기(get) | 언제 |
+|---|---|---|---|---|
+| `List<?>` | 아무 타입 리스트 | `null`만 | `Object` | `Object` 메서드만 쓸 때 |
+| `List<? extends Number>` | Number 또는 그 하위 타입 리스트 | 막힘(`null` 제외) | `Number`로 꺼냄 | 값을 **꺼내 쓰기만** 할 때 |
+| `List<? super Integer>` | Integer 또는 그 상위 타입 리스트 | `Integer` 넣기 가능 | `Object`로만 꺼냄 | 값을 **넣기만** 할 때 |
+
+`? extends Number`에 add가 막히는 이유는, 실제로 `List<Integer>`인지 `List<Double>`인지 모르기 때문이에요. 정수 리스트에 실수를 넣을 수도 있으니 아예 막아요. 반대로 `? super Integer`는 실제가 `List<Integer>`든 `List<Number>`든 `List<Object>`든 `Integer`는 들어가니까 넣기가 돼요. 대신 꺼낼 땐 뭔지 모르니 `Object`예요.
+
+<Aside type="tip" title="PECS: Producer-Extends, Consumer-Super">
+면접에서 자주 나오는 기억법이에요. 매개변수가 값을 **생산**(제공)하면 `extends`, 값을 **소비**(받아 담기)하면 `super`. 조슈아 블로크의 『Effective Java』에서 널리 알려진 표현이고, 공식 명세 용어는 아니에요. 오라클 튜토리얼은 같은 내용을 "꺼내 쓰는 in 변수는 `extends`, 담는 out 변수는 `super`"라고 설명해요.
+</Aside>
+
+```java
+// JDK의 Collections.copy 시그니처로 자주 드는 예
+public static <T> void copy(List<? super T> dest,   // 받아 담음 → super
+                            List<? extends T> src)  // 꺼내 줌 → extends
+
+double sum(List<? extends Number> nums) {   // List<Long>, List<BigDecimal> 다 받음
+    double total = 0;
+    for (Number n : nums) total += n.doubleValue();
+    return total;
+}
+```
+
+튜토리얼 지침을 정리하면 이래요.
+- 읽기와 쓰기를 **둘 다** 하는 매개변수에는 와일드카드를 쓰지 않아요(`List<T>`).
+- **반환 타입에는 와일드카드를 쓰지 않아요.** 받는 쪽이 와일드카드를 떠안게 돼요.
+- `? extends` 리스트도 완전한 읽기 전용은 아니에요. `null` 추가, `clear()`, iterator의 `remove()`는 돼요. 그래서 "사실상 읽기 전용"이라고 말해요.
+
+### 6. raw 타입과 힙 오염
+
+**raw 타입**(raw type, 타입 인자를 빼고 쓴 제네릭 타입. `List<String>` 대신 `List`)은 레거시 호환 때문에만 허용돼요. raw로 값을 넣으면 **unchecked 경고**(컴파일러가 타입 안전을 보장 못 한다는 경고)가 나요.
+
+`List<?>`와 raw `List`는 달라요. `List<?>`는 타입 검사가 살아 있어 `null` 말고는 add가 막히고, raw `List`는 검사를 꺼 버리고 경고만 내요.
+
+**힙 오염**(heap pollution)은 파라미터화 타입 변수가 실제로는 그 타입이 아닌 객체를 가리키는 상황이에요.
+
+```java
+List raw = new ArrayList<Number>();
+List<String> strs = raw;      // unchecked 경고만 나고 통과 (이미 오염 상태)
+raw.add(42);                  // String 리스트에 정수가 들어감
+String s = strs.get(0);       // 한참 뒤 여기서 ClassCastException
+```
+
+무서운 점은 **오염된 곳과 예외가 터지는 곳이 다르다**는 거예요. 그래서 디버깅이 어려워요.
+
+제네릭 가변인자(`T... args`)도 내부적으로 배열이라 "Possible heap pollution" 경고가 나요. 메서드가 그 배열을 밖으로 내보내거나 다른 타입을 넣지 않는다면 `@SafeVarargs`로 경고를 끌 수 있어요. 이 애너테이션은 static·final 메서드, 생성자, (Java 9+) private 메서드에 붙여요.
+
+### 7. reifiable 타입과 제네릭의 제한
+
+**reifiable 타입**(실체화 타입, 런타임에도 타입 정보가 온전히 남는 타입)은 일반 클래스, 기본형, raw 타입, `List<?>`처럼 비한정 와일드카드만 쓴 타입, 그리고 이런 것들의 배열이에요. `List<String>`, `List<? extends Number>`, `T`는 소거되니 reifiable이 아니에요. 제네릭의 제한은 대부분 여기서 나와요.
+
+| 안 되는 것 | 이유 | 대안 |
+|---|---|---|
+| `List<int>` | 타입 인자는 참조 타입만 | `List<Integer>` |
+| `new T()` | 런타임에 `T`가 뭔지 모름 | `Class<T>`를 받아 리플렉션으로 생성 |
+| `static T field` | static은 모든 인스턴스가 공유하는데 `Box<A>`, `Box<B>`가 동시에 있으면 타입을 정할 수 없음 | 인스턴스 필드로 |
+| `x instanceof List<Integer>` | 런타임이 `List<Integer>`와 `List<String>`을 구별 못 함 | `instanceof List<?>` |
+| `new List<Integer>[2]`, `new T[n]` | 아래 설명 | `List<List<Integer>>` |
+| `class MyEx<T> extends Exception`, `catch (T e)` | 예외 타입은 런타임에 구별돼야 함 | 제네릭 아닌 예외 클래스 (`throws T`는 허용) |
+| `print(Set<String>)`와 `print(Set<Integer>)` 오버로딩 | 소거하면 둘 다 `print(Set)` | 메서드 이름 분리 |
+
+**제네릭 배열을 못 만드는 이유**는 배열과 제네릭의 성질이 충돌해서예요. 배열은 원소를 넣을 때마다 런타임에 타입을 검사(`ArrayStoreException`)해야 하는데, 원소 타입이 소거되면 `List<String>[]`에 `ArrayList<Integer>`를 넣어도 JVM이 잡을 방법이 없어요. 그래서 JLS가 non-reifiable 원소 타입의 배열 생성을 아예 금지해요.
+
+- `List<String>[] arr;` 같은 **변수 선언**과 `new List<?>[n]`(reifiable)은 돼요.
+- 흔한 우회 `(T[]) new Object[n]`은 unchecked 경고가 나고, 이 배열을 `T[]`로 밖에 내보내면 호출부에서 `ClassCastException`이 날 수 있어요. `ArrayList`가 내부에 `Object[]`를 들고 있는 것도 이 때문이에요. 밖으로 내보내야 하면 `Array.newInstance(Class<T>, n)`이나 `List<T>`를 써요.
+
+### 8. 런타임에 남는 제네릭 정보: 슈퍼 타입 토큰
+
+객체에는 타입 인자가 없지만, 클래스 파일의 **선언부**(필드 타입, 메서드 시그니처, 상위 클래스)에는 제네릭 정보가 남아 리플렉션으로 읽혀요. 지역 변수나 객체 인스턴스의 타입 인자는 남지 않아요.
+
+Jackson의 `TypeReference`, Spring의 `ParameterizedTypeReference`가 이걸 이용해요. `new TypeReference<List<UserDto>>() {}`처럼 끝에 `{}`를 붙여 **익명 하위 클래스**를 만들면, 그 클래스의 "상위 클래스" 선언에 `List<UserDto>`가 기록되니 런타임에 읽을 수 있어요. 이 기법을 **슈퍼 타입 토큰**이라고 불러요.
+
+## 면접 질문
+
+<details>
+<summary>Q. 제네릭을 왜 쓰나요?</summary>
+
+**답변(30초)** 잘못된 타입을 실행 전에, 컴파일 시점에 잡으려고 써요. `List<String>`처럼 담을 타입을 정해 두면 다른 타입을 넣는 코드가 컴파일 오류가 되고, 꺼낼 때 캐스트도 필요 없어요. 또 한 번 작성한 코드를 여러 타입에 타입 안전하게 재사용할 수 있어요. 제네릭이 없으면 `Object`로 받았다가 꺼낼 때 `ClassCastException`으로 런타임에야 문제가 드러나요.
+
+**꼬리질문**
+- Q. `List<int>`는 왜 안 되나요? → 타입 인자는 참조 타입만 올 수 있어요. 소거하면 `Object`가 되는데 기본형은 `Object`가 아니라서 `Integer`로 박싱해야 해요.
+- Q. 다이아몬드 연산자는요? → `new ArrayList<>()`처럼 오른쪽 타입 인자를 컴파일러가 추론하게 하는 문법이고 Java 7부터예요.
+</details>
+
+<details>
+<summary>Q. 타입 소거가 무엇이고, 왜 그렇게 설계했나요?</summary>
+
+**답변(30초)** 컴파일러가 타입 검사를 마친 뒤 제네릭 타입 정보를 지우는 방식이에요. 타입 매개변수를 bound나 `Object`로 바꾸고, 필요한 곳에 캐스트를 넣고, 상속 시 다형성을 위해 브리지 메서드를 만들어요. 그래서 런타임에는 `List<String>`과 `List<Integer>`가 같은 클래스이고, 새 클래스를 만들지 않으니 런타임 오버헤드도 없어요. 이렇게 설계한 이유는 Java 5 이전에 짠 제네릭 없는 코드와 호환하기 위해서예요.
+
+**꼬리질문**
+- Q. `<T extends Comparable<T>>`의 T는 무엇으로 소거되나요? → `Object`가 아니라 가장 왼쪽 bound인 `Comparable`로요.
+- Q. 그럼 런타임에 제네릭 정보는 전혀 없나요? → 객체에는 없지만 필드·메서드·상위 클래스 선언부에는 남아 리플렉션으로 읽혀요. `TypeReference`가 이걸 써요.
+- Q. 브리지 메서드가 뭔가요? → `Node<Integer>`를 상속해 `setData(Integer)`를 오버라이드하면 소거 후 부모는 `setData(Object)`라 어긋나요. 컴파일러가 `setData(Object)`를 만들어 캐스트 후 위임하게 해요.
+</details>
+
+<details>
+<summary>Q. Integer 리스트를 Number 리스트 매개변수에 넘길 수 있나요?</summary>
+
+**답변(30초)** 못 넘겨요. `Integer`가 `Number`의 하위 타입이어도 `List<Integer>`는 `List<Number>`의 하위 타입이 아니에요(불공변). 허용하면 `List<Number>` 변수로 `Double`을 넣을 수 있고, 원래 정수 리스트에서 꺼낼 때 터지기 때문이에요. 꺼내 읽기만 할 거라면 매개변수를 `List<? extends Number>`로 바꾸면 돼요.
+
+**꼬리질문**
+- Q. 배열은 `Number[] na = new Integer[1]`이 되잖아요? → 배열은 공변이라 대입은 되지만, 런타임에 저장할 때마다 검사해서 `ArrayStoreException`을 내요. 제네릭은 런타임 정보가 없어 컴파일 때 막는 쪽을 택한 거예요.
+- Q. 아무 리스트나 받으려면 `List<Object>`면 되나요? → 아니요. `List<String>`도 `List<Object>`의 하위가 아니에요. `List<?>`를 써요.
+</details>
+
+<details>
+<summary>Q. ? extends와 ? super의 차이, PECS가 뭔가요?</summary>
+
+**답변(30초)** `? extends T`는 T나 그 하위 타입 리스트라서 꺼내면 T로 읽을 수 있지만 넣을 수는 없어요. `? super T`는 T나 그 상위 타입 리스트라서 T를 넣을 수는 있지만 꺼내면 `Object`예요. 그래서 값을 꺼내 주는 생산자 매개변수엔 extends, 값을 받아 담는 소비자 매개변수엔 super를 쓰는데, 이걸 『Effective Java』에서 PECS라고 부르며 널리 알려졌어요. 예로 `Collections.copy(List<? super T> dest, List<? extends T> src)`가 있어요.
+
+**꼬리질문**
+- Q. `? extends` 리스트는 완전한 읽기 전용인가요? → `null` 추가, `clear()`, iterator `remove()`는 돼서 엄밀히는 아니에요. 사실상 읽기 전용이에요.
+- Q. 읽기와 쓰기를 둘 다 하면요? → 와일드카드를 쓰지 않고 `List<T>`로 받아요.
+- Q. 반환 타입에 와일드카드를 써도 되나요? → 권하지 않아요. 호출하는 쪽이 와일드카드 타입을 다뤄야 해서 불편해져요.
+</details>
+
+<details>
+<summary>Q. 제네릭 배열을 만들 수 없는 이유는요?</summary>
+
+**답변(30초)** 배열은 원소를 넣을 때마다 런타임에 타입을 검사해서 `ArrayStoreException`을 내야 하는데, 제네릭은 소거돼서 런타임에 원소 타입을 모르기 때문이에요. `List<String>[]`에 `ArrayList<Integer>`를 넣어도 JVM이 잡을 수 없으니, 명세가 이런 배열 생성을 아예 금지해요. 대신 `List<List<String>>`을 쓰거나, 꼭 배열이 필요하면 `Class<T>`를 받아 `Array.newInstance`로 만들어요.
+
+**꼬리질문**
+- Q. `(T[]) new Object[n]`은요? → unchecked 경고가 나고, 그 배열을 `T[]`로 밖에 내보내면 호출부에서 `ClassCastException`이 날 수 있어요. 내부에서만 쓰면 괜찮아서 `ArrayList`도 `Object[]`를 들고 있어요.
+- Q. `new List<?>[n]`은 되나요? → 돼요. `List<?>`는 reifiable 타입이라서요.
+</details>
+
+<details>
+<summary>Q. raw 타입을 쓰면 안 되는 이유와 힙 오염이 뭔가요?</summary>
+
+**답변(30초)** raw 타입은 `List<String>` 대신 `List`처럼 타입 인자를 빼고 쓰는 거고, 레거시 호환용으로만 남아 있어요. 타입 검사가 꺼져서 경고만 내고 잘못된 값이 들어가요. 그러면 `List<String>` 변수가 실제로는 정수가 든 리스트를 가리키는 힙 오염이 생기고, 오염된 곳이 아니라 한참 뒤 꺼내는 곳에서 `ClassCastException`이 터져 원인을 찾기 어려워요.
+
+**꼬리질문**
+- Q. `List<?>`와 raw `List`는 같나요? → 달라요. `List<?>`는 검사가 살아 있어 `null` 외엔 add가 막히고, raw는 검사를 끄고 경고만 내요.
+- Q. `@SafeVarargs`는 언제 쓰나요? → 제네릭 가변인자 메서드가 그 배열을 외부로 내보내거나 다른 타입을 넣지 않아 안전할 때, 힙 오염 경고를 끄려고 붙여요.
+</details>
+
+## 서술형 연습
+
+<details>
+<summary>상황: 공통 응답 래퍼 ApiResponse로 외부 API를 받아 역직렬화했더니, data 필드를 UserDto로 쓰는 순간 ClassCastException이 납니다. 로그에는 LinkedHashMap cannot be cast라고 찍혀요.</summary>
+
+**상황 파악**
+응답 구조는 `ApiResponse<T> { T data; }`이고, `restTemplate.getForObject(url, ApiResponse.class)`처럼 호출하고 있어요. 타입 소거 때문에 `ApiResponse<UserDto>.class` 같은 클래스 리터럴은 만들 수 없어서, Jackson은 `T`가 무엇인지 모른 채 `data`를 기본 형태인 `LinkedHashMap`으로 채워요. 컴파일러는 `(UserDto)` 캐스트를 꺼내는 자리에 넣어 두었으니, 거기서 터져요.
+
+**원인 후보**
+1. 클래스 리터럴만 넘겨서 제네릭 타입 정보가 Jackson에 전달되지 않음(가장 유력)
+2. 응답 JSON 구조가 DTO와 달라서 매핑 실패
+3. raw 타입 사용으로 경고가 무시된 채 배포됨
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. 슈퍼 타입 토큰: `new ParameterizedTypeReference<ApiResponse<UserDto>>() {}` (Jackson은 `TypeReference`) | 익명 하위 클래스의 상위 클래스 선언에 남은 제네릭 정보를 읽어 정확히 매핑. 코드 변경이 작음 | 호출마다 `{}` 붙은 익명 클래스를 써야 하고, 처음 보는 사람에게 낯선 문법 |
+| B. Jackson `JavaType`을 직접 구성(`ApiResponse` + `UserDto` 조합) | 타입을 런타임 값으로 조립할 수 있어 공통 클라이언트 유틸로 만들기 좋음 | Jackson API에 직접 묶이고 코드가 길어짐 |
+| C. 래퍼 없이 `UserResponse`처럼 제네릭 아닌 전용 클래스 정의 | 가장 단순하고 `UserResponse.class`로 바로 됨 | API마다 클래스가 늘어나 공통 래퍼의 의미가 사라짐 |
+
+**내가 고를 방법**
+호출하는 곳이 몇 군데면 A로 바로 고쳐요. 같은 패턴이 여러 API에 반복되면 B로 `get(url, UserDto.class)` 같은 공통 메서드를 만들어 내부에서 타입을 조립하게 해요. 그리고 raw `ApiResponse`를 쓴 곳의 unchecked 경고를 정리해 같은 실수를 막아요.
+
+**채점 포인트**: 타입 소거로 `T`를 런타임에 모름, 제네릭 클래스 리터럴 불가, Jackson의 기본 Map 매핑, 캐스트가 꺼내는 자리에서 실패, 선언부 제네릭 정보는 남음 → 슈퍼 타입 토큰, 대안 비교.
+</details>
+
+<details>
+<summary>상황: 레거시 모듈에서 넘겨받은 리스트를 처리하는데, 데이터를 넣은 곳과 전혀 다른 화면 코드에서 가끔 ClassCastException이 납니다.</summary>
+
+**상황 파악**
+레거시 모듈은 raw `List`로 값을 모아 반환하고, 새 코드는 그걸 `List<String>`으로 받아 써요. raw 경로에서 누군가 `Integer`를 넣으면 `List<String>` 변수가 정수가 섞인 리스트를 가리키는 **힙 오염**이 생겨요. 오염은 넣을 때 일어나는데, 예외는 컴파일러가 넣어 둔 `(String)` 캐스트가 실행되는 **꺼내는 순간**에 나니까 위치가 멀리 떨어져 보여요.
+
+**원인 후보**
+1. raw 타입 경로로 다른 타입 값이 들어감(가장 유력)
+2. `(List<String>)` 같은 unchecked 캐스트를 경고 무시하고 씀
+3. 제네릭 가변인자 메서드가 배열을 잘못 다룸
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. 레거시 쪽 raw 타입을 `List<String>`으로 고치고 unchecked 경고를 빌드 실패로(`-Xlint:unchecked -Werror`) | 근본 해결. 같은 실수가 다시 컴파일 단계에서 막힘 | 레거시 수정 범위가 크고, 기존 경고를 한 번에 정리해야 빌드가 통과 |
+| B. 경계에서 `Collections.checkedList(list, String.class)`로 감싸기 | 잘못된 값이 **들어오는 순간** 예외가 나서 오염 지점을 바로 찾음. 레거시 수정 없이 적용 | 런타임 검사 비용, 근본 원인은 그대로 남음 |
+
+**내가 고를 방법**
+먼저 B로 경계에 감싸서 실제로 누가 다른 타입을 넣는지 찾아내요. 원인을 확인하면 A로 해당 경로의 raw 타입을 걷어내고, 경고를 빌드 실패로 바꿔 재발을 막아요.
+
+**채점 포인트**: raw 타입은 타입 검사를 끔, 힙 오염 정의, 오염 지점과 예외 지점이 다른 이유(캐스트는 꺼낼 때), unchecked 경고 무시 금지, checkedList로 즉시 실패, 근본 해결과 임시 진단 구분.
+</details>
+
+<details>
+<summary>상황: 정산 합계 유틸 sum(List of Number)를 만들었는데, Long 리스트와 BigDecimal 리스트를 넘기면 컴파일 오류가 납니다.</summary>
+
+**상황 파악**
+시그니처가 `sum(List<Number> amounts)`예요. 제네릭은 불공변이라 `List<Long>`, `List<BigDecimal>`은 `List<Number>`의 하위 타입이 아니어서 넘길 수 없어요.
+
+**원인 후보**
+1. 매개변수를 정확한 타입 `List<Number>`로 선언함(가장 유력)
+2. 호출부에서 `List<Number>`로 다시 담아 넘기는 우회 코드가 이미 퍼져 있음
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. `sum(List<? extends Number> amounts)` | 어떤 Number 하위 리스트든 받음. 읽기만 하는 유틸에 딱 맞음(PECS의 생산자) | 메서드 안에서 리스트에 add 불가 |
+| B. `<T extends Number> double sum(List<T> amounts)` | 메서드 안에서 `T`라는 이름으로 타입을 쓸 수 있음 | 읽기만 할 거면 A보다 장황함 |
+| C. 호출부에서 `new ArrayList<Number>(longs)`로 복사 | 유틸을 안 고쳐도 됨 | 호출마다 복사 비용과 중복 코드 |
+
+**내가 고를 방법**
+합계는 꺼내 읽기만 하니 A를 골라요. 튜토리얼 지침대로 "꺼내 쓰는 매개변수는 extends"예요. 메서드 안에서 `T` 타입을 이름으로 다시 써야 하는 경우(예: 같은 타입 리스트를 만들어 반환)에만 B로 가요.
+
+**채점 포인트**: 불공변 설명, `? extends`로 해결, add 불가 트레이드오프, 제네릭 메서드 대안, 반환 타입엔 와일드카드 금지.
+</details>
+
+## 필기 포인트
+
+- `List<Integer>`는 `List<Number>`의 하위 타입이 **아니다**. 하위인 것은 `List<? extends Number>`, `List<? super Integer>`.
+- 배열은 공변 + 런타임 검사(`ArrayStoreException`), 제네릭은 불공변 + 컴파일 검사.
+- `T`의 소거: bound 없으면 `Object`, 있으면 **가장 왼쪽 bound**.
+- `new T()`, `new T[n]`, `new List<String>[n]`, `instanceof List<String>`, 제네릭 예외 클래스, static `T` 필드는 불가. `instanceof List<?>`, `new List<?>[n]`, `throws T`는 가능.
+- `print(Set<String>)`와 `print(Set<Integer>)`는 소거 후 시그니처가 같아 오버로딩 불가.
+- `new ArrayList<String>().getClass() == new ArrayList<Integer>().getClass()` → `true`.
+
+## 함께 보기
+
+- [컬렉션 프레임워크 한눈에](../collections/) (제네릭을 가장 많이 쓰는 곳)
+- [기본형·참조형과 Call by Value](../primitive-reference/) (기본형을 제네릭에 쓰려면 박싱)
+- [예외 처리](../exceptions/) (ClassCastException, 제네릭 예외 클래스 제한)
+- [람다와 스트림](../lambda-stream/) (`Comparator<? super T>`도 PECS)
+
+## 출처
+
+- [JLS SE 21, 4장 Types, Values, and Variables (§4.5 파라미터화 타입·와일드카드, §4.6 타입 소거, §4.7 reifiable 타입, §4.8 raw 타입, §4.10 서브타이핑)](https://docs.oracle.com/javase/specs/jls/se21/html/jls-4.html)
+- [JLS SE 21, §4.12.2 Variables of Reference Type (힙 오염)](https://docs.oracle.com/javase/specs/jls/se21/html/jls-4.html#jls-4.12.2)
+- [JLS SE 21, 10장 Arrays (§10.5 Array Store Exception)](https://docs.oracle.com/javase/specs/jls/se21/html/jls-10.html)
+- [Java Tutorials, Why Use Generics?](https://docs.oracle.com/javase/tutorial/java/generics/why.html)
+- [Java Tutorials, Generics, Inheritance, and Subtypes](https://docs.oracle.com/javase/tutorial/java/generics/inheritance.html)
+- [Java Tutorials, Type Erasure](https://docs.oracle.com/javase/tutorial/java/generics/erasure.html)
+- [Java Tutorials, Effects of Type Erasure and Bridge Methods](https://docs.oracle.com/javase/tutorial/java/generics/bridgeMethods.html)
+- [Java Tutorials, Non-Reifiable Types](https://docs.oracle.com/javase/tutorial/java/generics/nonReifiableVarargsType.html)
+- [Java Tutorials, Restrictions on Generics](https://docs.oracle.com/javase/tutorial/java/generics/restrictions.html)
+- [Java Tutorials, Guidelines for Wildcard Use](https://docs.oracle.com/javase/tutorial/java/generics/wildcardGuidelines.html)
+- Joshua Bloch, 『Effective Java』 3판 아이템 31 (PECS)

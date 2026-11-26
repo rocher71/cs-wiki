@@ -25,3 +25,11 @@ svg.viz text.on-badge { fill: var(--sl-color-black); font-weight: 700; font-size
 svg.viz .hl { fill: none; stroke: var(--sl-color-accent); stroke-width: 3; }
 /* .hide: 단계에 없으면 흐리게가 아니라 아예 숨김 (위치별 복제 객체, 강조 테두리) */
 .st-stage svg.viz .hl.is-off, .st-stage svg.viz .hide.is-off { opacity: 0; }
+/* 코드 줄(모노스페이스), 바뀐 토큰 강조, 오류 표시 (generics 등) */
+svg.viz text.mono { font-family: var(--sl-font-mono, monospace); font-size: 14px; }
+svg.viz tspan.hi, svg.viz text.hi { fill: var(--sl-color-accent-high); font-weight: 700; }
+svg.viz .err { fill: var(--sl-color-red-low); stroke: var(--sl-color-red); stroke-width: 1.4; }
+svg.viz text.err-t, svg.viz tspan.err-t { fill: var(--sl-color-red-high); font-weight: 700; }
+/* checked / unchecked 영역 띠 (exceptions). 색 + 라벨 태그로 구분 */
+svg.viz .zone-c { fill: var(--sl-color-accent-low); stroke: var(--sl-color-accent); stroke-width: 1.4; }
+svg.viz .zone-u { fill: var(--sl-color-gray-6); stroke: var(--sl-color-gray-3); stroke-width: 1.4; stroke-dasharray: 6 4; }

@@ -1,0 +1,306 @@
+---
+title: HashMap 내부 동작
+description: HashMap은 키의 해시값으로 배열 칸(버킷)을 바로 계산해 평균 O(1)로 넣고 찾아요. 충돌은 연결 리스트로 잇고, 한 버킷이 너무 길어지면 트리로 바꾸며, 엔트리 수가 용량의 75%를 넘으면 배열을 2배로 늘려요.
+sidebar: { order: 6 }
+tags: [면접빈출, 서술형]
+---
+import { Aside } from '@astrojs/starlight/components';
+import HashMapPut from '~/components/viz/HashMapPut.astro';
+import ConcurrentMapLocks from '~/components/viz/ConcurrentMapLocks.astro';
+
+:::tip[한 줄 요약]
+HashMap은 키의 hashCode를 섞은 뒤 `(배열 길이 - 1) & hash`로 버킷 위치를 정해 평균 O(1)에 넣고 찾아요. 같은 칸에 몰리면 연결 리스트로 잇고, Java 8부터는 한 칸이 너무 길어지면 레드-블랙 트리로 바꿔 최악을 O(log n)으로 막아요. 스레드 안전하지 않아서 여러 스레드가 함께 쓰면 ConcurrentHashMap을 써요.
+:::
+
+## 쉽게 이해하기
+
+HashMap은 **번호가 붙은 사물함 줄**이에요. 물건(값)을 맡길 때 이름표(키)를 계산기에 넣으면 사물함 번호가 바로 나와요. 그래서 처음부터 하나씩 뒤질 필요 없이 그 칸만 열면 돼요.
+
+가끔 다른 이름표인데 같은 번호가 나와요. 그러면 그 칸 안에 물건을 줄줄이 매달아 두고, 꺼낼 때 이름표를 하나씩 확인해요. 한 칸에 너무 많이 매달리면 찾기가 느려지니까, 사물함 줄 자체를 2배로 늘려 물건을 다시 흩어 놓아요. 그래도 한 칸에 계속 몰리면 그 칸만 "정렬된 서랍장(트리)"으로 바꿔서 빨리 찾게 해요.
+
+단, 실제로 사물함을 늘리는 기준은 "한 칸이 꽉 찼을 때"가 아니라 **전체 물건 수**가 사물함 수의 75%를 넘었을 때예요.
+
+## 그림으로 보기
+
+<HashMapPut />
+
+<ConcurrentMapLocks />
+
+## 제대로 알기
+
+### 1. 왜 HashMap이 빠른가
+
+배열은 "몇 번째 칸"만 알면 바로 꺼낼 수 있어요. HashMap은 이 성질을 이용해 **키를 칸 번호로 바꾸는 계산**을 해요. 그래서 원소가 몇 개든 계산 한 번 + 칸 확인이면 끝나요. 이것이 평균 O(1)이에요.
+
+- 내부 저장소는 `Node[] table` 배열이에요. 배열의 각 칸을 **버킷**(bucket, 노드를 담는 칸)이라고 불러요.
+- `Node`는 `hash`, `key`, `value`, `next` 네 필드를 가져요. 해시값을 노드에 저장해 두기 때문에 나중에 다시 계산하지 않아요.
+- `new HashMap()`만 해서는 배열이 안 생겨요. **첫 `put` 때** 16칸 배열을 만들어요.
+- HashMap은 null 키 1개와 null 값을 허용해요. null 키의 해시는 0이라 항상 0번 버킷에 가요.
+- 순서를 보장하지 않아요. 넣은 순서가 필요하면 LinkedHashMap을 써요([컬렉션 프레임워크](../collections/) 참고).
+
+<Aside type="note" title="hashCode와 equals 계약은?">
+"equals로 같으면 hashCode도 같아야 한다"는 약속과, 둘 중 하나만 재정의하면 생기는 일은 [equals와 hashCode](../equals-hashcode/)에서 다뤄요. 여기서는 HashMap이 그 두 메서드를 **언제, 어떤 순서로** 부르는지만 봐요.
+</Aside>
+
+### 2. 해시 → 버킷 번호
+
+```java
+static final int hash(Object key) {
+    int h;
+    // 상위 16비트를 하위 16비트에 XOR해서 섞음
+    return (key == null) ? 0 : (h = key.hashCode()) ^ (h >>> 16);
+}
+// 버킷 번호 (n = 배열 길이, 항상 2의 거듭제곱)
+int index = (n - 1) & hash;
+```
+
+- **`(n - 1) & hash`**: n이 16이면 `n - 1`은 이진수 `1111`이에요. AND를 하면 해시의 **하위 4비트만** 남아요. n이 2의 거듭제곱이라 `hash % n`과 같은 결과를 비트 연산 하나로 얻어요. 그래서 배열 길이는 항상 2의 거듭제곱이에요.
+- **왜 섞나요?** 하위 비트만 보니까, 위쪽 비트만 다른 해시들은 전부 같은 칸으로 몰려요. 상위 16비트를 아래로 내려 XOR하면 위쪽 차이도 칸 번호에 반영돼요. 시프트 한 번과 XOR 한 번이라 아주 싸요.
+- Java 7은 시프트와 XOR를 여러 번 했어요. Java 8부터는 큰 충돌을 트리로 처리하니 한 번만 섞어요.
+- `new HashMap(10)`처럼 용량을 주면 그 이상인 가장 작은 2의 거듭제곱(16)으로 올려요. 최대 용량은 `1 << 30`이에요.
+
+<Aside type="caution" title="충돌 = 같은 hashCode?">
+아니에요. hashCode가 달라도 `(n - 1) & hash`가 같으면 같은 버킷에 떨어져요. 이것도 충돌이에요.
+</Aside>
+
+### 3. put 한 번에 일어나는 일
+
+1. 배열이 없으면 `resize()`로 만들어요(16칸, threshold 12).
+2. 버킷 번호를 계산하고, 칸이 비었으면 새 노드를 바로 놓아요.
+3. 칸에 노드가 있으면 **해시값부터 비교**하고, 같을 때만 `==` 또는 `equals`로 같은 키인지 확인해요.
+4. 같은 키를 찾으면 **값만 바꾸고 이전 값을 돌려줘요.** 이건 구조 변경이 아니라서 size도 그대로, 리사이즈도 없어요.
+5. 첫 노드가 트리 노드면 트리에 넣어요.
+6. 리스트 끝까지 같은 키가 없으면 **꼬리에** 새 노드를 붙여요. 이렇게 같은 버킷에 줄줄이 잇는 방식을 **체이닝**(chaining)이라고 해요.
+7. 새 노드를 붙였으면 size를 1 늘리고, `size > threshold`면 리사이즈해요.
+
+`get`도 같은 규칙이에요. 첫 노드 확인 → 트리면 트리 탐색 → 아니면 리스트를 따라가요.
+
+<Aside type="note" title="put의 반환값">
+`put`은 이전 값을 돌려줘요. 없었으면 null인데, 원래 값이 null이었어도 null이라 둘을 구분할 수는 없어요.
+</Aside>
+
+### 4. 트리화: 8, 64, 6
+
+한 버킷에 노드가 길게 매달리면 그 칸에서는 O(n)이 돼요. Java 8은 이걸 막으려고 긴 리스트를 **레드-블랙 트리**(red-black tree, 항상 균형을 유지하는 정렬 트리)로 바꿔요. 이를 **트리화**(treeify)라고 해요.
+
+| 상수 | 값 | 언제 쓰이나 |
+|---|---|---|
+| `TREEIFY_THRESHOLD` | 8 | **이미 8개 있는 버킷에 9번째를 붙일 때** 트리화를 시도 |
+| `MIN_TREEIFY_CAPACITY` | 64 | 배열 길이가 64 **미만**이면 트리로 바꾸지 않고 **리사이즈**만 함 |
+| `UNTREEIFY_THRESHOLD` | 6 | **리사이즈로 버킷을 쪼갤 때**, 쪼개진 쪽이 6개 이하면 리스트로 되돌림 |
+
+- 64 미만에서 리사이즈를 먼저 하는 이유: 배열이 작아서 몰린 거라면, 칸을 늘려 흩어 놓는 게 트리보다 싸기 때문이에요.
+- 삭제할 때는 숫자 6이 아니라 **트리 모양**(루트나 자식이 비었는지)을 보고 너무 작으면 리스트로 되돌려요.
+- 8과 6을 따로 두면 경계 근처에서 넣고 빼기를 반복해도 트리↔리스트 변환이 계속 일어나지 않아요. 흔히 **히스테리시스**(되돌아가는 기준을 일부러 다르게 두는 것)라고 설명해요.
+- 트리 노드는 일반 노드의 약 2배 크기예요. 해시가 고르게 퍼지면 한 버킷에 8개가 쌓일 확률은 천만분의 6 정도라서, 정상적인 hashCode라면 트리는 거의 안 생겨요.
+- 트리 안에서는 해시값으로 정렬하고, 같으면 키가 `Comparable`일 때 `compareTo`로 가려요. 해시가 같고 비교도 안 되는 키라면 트리의 이득이 거의 없어요.
+
+### 5. 리사이즈: 0.75와 2배
+
+**load factor**(부하율, 얼마나 차면 늘릴지 정하는 비율)의 기본값은 0.75예요. 엔트리 수가 `용량 × 0.75`를 넘으면 배열을 2배로 늘려요.
+
+- 기본값이면 threshold는 16 × 0.75 = 12예요. **13번째 엔트리를 넣는 순간** 16칸 → 32칸이 돼요.
+- 0.75는 공간과 시간의 절충이에요. 더 크면 공간은 아끼지만 충돌이 늘어 조회가 느려져요.
+- 기준은 "버킷 75%가 찼을 때"가 아니라 **엔트리 수**예요. 한 칸에 다 몰려 있어도 size만 봐요.
+- **테이블은 줄어들지 않아요.** 다 지워도 용량은 그대로예요.
+
+2배로 늘리면 각 노드는 **원래 칸 j에 남거나, j + 옛 용량으로 옮겨요.** 둘 중 하나예요. 판단은 `hash & oldCap` 한 비트만 보면 돼요.
+
+| hash 하위 5비트 | `hash & 16` | 16칸일 때 | 32칸일 때 |
+|---|---|---|---|
+| `0_0101` | 0 | 5번 | 5번(그대로) |
+| `1_0101` | 16 | 5번 | 21번(5 + 16) |
+
+- 노드에 저장된 hash를 쓰니 hashCode를 다시 계산하지 않아요.
+- 리스트를 두 줄로 나눌 때 **원래 순서를 유지**해요.
+
+### 6. 초기 용량 정하기
+
+리사이즈는 배열을 새로 만들고 노드를 옮기는 비싼 작업이에요. 넣을 개수를 알면 미리 크게 잡는 게 좋아요.
+
+```java
+// 100개를 넣을 예정
+new HashMap<>(100);        // 128칸, threshold 96 → 97번째에서 한 번 리사이즈
+HashMap.newHashMap(100);   // Java 19+: 100개를 리사이즈 없이 담을 용량을 계산해 줌
+```
+
+반대로 너무 크게 잡으면 전체 순회가 느려져요. 순회 시간은 엔트리 수가 아니라 **용량 + 엔트리 수**에 비례하기 때문이에요.
+
+### 7. Java 7 → 8에서 바뀐 점
+
+| 항목 | Java 7 | Java 8+ |
+|---|---|---|
+| 충돌 버킷 | 연결 리스트만(최악 O(n)) | 길어지면 트리화(최악 O(log n)) |
+| 새 노드 위치 | 리스트 **머리** | 리스트 **꼬리** |
+| 리사이즈 시 순서 | 뒤집힘 | 유지(lo/hi 두 줄로 split) |
+| hash 섞기 | 여러 번 | 한 번(`h ^ (h >>> 16)`) |
+
+트리화는 JEP 180으로 들어왔고, 목적은 충돌이 많을 때 최악 성능을 O(n)에서 O(log n)으로 줄이는 거예요.
+
+### 8. 멀티스레드에서는 위험해요
+
+HashMap은 동기화되지 않아요. 여러 스레드가 동시에 쓰고, 그중 하나라도 **구조 변경**(키 추가·삭제)을 하면 외부에서 동기화해야 해요.
+
+- Java 7에서는 머리 삽입과 순서 뒤집힘 때문에, 동시에 리사이즈하면 리스트가 고리 모양이 되어 `get`이 무한 루프에 빠지는 사례가 알려져 있어요.
+- Java 8에서 그 증상은 사라졌지만 여전히 안전하지 않아요. 값이 사라지거나 size가 틀어질 수 있어요.
+- 반복 중에 `map.remove`처럼 이터레이터 밖에서 구조를 바꾸면 `ConcurrentModificationException`이 나요. 이를 **fail-fast**라고 해요. 다만 "최선을 다해" 잡는 것일 뿐 항상 잡는다는 보장은 없어서, 버그 탐지용으로만 생각해야 해요. 반복 중 삭제는 `iterator.remove()`나 `entrySet().removeIf(...)`를 써요.
+
+### 9. Hashtable과 ConcurrentHashMap
+
+**Hashtable**은 Java 초기부터 있던 레거시 클래스예요. 주요 메서드가 전부 `synchronized`라서 객체 하나의 락을 모든 연산이 나눠 써요. 한 번에 한 스레드만 들어갈 수 있으니 느려요. 문서도 스레드 안전이 필요 없으면 HashMap, 동시성이 필요하면 ConcurrentHashMap을 쓰라고 해요.
+
+**ConcurrentHashMap**(이하 CHM)은 락을 아주 잘게 쪼갰어요.
+
+- **조회는 락이 없어요.** 시작 시점에 완료된 갱신 결과를 봐요.
+- **빈 버킷에 넣을 때**는 락 없이 **CAS**(compare-and-swap, "지금 값이 예상과 같을 때만 바꾸는" 원자적 CPU 연산) 한 번으로 넣어요. 대부분의 put이 이 경우예요.
+- **노드가 있는 버킷**은 그 버킷의 첫 노드를 락으로 삼아 `synchronized`로 잠가요. 다른 버킷은 동시에 쓸 수 있어요.
+- 리사이즈는 여러 스레드가 구간을 나눠 **함께 도와요.** 옮긴 칸엔 forwarding 노드(`MOVED`)를 두어, 이를 만난 연산은 새 배열에서 다시 시작해요.
+- 원소 수는 `LongAdder`처럼 여러 칸에 나눠 세서 경합을 줄여요. 그래서 `size()`는 동시 갱신 중엔 추정값이에요.
+- 이터레이터는 `ConcurrentModificationException`을 던지지 않아요(**weakly consistent**, 생성 시점이나 그 뒤 어느 시점의 상태를 반영).
+
+**Java 7 CHM은 달랐어요.** 테이블을 `ReentrantLock`을 상속한 **Segment** 16개(기본 `concurrencyLevel`)로 나누고, 쓰기는 해당 세그먼트를 잠갔어요. Java 8부터는 세그먼트를 없애고 버킷 단위 CAS + synchronized로 바꿨어요. `concurrencyLevel` 인자는 이제 락 개수와 상관없고, 초기 용량을 정할 때 힌트로만 써요.
+
+| 비교 | Java 7 CHM | Java 8+ CHM |
+|---|---|---|
+| 락 단위 | 세그먼트(기본 16개, 고정) | 버킷(배열 크기만큼 늘어남) |
+| 락 종류 | ReentrantLock | 빈 칸은 CAS, 그 외 synchronized |
+| 충돌 버킷 | 리스트 | 리스트 + 트리화 |
+| 리사이즈 | 세그먼트별 | 전체 배열을 여러 스레드가 분담 |
+
+### 10. 세 가지 한눈에 비교
+
+| | HashMap | Hashtable | ConcurrentHashMap |
+|---|---|---|---|
+| 스레드 안전 | X | O (메서드 전체 synchronized) | O (조회 무락, 버킷 단위 락) |
+| 동시 성능 | 단일 스레드 최고 | 낮음(한 번에 한 스레드) | 높음 |
+| null 키·값 | 키 1개, 값 허용 | 불가(NPE) | 불가(NPE) |
+| 충돌 처리 | 체이닝 + 트리화 | 체이닝만 | 체이닝 + 트리화 |
+| 버킷 번호 | `(n-1) & hash` | `(hash & 0x7FFFFFFF) % 길이` | `(n-1) & hash` |
+| 기본 용량 / 확장 | 16 / 2배 | 11 / 2배 + 1 | 16 / 2배 |
+| 반복 중 수정 | fail-fast(CME) | fail-fast(CME) | weakly consistent(CME 없음) |
+| 지금 쓰나? | 단일 스레드 기본 | 레거시, 새 코드엔 X | 멀티스레드 기본 |
+
+<Aside type="caution" title="CHM을 써도 복합 연산은 안전하지 않아요">
+`if (!map.containsKey(k)) map.put(k, v);`는 두 호출 사이에 다른 스레드가 끼어들 수 있어요. `putIfAbsent`, `computeIfAbsent`, `merge`처럼 **한 번에 끝나는 원자 메서드**를 써야 해요.
+</Aside>
+
+## 면접 질문
+
+<details>
+<summary>Q. HashMap은 내부적으로 어떻게 동작하나요?</summary>
+
+**답변(30초)** 내부는 노드 배열이고, 키의 hashCode를 상위 비트와 섞은 뒤 `(배열 길이 - 1) & hash`로 버킷 번호를 구해요. 칸이 비었으면 바로 넣고, 있으면 해시값을 먼저 비교하고 같을 때 equals로 같은 키인지 확인해요. 같은 키면 값만 바꾸고, 없으면 리스트 꼬리에 붙여요. 엔트리 수가 용량의 0.75배를 넘으면 배열을 2배로 늘려요.
+
+**꼬리질문**
+- Q. `new HashMap()`을 하면 16칸 배열이 바로 생기나요? → 아니요. 첫 put 때 만들어요.
+- Q. 기본 설정에서 언제 처음 리사이즈되나요? → threshold가 12라서 13번째 엔트리를 넣을 때 16칸에서 32칸으로 늘어나요.
+- Q. HashMap의 최악 시간복잡도는? → Java 7까지는 한 버킷에 몰리면 O(n)이었어요. Java 8부터는 트리화 덕분에 키가 Comparable이거나 해시가 서로 다르면 O(log n)이에요.
+</details>
+
+<details>
+<summary>Q. 해시 충돌은 어떻게 처리하나요? 트리화 기준은요?</summary>
+
+**답변(30초)** 같은 버킷에 노드를 연결 리스트로 잇는 체이닝으로 처리해요. Java 8부터는 이미 8개 있는 버킷에 9번째를 넣을 때 트리화를 시도해요. 이때 배열이 64칸 미만이면 트리 대신 리사이즈로 흩어 놓고, 64칸 이상이면 그 버킷을 레드-블랙 트리로 바꿔요. 리사이즈로 버킷을 쪼갤 때 6개 이하가 되면 다시 리스트로 돌아가요.
+
+**꼬리질문**
+- Q. 왜 8과 6으로 기준을 다르게 두나요? → 경계에서 넣고 빼기를 반복할 때 트리와 리스트를 계속 오가는 걸 막으려는 거예요.
+- Q. 왜 처음부터 트리로 안 만드나요? → 트리 노드는 일반 노드의 약 2배 크기예요. 해시가 고르면 한 버킷에 8개가 쌓일 확률이 천만분의 6 정도라 대부분 리스트로 충분해요.
+- Q. 지우면 6개 이하에서 바로 리스트가 되나요? → 숫자 6은 리사이즈 split 때 기준이에요. 삭제 때는 트리 모양을 보고 판단해요.
+</details>
+
+<details>
+<summary>Q. hash()에서 h ^ (h >>> 16)을 하는 이유와, 배열 크기가 2의 거듭제곱인 이유는?</summary>
+
+**답변(30초)** 버킷 번호를 `(n - 1) & hash`로 구하는데, n이 2의 거듭제곱이면 이게 `hash % n`과 같아서 비트 AND 하나로 끝나요. 대신 하위 비트만 보게 되니 위쪽 비트만 다른 해시는 전부 같은 칸에 몰려요. 그래서 상위 16비트를 하위에 XOR해서 위쪽 차이도 반영해요. 또 2배로 늘릴 때 노드가 제자리나 "제자리 + 옛 용량" 둘 중 하나로만 가서 한 비트만 보고 나눌 수 있어요.
+
+**꼬리질문**
+- Q. 리사이즈할 때 hashCode를 다시 계산하나요? → 아니요. 노드에 저장해 둔 hash를 쓰고 `hash & oldCap` 한 비트로 갈 곳을 정해요.
+- Q. `new HashMap(100)`은 몇 칸인가요? → 128칸이에요. threshold가 96이라 100개를 넣으면 한 번 리사이즈돼요. 리사이즈 없이 담으려면 Java 19+의 `HashMap.newHashMap(100)`을 써요.
+</details>
+
+<details>
+<summary>Q. HashMap, Hashtable, ConcurrentHashMap의 차이는?</summary>
+
+**답변(30초)** HashMap은 동기화가 없어 단일 스레드에서 가장 빠르고 null 키·값을 허용해요. Hashtable은 메서드 전체가 synchronized라 객체 하나의 락을 모든 연산이 공유해서, 한 번에 한 스레드만 쓸 수 있는 레거시예요. ConcurrentHashMap은 조회에 락이 없고, 쓰기는 빈 칸이면 CAS, 아니면 그 버킷 첫 노드만 잠가서 동시성이 높아요. Hashtable과 ConcurrentHashMap은 null을 허용하지 않아요.
+
+**꼬리질문**
+- Q. ConcurrentHashMap은 왜 null을 허용하지 않나요? → 값이 절대 null이 아니니 `get`이 null이면 확실히 "없음"이에요. null을 허용하면 "없음"인지 "null 값"인지 구분하려고 `containsKey`를 또 불러야 하는데, 그 사이에 다른 스레드가 바꿀 수 있어요.
+- Q. `Collections.synchronizedMap`과 ConcurrentHashMap은? → synchronizedMap은 맵 전체를 한 락으로 감싸서 Hashtable처럼 한 번에 한 스레드만 들어가요. ConcurrentHashMap은 버킷 단위라 동시성이 더 높아요.
+</details>
+
+<details>
+<summary>Q. ConcurrentHashMap은 어떻게 동시성을 보장하나요? Java 7과 8은 뭐가 다른가요?</summary>
+
+**답변(30초)** Java 8부터는 버킷 단위로 동기화해요. 빈 버킷엔 락 없이 CAS로 넣고, 노드가 있는 버킷은 첫 노드를 synchronized로 잠가서 다른 버킷 쓰기와 겹칠 수 있어요. 조회는 락이 없고, 리사이즈는 여러 스레드가 구간을 나눠 도와요. Java 7은 테이블을 ReentrantLock 기반 세그먼트 16개로 나눠 세그먼트 단위로 잠갔기 때문에, 동시에 쓸 수 있는 스레드 수가 세그먼트 수로 묶여 있었어요.
+
+**꼬리질문**
+- Q. ConcurrentHashMap을 쓰면 `containsKey` 후 `put`도 안전한가요? → 아니요. 두 호출 사이에 끼어들 수 있어요. `putIfAbsent`나 `computeIfAbsent` 같은 원자 메서드를 써야 해요.
+- Q. `size()`는 정확한가요? → 동시 갱신 중엔 추정값이에요. 모니터링 용도로만 쓰고, Java 8부터는 `mappingCount()`를 권해요.
+</details>
+
+<details>
+<summary>Q. HashMap을 반복하면서 remove하면 어떻게 되나요?</summary>
+
+**답변(30초)** 이터레이터 자신의 `remove`가 아닌 방법으로 구조를 바꾸면 `ConcurrentModificationException`이 나요. HashMap 이터레이터가 fail-fast라서예요. 반복 중 삭제는 `iterator.remove()`나 `entrySet().removeIf(...)`를 써요. 다만 fail-fast는 최선 노력일 뿐이라 이 예외에 기대서 동시성 문제를 잡으면 안 돼요.
+
+**꼬리질문**
+- Q. 기존 키의 값만 바꾸는 것도 구조 변경인가요? → 아니요. 매핑 추가·삭제만 구조 변경이에요.
+</details>
+
+## 서술형 연습
+
+<details>
+<summary>상황: 실시간 API 호출 횟수를 키별로 세는 기능을 싱글톤 서비스의 HashMap 필드로 만들었습니다. 트래픽이 늘자 집계 숫자가 실제 로그보다 적게 나오고, 가끔 map.size()와 실제 키 개수가 맞지 않습니다.</summary>
+
+**상황 파악**
+싱글톤 빈은 모든 요청 스레드가 같은 객체를 써요. 그러니 HashMap 하나를 여러 스레드가 동시에 읽고 쓰고 있어요. 숫자가 **적게** 나오는 건 누군가의 증가분이 사라졌다는 뜻이고, size가 안 맞는 건 내부 구조 자체가 깨졌다는 신호예요.
+
+**원인 후보**
+1. **읽고-더하고-쓰기 경쟁**: `map.put(k, map.get(k) + 1)`은 세 단계예요. 두 스레드가 같은 값 5를 읽고 둘 다 6을 쓰면 1이 사라져요.
+2. **비동기 구조 변경**: 새 키 추가나 리사이즈가 동시에 일어나면 노드가 유실되거나 size가 틀어질 수 있어요. HashMap은 이런 동시 구조 변경을 전혀 막지 않아요.
+3. (Java 7 환경이라면) 동시 리사이즈로 리스트가 고리가 되어 `get`이 무한 루프에 빠지고 CPU가 100%까지 오를 수 있어요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. `Collections.synchronizedMap` 또는 메서드에 `synchronized` | 코드 변경이 가장 적음 | 맵 전체에 락 하나라 트래픽이 많으면 모든 요청이 줄을 섬 |
+| B. `ConcurrentHashMap<String, Integer>` + `merge(k, 1, Integer::sum)` | 버킷 단위 락이라 동시성 높음. 증가가 원자적 | 같은 키(인기 API)에 요청이 몰리면 그 버킷에서 경합 |
+| C. `ConcurrentHashMap<String, LongAdder>` + `computeIfAbsent(k, x -> new LongAdder()).increment()` | 키 생성은 한 번만, 증가는 LongAdder가 여러 칸에 나눠 세서 인기 키 경합도 적음. 문서가 빈도 집계 예로 드는 패턴 | 합계를 읽을 때 `sum()`을 불러야 하고, 읽는 순간 진행 중인 증가는 빠질 수 있음 |
+
+`ConcurrentHashMap`으로 바꾸기만 하고 `put(k, get(k) + 1)`을 그대로 두면 원인 1은 그대로 남아요. 반드시 원자 메서드로 바꿔야 해요.
+
+**내가 고를 방법**
+C를 골라요. 호출 수 집계는 쓰기가 압도적으로 많고 인기 키에 몰리는 패턴이라, 버킷 락 경합까지 줄여 주는 LongAdder가 맞아요. 키 수가 적고 트래픽이 낮다면 B도 충분해요. 다만 이 집계가 서버 여러 대에 걸쳐 정확해야 한다면, 서버마다 따로 세는 메모리 맵만으로는 부족하고 공유 저장소가 따로 필요해요. 또 키가 계속 늘어날 수 있으면 CHM은 크기 제한이나 만료가 없으니, 주기적으로 비우거나 Caffeine 같은 캐시 라이브러리를 고려해요.
+
+**채점 포인트**: 싱글톤 빈 필드는 스레드 간 공유, HashMap은 스레드 안전하지 않음, `get` 후 `put`은 원자적이지 않음(lost update), 리사이즈 중 유실·size 불일치, CHM으로 바꿔도 복합 연산은 원자 메서드(`merge`/`computeIfAbsent`) 필요, LongAdder로 경합 감소, Hashtable/synchronizedMap은 전체 락이라 느림, 해결책 2개 이상의 트레이드오프.
+</details>
+
+## 필기 포인트
+
+- 기본 용량 16, load factor 0.75, threshold 12, 13번째 put에서 리사이즈.
+- 트리화: 8개 있는 버킷에 9번째 + 배열 64 이상. 64 미만이면 리사이즈.
+- 6은 리사이즈 split 때 리스트 복귀 기준. 테이블은 줄어들지 않음.
+- `new HashMap(100)` → 128칸.
+- HashMap만 null 키·값 허용. Hashtable·ConcurrentHashMap은 NPE.
+- Hashtable 기본 용량 11, 확장은 `old * 2 + 1`.
+
+## 함께 보기
+
+- [equals와 hashCode](../equals-hashcode/)
+- [컬렉션 프레임워크 한눈에](../collections/)
+- [동기화와 자바 메모리 모델](../synchronization/)
+- [스레드 기초](../thread-basics/)
+
+## 출처
+
+- [Java SE 21 API, java.util.HashMap](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/HashMap.html)
+- [Java SE 21 API, java.util.Hashtable](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/Hashtable.html)
+- [Java SE 21 API, java.util.concurrent.ConcurrentHashMap](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/ConcurrentHashMap.html)
+- [OpenJDK 21 소스, HashMap.java](https://github.com/openjdk/jdk21u/blob/master/src/java.base/share/classes/java/util/HashMap.java)
+- [OpenJDK 21 소스, ConcurrentHashMap.java](https://github.com/openjdk/jdk21u/blob/master/src/java.base/share/classes/java/util/concurrent/ConcurrentHashMap.java)
+- [OpenJDK 21 소스, Hashtable.java](https://github.com/openjdk/jdk21u/blob/master/src/java.base/share/classes/java/util/Hashtable.java)
+- [OpenJDK 21 소스, Collections.java (SynchronizedMap)](https://github.com/openjdk/jdk21u/blob/master/src/java.base/share/classes/java/util/Collections.java)
+- [OpenJDK 7u 소스, HashMap.java](https://github.com/openjdk/jdk7u/blob/master/jdk/src/share/classes/java/util/HashMap.java)
+- [OpenJDK 7u 소스, ConcurrentHashMap.java](https://github.com/openjdk/jdk7u/blob/master/jdk/src/share/classes/java/util/concurrent/ConcurrentHashMap.java)
+- [JEP 180: Handle Frequent HashMap Collisions with Balanced Trees](https://openjdk.org/jeps/180)

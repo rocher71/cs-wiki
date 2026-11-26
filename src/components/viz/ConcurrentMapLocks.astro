@@ -1,0 +1,111 @@
+---
+// ConcurrentHashMap 쓰기 락 비교. 왼쪽 Java 7: Segment(ReentrantLock) 16개. 오른쪽 Java 8+: 빈 칸 CAS / 첫 노드 synchronized / MOVED면 리사이즈 돕기.
+import Stepper from '../Stepper.astro';
+const segs = [
+  { y: 82, h: 52, t: 'Seg 0' },
+  { y: 140, h: 40, t: 'Seg 1' },
+  { y: 206, h: 40, t: 'Seg 15' },
+];
+const B = [40, 100, 160];   // 오른쪽 버킷 [0] [1] [2]의 y (높이 52)
+const steps = [
+  { caption: 'Java 7: 테이블을 Segment 16개로 나누고, 세그먼트마다 큰 자물쇠(ReentrantLock)를 달았어요. T1이 Seg 0에 쓰는 동안 같은 Seg 0에 쓰려는 T2는 기다려요.', show: ['thr', 'hl-seg'] },
+  { caption: 'Java 8+: 세그먼트가 없어요. 빈 칸 [0]에 넣을 때는 락 없이 CAS(비교 후 교체) 한 번으로 새 노드를 놓아요.', show: ['cas', 'hl-b0'] },
+  { caption: '노드가 이미 있는 칸 [1]에 넣을 때는 그 칸의 첫 노드 A에만 작은 자물쇠(synchronized)를 걸어요. 다른 칸 쓰기는 막지 않아요.', show: ['sync', 'hl-b1'] },
+  { caption: '칸 [2]의 첫 노드 hash가 MOVED(옮겨졌다는 표시 노드)면 리사이즈 중이에요. 기다리지 않고 옮기기를 도운 뒤 새 테이블에서 다시 넣어요.', show: ['mov', 'hl-b2'] },
+  { caption: '정리: 락 단위가 세그먼트 16개(고정)에서 버킷 하나하나로 바뀌었어요. 테이블이 커지면 락 단위도 그만큼 많아져요.', show: ['thr', 'cas', 'sync', 'mov', 'sum'] },
+];
+const acc = 'fill:none;stroke:var(--sl-color-accent);stroke-width:2';
+const gry = 'fill:none;stroke:var(--sl-color-gray-3);stroke-width:1.6;stroke-dasharray:4 3';
+// 자물쇠 아이콘 (x, y는 왼쪽 위, s는 배율)
+const lock = (x: number, y: number, s: number) => ({
+  shackle: `M${x + 3 * s} ${y + 8 * s} v${-3 * s} a${4 * s} ${4 * s} 0 0 1 ${8 * s} 0 v${3 * s}`,
+  body: { x, y: y + 8 * s, w: 14 * s, h: 10 * s },
+  sw: 1.6 * s,
+});
+const bigLocks = segs.map((s) => lock(124, s.y + 8, 1.2));
+const small = lock(229, B[1] + 9, 0.9);
+---
+<Stepper title="ConcurrentHashMap은 어디를 잠그나" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 392" role="img" aria-label="Java 7 Segment 락과 Java 8 이후 버킷 단위 CAS·synchronized 비교">
+    <defs>
+      <marker id="cml-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+      <marker id="cml-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+
+    <text x="80" y="14" style="font-weight:700">Java 7</text>
+    <text x="240" y="14" style="font-weight:700">Java 8+</text>
+    <line class="frame" x1="160" y1="28" x2="160" y2="290" />
+
+    <!-- Java 7: Segment -->
+    {segs.map((s) => (
+      <g>
+        <rect class="box" x="10" y={s.y} width="140" height={s.h} rx="6" />
+        <text class="l" x="20" y={s.y + 20}>{s.t}</text>
+      </g>
+    ))}
+    <text class="sub" x="80" y="193">⋮</text>
+    {bigLocks.map((k) => (
+      <g>
+        <path d={k.shackle} style={`fill:none;stroke:var(--sl-color-gray-2);stroke-width:${k.sw}`} />
+        <rect x={k.body.x} y={k.body.y} width={k.body.w} height={k.body.h} rx="2" style="fill:var(--sl-color-gray-2)" />
+      </g>
+    ))}
+    <g data-id="thr">
+      <rect class="chip" x="14" y="34" width="60" height="28" rx="6" />
+      <text x="44" y="48" style="font-size:14px">T1 쓰기</text>
+      <rect class="bad" x="86" y="34" width="60" height="28" rx="6" />
+      <text x="116" y="48" style="font-size:14px">T2 대기</text>
+      <path d="M44 62 L44 80" style={acc} marker-end="url(#cml-a)" />
+      <path d="M116 62 L116 80" style={gry} marker-end="url(#cml-g)" />
+      <text class="sub l" x="20" y="120">T1 잠금 · T2 대기</text>
+    </g>
+    <text class="sub" x="80" y="278">자물쇠 16개 (고정)</text>
+
+    <!-- Java 8+: 버킷 -->
+    {B.map((y, i) => (
+      <g>
+        <rect class="box" x="170" y={y} width="140" height="52" rx="6" />
+        <text class="sub l" x="176" y={y + 17}>[{i}]</text>
+      </g>
+    ))}
+    <g data-id="cas" class="hide">
+      <rect class="chip" x="206" y={B[0] + 4} width="64" height="26" rx="6" />
+      <text x="238" y={B[0] + 17} style="font-weight:700;font-size:14px">새 노드</text>
+      <text class="hi" x="240" y={B[0] + 41} style="font-size:14px">CAS · 락 없음</text>
+    </g>
+    <g data-id="sync" class="hide">
+      <rect class="box" x="206" y={B[1] + 4} width="40" height="26" rx="6" style="stroke:var(--sl-color-accent);stroke-width:2" />
+      <text x="216" y={B[1] + 17}>A</text>
+      <path d={small.shackle} style={`fill:none;stroke:var(--sl-color-accent);stroke-width:${small.sw}`} />
+      <rect x={small.body.x} y={small.body.y} width={small.body.w} height={small.body.h} rx="2" style="fill:var(--sl-color-accent)" />
+      <path d={`M248 ${B[1] + 17} L258 ${B[1] + 17}`} style="fill:none;stroke:var(--sl-color-gray-3);stroke-width:1.6" marker-end="url(#cml-g)" />
+      <rect class="box" x="260" y={B[1] + 4} width="40" height="26" rx="6" />
+      <text x="280" y={B[1] + 17}>B</text>
+      <text class="hi" x="240" y={B[1] + 41} style="font-size:14px">첫 노드 A만 잠금</text>
+    </g>
+    <g data-id="mov" class="hide">
+      <rect class="bad" x="206" y={B[2] + 4} width="76" height="26" rx="6" />
+      <text x="244" y={B[2] + 17} style="font-size:14px">MOVED</text>
+      <text class="hi" x="240" y={B[2] + 41} style="font-size:14px">리사이즈 돕기</text>
+      <path d={`M240 ${B[2] + 52} L240 ${B[2] + 72}`} style={acc} marker-end="url(#cml-a)" />
+      <rect class="chip" x="174" y={B[2] + 74} width="132" height="30" rx="6" />
+      <text x="240" y={B[2] + 89} style="font-size:14px">새 테이블(2배)</text>
+    </g>
+    <text class="sub" x="240" y="278">락 = 버킷마다</text>
+
+    <!-- 정리 -->
+    <g data-id="sum" class="hide">
+      <rect class="box" x="10" y="300" width="300" height="84" rx="8" />
+      <text x="160" y="320" style="font-weight:700">락 단위</text>
+      <text class="sub" x="160" y="344">Java 7: Segment 16개 (고정)</text>
+      <text class="hi" x="160" y="366">Java 8+: 버킷 수만큼 (테이블 크기)</text>
+    </g>
+
+    <rect data-id="hl-seg" class="hl" x="7" y="79" width="146" height="58" rx="8" />
+    {B.map((y, i) => <rect data-id={`hl-b${i}`} class="hl" x="167" y={y - 3} width="146" height="58" rx="8" />)}
+  </svg>
+</Stepper>

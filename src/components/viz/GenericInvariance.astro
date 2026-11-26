@@ -1,0 +1,117 @@
+---
+// 리스트 객체 하나에 이름표(변수) 두 개. List<Number> ln = intList 를 허용하면 생기는 사고 → ? extends 해결 → 배열 비교.
+import Stepper from '../Stepper.astro';
+const X = 16;
+const base = ['int', 'num', 'rel'];
+const box = [...base, 'tag1', 'arr1', 'list', 'arr2'];
+const steps = [
+  { caption: 'Integer는 Number의 하위 타입이에요. 그래서 Integer 값은 Number 변수에 그대로 넣을 수 있어요.', show: [...base, 'hl-rel'] },
+  { caption: '그럼 List<Integer>도 List<Number>에 넣을 수 있다고 가정해 봐요. 리스트 객체 하나에 이름표가 두 개 붙어요.', show: [...box, 'tag2n', 'empty', 'c2'] },
+  { caption: 'ln으로 보면 Number 리스트라 3.14(Double)도 통과해요. 같은 객체라 intList 안에도 3.14가 들어가요.', show: [...box, 'tag2n', 'chip', 'hl-slot', 'c3'] },
+  { caption: 'intList.get(0)은 Integer라고 믿고 꺼내는데 Double이 나와요. 이 사고를 막으려고 컴파일러는 2단계 대입 자체를 오류로 막아요.', show: [...box, 'tag2n', 'chip', 'boom', 'c4'] },
+  { caption: '해결: List<? extends Number>로 받으면 대입은 돼요. 꺼낼 때 Number인 건 확실하지만, 무슨 리스트인지 몰라 add는 막혀요.', show: [...box, 'tag2e', 'empty', 'hl-tag2', 'c5'] },
+  { caption: '배열은 반대예요. Number[]에 Integer[]를 넣는 게 허용되고, 잘못 넣으면 실행 중에야 ArrayStoreException이 나요.', show: [...base, 'c6'] },
+];
+---
+<Stepper title="List<Integer>는 왜 List<Number>가 아닐까" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 380" role="img" aria-label="List<Integer>를 List<Number>로 부를 수 있다면 Double이 섞이는 사고가 나서 컴파일러가 막는 과정과 배열과의 비교">
+    <defs>
+      <marker id="giv-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+
+    <!-- 원소 관계 -->
+    <g data-id="int">
+      <rect class="box" x="10" y="8" width="100" height="36" rx="8" />
+      <text x="60" y="26">Integer</text>
+    </g>
+    <g data-id="num">
+      <rect class="box" x="210" y="8" width="100" height="36" rx="8" />
+      <text x="260" y="26">Number</text>
+    </g>
+    <g data-id="rel">
+      <line class="line" x1="114" y1="26" x2="204" y2="26" marker-end="url(#giv-arr)" />
+      <text class="sub" x="160" y="58">하위 타입 ✓</text>
+    </g>
+    <rect data-id="hl-rel" class="hl" x="6" y="4" width="308" height="66" rx="10" />
+
+    <!-- 이름표(변수) 두 개 → 리스트 객체 하나 -->
+    <g data-id="tag1">
+      <rect class="box" x="10" y="84" width="176" height="46" rx="8" />
+      <text class="l" x="20" y="99" style="font-weight:700">intList</text>
+      <text class="sub l" x="20" y="119">List&lt;Integer&gt;</text>
+    </g>
+    <g data-id="tag2n" class="hide">
+      <rect class="box" x="10" y="144" width="176" height="46" rx="8" />
+      <text class="l" x="20" y="159" style="font-weight:700">ln</text>
+      <text class="sub l" x="20" y="179">List&lt;Number&gt;</text>
+    </g>
+    <g data-id="tag2e" class="hide">
+      <rect class="box" x="10" y="144" width="176" height="46" rx="8" />
+      <text class="l" x="20" y="159" style="font-weight:700">ln</text>
+      <text class="sub l" x="20" y="179">List&lt;? extends Number&gt;</text>
+    </g>
+    <rect data-id="hl-tag2" class="hl" x="6" y="140" width="184" height="54" rx="10" />
+    <line data-id="arr1" class="line" x1="188" y1="107" x2="210" y2="124" marker-end="url(#giv-arr)" />
+    <line data-id="arr2" class="line" x1="188" y1="167" x2="210" y2="150" marker-end="url(#giv-arr)" />
+
+    <g data-id="list">
+      <rect class="box" x="214" y="84" width="96" height="106" rx="8" />
+      <text class="sub" x="262" y="102">리스트 객체</text>
+      <text class="sub" x="262" y="118">(하나뿐)</text>
+      <rect class="frame" x="224" y="130" width="76" height="48" rx="6" />
+    </g>
+    <text data-id="empty" class="sub hide" x="262" y="154">비어 있음</text>
+    <g data-id="chip" class="hide">
+      <rect class="chip" x="228" y="134" width="68" height="40" rx="6" />
+      <text x="262" y="148">3.14</text>
+      <text class="sub" x="262" y="166">Double</text>
+    </g>
+    <rect data-id="hl-slot" class="hl" x="220" y="126" width="84" height="56" rx="8" />
+    <g data-id="boom" class="hide">
+      <rect class="err" x="220" y="126" width="84" height="56" rx="8" style="fill:none" />
+    </g>
+
+    <!-- 코드 칸: 단계마다 내용이 바뀜 -->
+    <rect class="box" x="4" y="206" width="312" height="166" rx="8" />
+    <g data-id="c2" class="hide">
+      <text class="sub l" x={X} y="228">가정해 보기</text>
+      <text class="mono l" x={X} y="256">List&lt;Number&gt; ln = intList;</text>
+      <text class="sub l" x={X} y="286">intList와 ln이 같은 객체를 가리켜요</text>
+    </g>
+    <g data-id="c3" class="hide">
+      <text class="mono l" x={X} y="228">ln.add(3.14);</text>
+      <text class="sub l" x={X} y="254">Double도 Number니까 통과 ✓</text>
+    </g>
+    <g data-id="c4" class="hide">
+      <text class="mono l" x={X} y="228">Integer i = intList.get(0);</text>
+      <text class="err-t l" x={X} y="254" style="font-size:14px">✗ Integer가 아니라 Double이 나옴</text>
+      <text class="sub l" x={X} y="290">그래서 실제로는 이 줄이 막혀요</text>
+      <text class="mono l" x={X} y="316">List&lt;Number&gt; ln = intList;</text>
+      <rect class="err" x={X} y="332" width="140" height="28" rx="14" />
+      <text class="err-t" x={X + 70} y="346" style="font-size:14px">✗ 컴파일 오류</text>
+    </g>
+    <g data-id="c5" class="hide">
+      <text class="mono l" x={X} y="228">List&lt;? extends Number&gt; ln</text>
+      <text class="mono l" x={X + 34} y="250">= intList;   <tspan class="hi">✓ 대입 OK</tspan></text>
+      <text class="mono l" x={X} y="282">Number n = ln.get(0); <tspan class="hi">✓</tspan></text>
+      <text class="mono l" x={X} y="314">ln.add(3.14);</text>
+      <!-- 자물쇠 -->
+      <g transform="translate(140 300)">
+        <path class="line" d="M5 12V7a6 6 0 0 1 12 0v5" />
+        <rect class="err" x="1" y="12" width="20" height="16" rx="3" />
+      </g>
+      <text class="err-t l" x="170" y="314" style="font-size:14px">✗ add 불가</text>
+      <text class="sub l" x={X} y="348">무슨 리스트인지 몰라서 못 넣어요</text>
+    </g>
+    <g data-id="c6" class="hide">
+      <text class="sub l" x={X} y="228">비교: 배열이라면?</text>
+      <text class="mono l" x={X} y="256">Number[] na = new Integer[1];</text>
+      <text class="mono l" x={X} y="280">na[0] = 3.14;  <tspan class="hi">컴파일 ✓</tspan></text>
+      <rect class="err" x={X} y="296" width="236" height="28" rx="14" />
+      <text class="err-t" x={X + 118} y="310" style="font-size:14px">실행 시 ArrayStoreException</text>
+      <text class="sub l" x={X} y="348">배열은 실행 중에, 제네릭은 컴파일 때 잡아요</text>
+    </g>
+  </svg>
+</Stepper>
