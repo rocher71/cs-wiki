@@ -1,0 +1,71 @@
+---
+// -6.25 → float 32비트(0xC0C80000). python struct.pack('>f', -6.25)로 검산.
+// 360px에서 32칸 한 줄은 너무 작아서 부호+지수 9칸 / 가수 12칸 / 가수 11칸 세 줄로 쌓는다.
+import Stepper from '../Stepper.astro';
+
+const SIGN = '1', EXP = '10000001', MAN = '1001' + '0'.repeat(19);
+const BITS = SIGN + EXP + MAN;
+const CH = 28;
+const R1 = 108, R2 = 176, R3 = 210;
+const ex = (k: number) => 64 + k * 29;
+const mx = (k: number) => 10 + k * 25;
+const man = [...MAN].map((b, k) => ({ b, x: mx(k % 12), y: k < 12 ? R2 : R3 }));
+
+const steps = [
+  { caption: '음수니까 맨 앞 부호 칸에 1을 넣어요. 양수면 0이에요. 나머지는 6.25만 보고 계산해요.', show: ['cells', 'w1', 'sv'] },
+  { caption: '6.25를 2진수로 바꿔요. 정수 6은 110, 소수 0.25는 .01이라 합치면 110.01이에요.', show: ['cells', 'w2', 'sv'] },
+  { caption: '소수점을 왼쪽으로 2칸 옮겨 1.1001 × 2²로 정규화해요. 맨 앞 "1."은 늘 1이라 저장하지 않아요(숨은 비트).', show: ['cells', 'w3', 'sv'] },
+  { caption: '실제 지수 2에 바이어스 127을 더한 129를 8비트로 쓰면 1000 0001. 지수 8칸에 넣어요.', show: ['cells', 'w4', 'sv', 'ev'] },
+  { caption: '숨은 1을 뺀 1001을 가수 앞에 쓰고, 남은 19칸은 0으로 채워요. 23칸이 다 찼어요.', show: ['cells', 'w5', 'sv', 'ev', 'mv'] },
+  { caption: '32비트를 앞에서부터 4비트씩 끊어 16진수로 바꾸면 C0 C8 00 00, 즉 0xC0C80000이에요.', show: ['cells', 'w6', 'sv', 'ev', 'mv', 'hex'] },
+];
+---
+<Stepper title="−6.25를 float 32비트로 바꾸기" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 380" role="img" aria-label="-6.25를 부호 1, 지수 10000001, 가수 1001 뒤 0 열아홉 개로 채워 0xC0C80000이 되는 과정">
+    <!-- 위: 이번 단계 계산 (같은 자리 번갈아) -->
+    <text data-id="w1" class="hide" x="160" y="22">−6.25 → <tspan class="hi">음수</tspan></text>
+    <text data-id="w1" class="sub hide" x="160" y="48">부호 = 1</text>
+    <text data-id="w2" class="hide" x="160" y="22">6 = 110, 0.25 = .01</text>
+    <text data-id="w2" class="hide" x="160" y="48">6.25 = <tspan class="hi">110.01</tspan></text>
+    <text data-id="w3" class="hide" x="160" y="22">110.01 = <tspan class="hi">1.</tspan>1001 × 2²</text>
+    <text data-id="w3" class="sub hide" x="160" y="48">"1."은 숨은 비트 (저장 안 함)</text>
+    <text data-id="w4" class="hide" x="160" y="22">2 + 127 = 129</text>
+    <text data-id="w4" class="hide" x="160" y="48">129 = <tspan class="hi">1000 0001</tspan></text>
+    <text data-id="w5" class="hide" x="160" y="22">1.<tspan class="hi">1001</tspan> → 1001</text>
+    <text data-id="w5" class="sub hide" x="160" y="48">+ 0 열아홉 개 = 23비트</text>
+    <text data-id="w6" class="hide" x="160" y="22">4비트씩 끊어서</text>
+    <text data-id="w6" class="sub hide" x="160" y="48">한 묶음 = 16진수 한 자리</text>
+
+    <!-- 빈 칸 + 필드 이름 (색 + 글자 라벨) -->
+    <g data-id="cells">
+      <text class="sub" x="34" y="90">부호</text>
+      <text class="sub" x={(ex(0) + ex(7) + 27) / 2} y="90">지수 8비트</text>
+      <rect class="err" x="20" y={R1} width="28" height={CH} rx="3" />
+      {[...EXP].map((_, k) => <rect class="chip" x={ex(k)} y={R1} width="27" height={CH} rx="3" />)}
+      <text class="sub" x="160" y="158">가수 23비트 (숨은 1 제외)</text>
+      {man.map((m) => <rect class="box" x={m.x} y={m.y} width="23" height={CH} rx="3" />)}
+    </g>
+
+    <text data-id="sv" class="hide" x="34" y={R1 + CH / 2}>{SIGN}</text>
+    <g data-id="ev" class="hide">
+      {[...EXP].map((b, k) => <text x={ex(k) + 13.5} y={R1 + CH / 2}>{b}</text>)}
+    </g>
+    <g data-id="mv" class="hide">
+      {man.map((m) => <text class={m.b === '1' ? 'hi' : ''} x={m.x + 11.5} y={m.y + CH / 2}>{m.b}</text>)}
+    </g>
+
+    <!-- 6단계: 16진수 -->
+    <g data-id="hex" class="hide">
+      {[0, 1].map((r) => [0, 1, 2, 3].map((g) => {
+        const bits = BITS.slice(r * 16 + g * 4, r * 16 + g * 4 + 4);
+        return (
+          <>
+            <text class="mono" x={55 + g * 70} y={252 + r * 52}>{bits}</text>
+            <text class="hi" x={55 + g * 70} y={274 + r * 52}>{parseInt(bits, 2).toString(16).toUpperCase()}</text>
+          </>
+        );
+      }))}
+      <text class="hi" x="160" y="364">= 0xC0C80000</text>
+    </g>
+  </svg>
+</Stepper>

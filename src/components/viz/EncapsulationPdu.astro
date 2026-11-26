@@ -1,0 +1,69 @@
+---
+// 필기 암기용: OSI 7계층 표를 위에서 아래로 내려가며 계층별 PDU 이름·대표 장비·붙는 헤더를 보여준다.
+// web의 EncapsulationSteps(HTTP 송수신 흐름)와 달리 표 + 트레일러 위치에 초점.
+import Stepper from '../Stepper.astro';
+const rows = [
+  { n: 7, name: '7 응용', pdu: '메시지', dev: '게이트웨이' },
+  { n: 6, name: '6 표현', pdu: '메시지', dev: '-' },
+  { n: 5, name: '5 세션', pdu: '메시지', dev: '-' },
+  { n: 4, name: '4 전송', pdu: '세그먼트', dev: 'L4 스위치' },
+  { n: 3, name: '3 네트워크', pdu: '패킷', dev: '라우터' },
+  { n: 2, name: '2 데이터 링크', pdu: '프레임', dev: '브리지·스위치' },
+  { n: 1, name: '1 물리', pdu: '비트', dev: '리피터·허브' },
+];
+const RY = (i: number) => 44 + i * 34;
+const blk = [
+  { id: 'bE', t: 'Eth', x: 8, w: 54, c: 'box' },
+  { id: 'bI', t: 'IP', x: 62, w: 46, c: 'box' },
+  { id: 'bT', t: 'TCP', x: 108, w: 50, c: 'box' },
+  { id: 'bD', t: '데이터', x: 158, w: 104, c: 'chip' },
+  { id: 'bF', t: 'FCS', x: 262, w: 50, c: 'box' },
+];
+const steps = [
+  { caption: '7·6·5층(응용·표현·세션): 프로그램이 만든 데이터 그대로예요. 이 단위를 메시지(데이터)라고 불러요. 7층 장비로는 게이트웨이를 꼽아요.', show: ['p7', 'p6', 'p5', 'h75', 'bD', 'n1'] },
+  { caption: '4층 전송: 앞에 TCP 헤더(출발·목적 포트)를 붙이면 세그먼트예요(UDP면 데이터그램). 3층 IP 헤더의 Protocol 필드에는 TCP를 뜻하는 6이 들어가요.', show: ['p7', 'p6', 'p5', 'p4', 'h4', 'bD', 'bT', 'n2'] },
+  { caption: '3층 네트워크: 앞에 IP 헤더(출발·목적 IP, TTL)를 붙이면 패킷이에요. 장비는 라우터예요.', show: ['p7', 'p6', 'p5', 'p4', 'p3', 'h3', 'bD', 'bT', 'bI', 'n3'] },
+  { caption: '2층 데이터 링크: 앞에 이더넷 헤더(MAC), 뒤에 트레일러(FCS, 오류 검사값)를 붙이면 프레임이에요. 헤더와 트레일러를 둘 다 붙이는 층은 2층뿐이에요.', show: ['p7', 'p6', 'p5', 'p4', 'p3', 'p2', 'h2', 'bD', 'bT', 'bI', 'bE', 'bF', 'ht', 'n4'] },
+  { caption: '1층 물리: 프레임 전체를 0과 1 신호(비트)로 바꿔 선으로 보내요. 리피터·허브는 신호만 키워 전달하고 주소는 보지 않아요.', show: ['p7', 'p6', 'p5', 'p4', 'p3', 'p2', 'p1', 'h1', 'bD', 'bT', 'bI', 'bE', 'bF', 'bits', 'n5'] },
+  { caption: '정리: 아래에서 위로 비트 → 프레임 → 패킷 → 세그먼트 → 메시지. 장비는 1층 리피터·허브, 2층 브리지·스위치, 3층 라우터.', show: ['p7', 'p6', 'p5', 'p4', 'p3', 'p2', 'p1', 'bD', 'bT', 'bI', 'bE', 'bF', 'n6'] },
+];
+---
+<Stepper title="계층별 PDU 이름과 장비 (필기 암기용)" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 400" role="img" aria-label="OSI 7계층을 위에서 아래로 내려가며 메시지에 TCP 헤더가 붙어 세그먼트, IP 헤더가 붙어 패킷, 이더넷 헤더와 FCS 트레일러가 붙어 프레임, 1층에서 비트가 되는 과정과 계층별 대표 장비">
+    <text class="sub l" x="8" y="16">계층</text>
+    <text class="sub" x="152" y="16">PDU</text>
+    <text class="sub" x="256" y="16">대표 장비</text>
+    <line class="line" x1="4" y1="28" x2="316" y2="28" />
+    <rect data-id="h75" class="hl hide" x="2" y={RY(0) - 15} width="316" height={34 * 3 - 4} rx="6" />
+    {rows.map((r, i) => (
+      <g>
+        {i >= 3 && <rect data-id={`h${r.n}`} class="hl hide" x="2" y={RY(i) - 15} width="316" height="30" rx="6" />}
+        <text class="l" x="8" y={RY(i)}>{r.name}</text>
+        <g data-id={`p${r.n}`}>
+          <text class="hi" x="152" y={RY(i)}>{r.pdu}</text>
+          <text x="256" y={RY(i)}>{r.dev}</text>
+        </g>
+      </g>
+    ))}
+
+    <text class="sub l" x="8" y="290">지금 내려가는 데이터</text>
+    {blk.map((b) => (
+      <g data-id={b.id}>
+        <rect class={b.c} x={b.x} y="302" width={b.w} height="32" rx="4" />
+        <text class="mono" x={b.x + b.w / 2} y="318">{b.t}</text>
+      </g>
+    ))}
+    <g data-id="ht" class="hide">
+      <text class="sub" x="35" y="350">헤더</text>
+      <text class="sub" x="287" y="350">트레일러</text>
+    </g>
+    <text data-id="bits" class="mono hide" x="160" y="350">0110 1001 1101 0010 0111…</text>
+
+    <text data-id="n1" class="hi hide" x="160" y="380">응용 데이터 = 메시지</text>
+    <text data-id="n2" class="hi hide" x="160" y="380">+ TCP 헤더(포트) = 세그먼트</text>
+    <text data-id="n3" class="hi hide" x="160" y="380">+ IP 헤더(IP·TTL) = 패킷</text>
+    <text data-id="n4" class="hi hide" x="160" y="380">헤더+트레일러 둘 다: 2층뿐</text>
+    <text data-id="n5" class="hi hide" x="160" y="380">선 위에서는 0과 1 = 비트</text>
+    <text data-id="n6" class="hi hide" x="160" y="380">비트→프레임→패킷→세그먼트→메시지</text>
+  </svg>
+</Stepper>

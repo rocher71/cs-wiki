@@ -1,0 +1,72 @@
+---
+// 같은 입력(본문 예제 A)을 FCFS·SJF·SRT·RR(q=2)로 바꿔 그린 간트 차트 + 평균 대기 비교.
+// 간트 구간은 _workspace/exam/os/cpu-scheduling/sched_check.py 출력 그대로. 대기 시간은 아래에서 구간으로 계산.
+import Stepper from '../Stepper.astro';
+const P: Record<string, [number, number]> = { P1: [0, 7], P2: [1, 4], P3: [2, 1], P4: [4, 4] };
+const names = Object.keys(P);
+type Seg = [string, number, number];
+const algos: { id: string; name: string; g: Seg[] }[] = [
+  { id: 'fcfs', name: 'FCFS · 비선점', g: [['P1', 0, 7], ['P2', 7, 11], ['P3', 11, 12], ['P4', 12, 16]] },
+  { id: 'sjf', name: 'SJF · 비선점', g: [['P1', 0, 7], ['P3', 7, 8], ['P2', 8, 12], ['P4', 12, 16]] },
+  { id: 'srt', name: 'SRT · 선점', g: [['P1', 0, 1], ['P2', 1, 2], ['P3', 2, 3], ['P2', 3, 6], ['P4', 6, 10], ['P1', 10, 16]] },
+  { id: 'rr', name: 'RR (q=2) · 선점', g: [['P1', 0, 2], ['P2', 2, 4], ['P3', 4, 5], ['P1', 5, 7], ['P4', 7, 9], ['P2', 9, 11], ['P1', 11, 13], ['P4', 13, 15], ['P1', 15, 16]] },
+];
+const wait = (g: Seg[]) => names.map((p) => Math.max(...g.filter((s) => s[0] === p).map((s) => s[2])) - P[p][0] - P[p][1]);
+const avg = (w: number[]) => w.reduce((a, b) => a + b, 0) / w.length;
+const info = algos.map((a) => ({ ...a, w: wait(a.g), avg: avg(wait(a.g)), fin: names.map((p) => Math.max(...a.g.filter((s) => s[0] === p).map((s) => s[2]))) }));
+const fmt = (v: number) => (v % 1 ? String(v) : v.toFixed(1));
+const X0 = 40, U = 16, X = (t: number) => X0 + t * U;
+const RY = (i: number) => 40 + i * 34; // 행 위쪽 y, 높이 24
+const ri = (p: string) => names.indexOf(p);
+const steps = [
+  { caption: `FCFS: 온 순서대로 끝까지 실행해요. 긴 P1(7) 뒤에서 짧은 P3가 9나 기다려요. 평균 대기 ${fmt(info[0].avg)}.`, show: ['grid', 'fcfs'] },
+  { caption: `SJF: t=7에 P1이 끝났을 때 줄에 선 P2(4)·P3(1)·P4(4) 중 가장 짧은 P3를 골라요. 평균 대기 ${fmt(info[1].avg)}.`, show: ['grid', 'sjf', 'n-sjf'] },
+  { caption: `SRT: 남은 시간이 더 짧은 작업이 오면 바로 빼앗아요. t=1에 P2가 P1을, t=2에 P3가 P2를 선점해요(⚡). 평균 대기 ${fmt(info[2].avg)}.`, show: ['grid', 'srt', 'n-srt'] },
+  { caption: `RR(q=2): 한 번에 최대 2씩 돌아가며 실행해요. 응답은 고르지만 문맥 교환이 많고 평균 대기가 가장 길어요(${fmt(info[3].avg)}).`, show: ['grid', 'rr'] },
+  { caption: '같은 입력의 평균 대기 시간: SRT < SJF < FCFS < RR. 짧은 것 먼저가 평균 대기를 줄여요. RR은 평균이 아니라 응답의 공평함을 위한 방식이에요.', show: ['cmp'] },
+];
+const sorted = [...info].sort((a, b) => a.avg - b.avg);
+const BW = 190 / Math.max(...info.map((a) => a.avg));
+---
+<Stepper title="같은 입력, 네 가지 스케줄링" steps={steps}>
+  <svg class="viz sg" viewBox="0 0 320 270" role="img" aria-label={`입력 P1 도착0 실행7, P2 도착1 실행4, P3 도착2 실행1, P4 도착4 실행4. 평균 대기 시간 ${info.map((a) => `${a.name} ${fmt(a.avg)}`).join(', ')}`}>
+    <g data-id="grid" class="hide">
+      {names.map((p, i) => <text x="18" y={RY(i) + 12} style="font-weight:700">{p}</text>)}
+      {names.map((p, i) => <path d={`M${X(P[p][0])} ${RY(i) + 26} l-5 8 h10 z`} style="fill:var(--sl-color-gray-3)" />)}
+      <line class="line" x1={X0} y1="176" x2={X(16)} y2="176" />
+      {[0, 2, 4, 6, 8, 10, 12, 14, 16].map((t) => <text class="sub" x={X(t)} y="190">{t}</text>)}
+      <text class="sub l" x="2" y="240">▲ 도착 · 점선 = 기다림</text>
+    </g>
+
+    {info.map((a) => (
+      <g data-id={a.id} class="hide">
+        <text class="l" x="2" y="14" style="font-weight:700">{a.name}</text>
+        {names.map((p, i) => <line x1={X(P[p][0])} y1={RY(i) + 12} x2={X(a.fin[i])} y2={RY(i) + 12} class="line" style="stroke-dasharray:3 3" />)}
+        {a.g.map(([p, s, e]) => <rect class="chip" x={X(s)} y={RY(ri(p))} width={(e - s) * U} height="24" rx="3" />)}
+        <text class="l" x="2" y="214" style="font-size:14px">대기 {names.map((p, i) => `${p} ${a.w[i]}`).join(' · ')}</text>
+        <text class="hi" x="236" y="14">평균 {fmt(a.avg)}</text>
+      </g>
+    ))}
+    <g data-id="n-sjf" class="hide">
+      <line x1={X(7)} y1="30" x2={X(7)} y2="172" style="stroke:var(--sl-color-accent);stroke-width:2" />
+      <text class="hi l" x={X(8) + 4} y={RY(2) + 12} style="font-size:14px">← t=7 최단 P3</text>
+    </g>
+    <g data-id="n-srt" class="hide">
+      <text x={X(1)} y="30" style="font-size:14px">⚡</text>
+      <text x={X(2) + 2} y="30" style="font-size:14px">⚡</text>
+      <text class="hi l" x={X(3) + 4} y="30" style="font-size:14px">t=1·2 선점</text>
+    </g>
+
+    <g data-id="cmp" class="hide">
+      <text class="l" x="2" y="14" style="font-weight:700">평균 대기 시간 비교</text>
+      {sorted.map((a, i) => (
+        <g>
+          <text class="l" x="2" y={RY(i) + 12} style="font-size:14px">{a.name.split(' · ')[0]}</text>
+          <rect class={i === 0 ? 'chip' : 'box'} x="78" y={RY(i)} width={a.avg * BW} height="24" rx="3" />
+          <text class="l" x={78 + a.avg * BW + 6} y={RY(i) + 12} style="font-weight:700">{fmt(a.avg)}</text>
+        </g>
+      ))}
+      <text class="sub l" x="2" y="190">짧을수록 좋음 · 가장 짧은 SRT 강조</text>
+    </g>
+  </svg>
+</Stepper>

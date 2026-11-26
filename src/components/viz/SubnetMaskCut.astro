@@ -1,0 +1,78 @@
+---
+// 203.0.113.77/26 (RFC 5737 문서용 대역). 32비트 펼침 → 마스크 경계 → 마지막 옥텟 AND → 브로드캐스트 → 범위.
+// python ipaddress로 검산: 네트워크 .64, 브로드캐스트 .127, 호스트 .65~.126, 62개.
+import Stepper from '../Stepper.astro';
+const ip = [203, 0, 113, 77];
+const mask = [255, 255, 255, 192];
+const bin = (n: number) => n.toString(2).padStart(8, '0');
+const OX = (o: number) => 8 + o * 76; // 옥텟 칸 x
+const BX = (o: number, k: number) => OX(o) + 8.4 + k * 8.75; // 비트 글자 중심
+const CUT = OX(3) + 4 + 2 * 8.75; // 26번째 비트 뒤
+// 확대 영역: 비트 8개, 4비트마다 간격
+const ZX = (k: number) => 104 + k * 20 + (k >= 4 ? 8 : 0);
+const ZCUT = (ZX(1) + ZX(2)) / 2;
+const zrows = [
+  { id: 'z1', y: 236, l: 'IP 77', b: bin(77), r: '' },
+  { id: 'z2', y: 264, l: '마스크 192', b: bin(192), r: '' },
+  { id: 'z3', y: 304, l: 'AND', b: bin(77 & 192), r: '= 64' },
+  { id: 'z4', y: 334, l: '호스트→1', b: bin((77 & 192) | 63), r: '= 127' },
+];
+const steps = [
+  { caption: 'IP 203.0.113.77을 2진수로 펼쳐요. 옥텟(8비트) 4칸, 모두 32비트예요. 77은 0100 1101이에요.', show: ['ip'] },
+  { caption: '/26은 앞에서부터 1이 26개, 나머지 0이 6개인 마스크(255.255.255.192)예요. 1이 끝나는 자리가 네트워크와 호스트의 경계예요. 경계는 마지막 옥텟 안에 있어요.', show: ['ip', 'mask', 'cut'] },
+  { caption: '앞 세 옥텟은 마스크가 255라 그대로 남아요. 마지막 옥텟만 AND(둘 다 1일 때만 1) 해요. 0100 1101 AND 1100 0000 = 0100 0000 = 64. 네트워크 주소는 203.0.113.64예요.', show: ['ip', 'mask', 'cut', 'zh', 'z1', 'z2', 'zl', 'z3', 'net'] },
+  { caption: '네트워크 주소에서 호스트 6비트를 전부 1로 바꾸면 0111 1111 = 127. 브로드캐스트 주소는 203.0.113.127이에요.', show: ['ip', 'mask', 'cut', 'zh', 'z1', 'z2', 'zl', 'z3', 'net', 'z4', 'hb', 'bc'] },
+  { caption: '네트워크(.64)와 브로드캐스트(.127)를 뺀 .65~.126이 쓸 수 있는 주소예요. 개수는 2⁶ − 2 = 62개예요.', show: ['ip', 'mask', 'cut', 'zh', 'z1', 'z2', 'zl', 'z3', 'net', 'z4', 'hb', 'bc', 'rg'] },
+];
+---
+<Stepper title="/26 서브넷 계산: 203.0.113.77" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 452" role="img" aria-label="203.0.113.77과 /26 마스크를 2진수로 펼쳐 AND하면 네트워크 주소 203.0.113.64, 호스트 6비트를 모두 1로 하면 브로드캐스트 203.0.113.127, 사용 가능 주소는 .65부터 .126까지 62개">
+    <g data-id="ip">
+      <text class="sub l" x="8" y="14">IP 주소 203.0.113.77</text>
+      {ip.map((n, o) => (
+        <>
+          <text class="sub" x={OX(o) + 37} y="36">{n}</text>
+          <rect class="box" x={OX(o)} y="48" width="74" height="28" rx="4" />
+          {[...bin(n)].map((c, k) => <text class="mono" x={BX(o, k)} y="62">{c}</text>)}
+        </>
+      ))}
+    </g>
+    <g data-id="mask">
+      <text class="sub l" x="8" y="98">마스크 /26 = 255.255.255.192</text>
+      {mask.map((n, o) => (
+        <>
+          <text class="sub" x={OX(o) + 37} y="120">{n}</text>
+          <rect class="box" x={OX(o)} y="132" width="74" height="28" rx="4" />
+          {[...bin(n)].map((c, k) => <text class="mono" x={BX(o, k)} y="146">{c}</text>)}
+        </>
+      ))}
+    </g>
+    <g data-id="cut">
+      <line x1={CUT} y1="44" x2={CUT} y2="166" style="stroke:var(--sl-color-accent);stroke-width:2.5;stroke-dasharray:4 3" />
+      <text class="hi" x={CUT - 6} y="180" style="text-anchor:end">← 네트워크 26비트</text>
+      <text class="hi l" x={CUT + 6} y="180">호스트 6</text>
+    </g>
+
+    <text data-id="zh" class="sub l" x="8" y="210">마지막 옥텟만 확대</text>
+    {zrows.map((r) => (
+      <g data-id={r.id}>
+        <text class="sub" x="94" y={r.y} style="text-anchor:end">{r.l}</text>
+        {r.id === 'z4' && <rect data-id="hb" class="chip hide" x={ZX(2) - 9} y={r.y - 13} width={ZX(7) - ZX(2) + 18} height="26" rx="4" />}
+        {[...r.b].map((c, k) => <text class={r.id === 'z4' && k >= 2 ? 'mono hi' : 'mono'} x={ZX(k)} y={r.y} style="font-size:16px">{c}</text>)}
+        {r.r && <text class="hi l" x="268" y={r.y}>{r.r}</text>}
+      </g>
+    ))}
+    <g data-id="zl">
+      <line class="line" x1="94" y1="284" x2="250" y2="284" />
+      <line x1={ZCUT} y1="220" x2={ZCUT} y2="350" style="stroke:var(--sl-color-accent);stroke-width:2;stroke-dasharray:4 3" />
+    </g>
+
+    <text data-id="net" x="160" y="370">네트워크 주소 203.0.113.64</text>
+    <text data-id="bc" x="160" y="394">브로드캐스트 203.0.113.127</text>
+    <g data-id="rg">
+      <rect class="chip" x="20" y="408" width="280" height="40" rx="6" />
+      <text x="160" y="420" style="font-weight:700">사용 가능 .65 ~ .126</text>
+      <text class="sub" x="160" y="438">2⁶ − 2 = 62개 (0·1 전부인 2개 제외)</text>
+    </g>
+  </svg>
+</Stepper>

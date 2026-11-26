@@ -1,0 +1,91 @@
+---
+// 디스크 스케줄링: 가로축 트랙 0~199, 한 번 움직일 때마다 한 줄씩 내려가는 헤드 경로.
+// 순서·총합은 _workspace/exam/os/disk-file/disk_check.py 출력과 같다(아래에서 다시 더해 확인).
+// 알고리즘별 경로는 같은 자리를 번갈아 쓰므로 class hide. C-SCAN·C-LOOK의 되돌아가는 점프는 점선.
+import Stepper from '../Stepper.astro';
+
+type Algo = { id: string; name: string; seq: number[]; jump?: number; total: number };
+const algos: Algo[] = [
+  { id: 'fcfs', name: 'FCFS', seq: [60, 95, 180, 34, 119, 11, 123, 62, 64], total: 634 },
+  { id: 'sstf', name: 'SSTF', seq: [60, 62, 64, 34, 11, 95, 119, 123, 180], total: 226 },
+  { id: 'scan', name: 'SCAN', seq: [60, 62, 64, 95, 119, 123, 180, 199, 34, 11], total: 327 },
+  { id: 'look', name: 'LOOK', seq: [60, 62, 64, 95, 119, 123, 180, 34, 11], total: 289 },
+  { id: 'cscan', name: 'C-SCAN', seq: [60, 62, 64, 95, 119, 123, 180, 199, 0, 11, 34], jump: 7, total: 372 },
+  { id: 'clook', name: 'C-LOOK', seq: [60, 62, 64, 95, 119, 123, 180, 11, 34], jump: 6, total: 312 },
+];
+const moves = (a: Algo) => a.seq.slice(1).map((t, i) => Math.abs(t - a.seq[i]));
+for (const a of algos) if (moves(a).reduce((s, v) => s + v, 0) !== a.total) throw new Error(`${a.name} 합계 불일치`);
+const noJump = (a: Algo) => a.total - (a.jump === undefined ? 0 : moves(a)[a.jump]);
+if (noJump(algos[4]) !== 173 || noJump(algos[5]) !== 143) throw new Error('점프 미포함 값 불일치');
+
+const X = (t: number) => 20 + (t * 280) / 199;
+const Y0 = 66, DY = 24, Y = (i: number) => Y0 + i * DY;
+const req = [11, 34, 62, 64, 95, 119, 123, 180];
+const row1 = [0, 34, 60, 95, 119, 199];
+const row2: [string, number][] = [['11', X(11)], ['62·64', X(63)], ['123', X(123)], ['180', X(180)]];
+
+const sumText = (a: Algo) => moves(a).join('+');
+const notes: Record<string, { x: number; y: number; t: string; end?: boolean; at: number }> = {
+  sstf: { x: 126, y: Y(2), t: '34까지 30 < 95까지 31', at: 2 },
+  scan: { x: 304, y: Y(8) + 8, t: '199(끝 트랙)까지 감', end: true, at: 7 },
+  look: { x: 312, y: Y(7) + 8, t: '180에서 바로 돌아섬', end: true, at: 6 },
+};
+const captions: Record<string, string> = {
+  fcfs: 'FCFS: 요청이 들어온 순서대로 가요. 180 → 34 → 119 → 11처럼 끝에서 끝으로 왔다 갔다 해서 가장 많이 움직여요.',
+  sstf: 'SSTF: 지금 위치에서 가장 가까운 요청부터 가요. 64에서 34(30칸)가 95(31칸)보다 한 칸 가까워서 아래로 꺾어요. 바깥쪽 180은 마지막까지 밀려요.',
+  scan: 'SCAN: 큰 번호 방향으로 쭉 가며 처리하고, 끝 트랙 199까지 간 다음 돌아서 34, 11을 처리해요. 엘리베이터와 같아요.',
+  look: 'LOOK: SCAN과 같지만 끝(199)까지 가지 않고 마지막 요청 180에서 바로 돌아서요. 19+19=38칸 줄어요.',
+  cscan: 'C-SCAN: 한 방향으로만 처리해요. 199까지 간 뒤 0으로 점프(처리 없음)하고 다시 같은 방향으로 11, 34를 처리해요.',
+  clook: 'C-LOOK: C-SCAN처럼 한 방향만 처리하되 끝까지 안 가요. 180에서 반대쪽 가장 먼 요청 11로 점프한 뒤 34를 처리해요.',
+};
+const steps = [
+  ...algos.map((a) => ({ caption: captions[a.id], show: ['ax', a.id, `t-${a.id}`] })),
+  { caption: '총 이동 거리 비교(점프 포함 기준): SSTF 226 < LOOK 289 < C-LOOK 312 < SCAN 327 < C-SCAN 372 < FCFS 634. 짧다고 다 좋진 않아요. SSTF는 기아가 생길 수 있어요.', show: ['bars'] },
+];
+const sorted = [...algos].sort((a, b) => a.total - b.total);
+const BW = 196 / 634;
+---
+<Stepper title="디스크 헤드 이동 경로 (시작 60, 큰 번호 방향)" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 400" role="img" aria-label="트랙 0~199, 요청 95, 180, 34, 119, 11, 123, 62, 64, 시작 60. 총 이동 거리 FCFS 634, SSTF 226, SCAN 327, LOOK 289, C-SCAN 372(점프 미포함 173), C-LOOK 312(점프 미포함 143).">
+    <g data-id="ax" class="hide">
+      {row1.map((t) => <text class="sub" x={X(t)} y="14">{t}</text>)}
+      {row2.map(([s, x]) => <text class="sub" x={x} y="32">{s}</text>)}
+      <path class="line" d={`M${X(0)} 46 H${X(199)}`} />
+      {[0, 60, 199, ...req].map((t) => <path class="line" d={`M${X(t)} 42 V50`} />)}
+      {[0, 199, ...req].map((t) => <path d={`M${X(t)} 52 V312`} stroke="var(--sl-color-gray-5)" stroke-width="1" stroke-dasharray="2 4" />)}
+      <circle cx={X(60)} cy={Y(0)} r="6" fill="var(--sl-color-accent)" />
+      <text class="sub" x={X(60) - 10} y={Y(0)} style="text-anchor:end">시작</text>
+    </g>
+
+    {algos.map((a) => <g data-id={a.id} class="hide">
+      {a.seq.slice(1).map((t, i) => <path class="path" d={`M${X(a.seq[i])} ${Y(i)} L${X(t)} ${Y(i + 1)}`} stroke-dasharray={i === a.jump ? '5 5' : undefined} style={i === a.jump ? 'stroke:var(--sl-color-gray-3)' : undefined} />)}
+      {a.seq.slice(1).map((t, i) => <circle cx={X(t)} cy={Y(i + 1)} r="3.5" fill={i === a.jump ? 'var(--sl-color-gray-3)' : 'var(--sl-color-accent)'} />)}
+      {a.jump !== undefined && <text class="sub" x={a.id === 'cscan' ? 100 : 130} y={Y(a.jump) + 34}>점프 (처리 안 함)</text>}
+      {notes[a.id] && <>
+        <circle class="hl" cx={X(a.seq[notes[a.id].at])} cy={Y(notes[a.id].at)} r="9" />
+        <text class="hi" x={notes[a.id].x} y={notes[a.id].y} style={`font-size:14px;${notes[a.id].end ? 'text-anchor:end' : 'text-anchor:start'}`}>{notes[a.id].t}</text>
+      </>}
+    </g>)}
+
+    {algos.map((a) => <g data-id={`t-${a.id}`} class="hide">
+      <text class="l" x="8" y="334" style="font-weight:700">{a.name} 총 이동 <tspan class="hi">{a.total}</tspan>{a.jump !== undefined ? ' (점프 포함)' : ''}</text>
+      <text class="mono l" x="8" y="358">{sumText(a)}</text>
+      {a.jump !== undefined && <text class="sub l" x="8" y="384">점프 빼면 {noJump(a)} · 포함 여부는 문제 조건</text>}
+    </g>)}
+
+    <g data-id="bars" class="hide">
+      <text class="l" x="8" y="20" style="font-weight:700">총 이동 거리 (점프 포함)</text>
+      {sorted.map((a, i) => <>
+        <text class="l" x="8" y={62 + i * 44}>{a.name}</text>
+        <rect class={a.id === 'sstf' ? 'chip' : 'box'} x="76" y={50 + i * 44} width={a.total * BW} height="24" rx="4" />
+        <text class="mono l" x={82 + a.total * BW} y={62 + i * 44}>{a.total}</text>
+      </>)}
+      <text class="sub l" x="8" y="334">점프 빼면 C-LOOK 143, C-SCAN 173</text>
+      <text class="sub l" x="8" y="358">SCAN은 끝 트랙까지 가는지도 확인</text>
+    </g>
+  </svg>
+</Stepper>
+
+<style>
+  svg.viz .path { stroke: var(--sl-color-accent-high); stroke-width: 2.2; fill: none; }
+</style>

@@ -15,7 +15,22 @@ const SECTIONS = [
 ];
 const has = (d) => {
   const p = `./src/content/docs/${d}`;
-  return existsSync(p) && readdirSync(p).some((f) => /\.mdx?$/.test(f));
+  return existsSync(p) && readdirSync(p, { recursive: true }).some((f) => /\.mdx?$/.test(f));
+};
+// 필기는 과목 폴더(exam/os 등)를 한글 이름 그룹으로 묶는다. 글이 있는 과목만.
+const EXAM_SUBJECTS = [
+  ['os', '운영체제'], ['ds', '자료구조'], ['db', '데이터베이스'],
+  ['network', '네트워크·데이터통신'], ['se', '소프트웨어공학'], ['arch', '컴퓨터구조'],
+];
+const items = (d) => {
+  if (d !== 'exam') return [{ autogenerate: { directory: d } }];
+  const top = existsSync('./src/content/docs/exam/guide.mdx') ? ['exam/guide'] : [];
+  return [
+    ...top,
+    ...EXAM_SUBJECTS.filter(([s]) => has(`exam/${s}`)).map(([s, label]) => ({
+      label, collapsed: true, items: [{ autogenerate: { directory: `exam/${s}` } }],
+    })),
+  ];
 };
 
 export default defineConfig({
@@ -35,7 +50,7 @@ export default defineConfig({
       sidebar: SECTIONS.filter(([d]) => has(d)).map(([d, label]) => ({
         label,
         collapsed: true,
-        items: [{ autogenerate: { directory: d } }],
+        items: items(d),
       })),
     }),
   ],

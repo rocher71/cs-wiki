@@ -1,0 +1,59 @@
+---
+// RR(q=2) 준비 큐 변화. 본문 예제 A, sched_check.py의 rr() 규칙(타임 슬라이스 중 도착한 프로세스를 선점된 프로세스보다 먼저 넣음).
+import Stepper from '../Stepper.astro';
+const G: [string, number, number][] = [['P1', 0, 2], ['P2', 2, 4], ['P3', 4, 5], ['P1', 5, 7], ['P4', 7, 9], ['P2', 9, 11], ['P1', 11, 13], ['P4', 13, 15], ['P1', 15, 16]];
+// 각 시각: CPU [이름, 남은], 큐 [이름, 남은, 방금 뒤로 감?], 완료
+type S = { t: number; cpu: [string, number]; q: [string, number, boolean?][]; done: string; cap: string };
+const S: S[] = [
+  { t: 0, cpu: ['P1', 7], q: [], done: '', cap: 't=0: P1만 도착해 바로 실행해요. 준비 큐는 비어 있어요.' },
+  { t: 2, cpu: ['P2', 4], q: [['P3', 1], ['P1', 5, true]], done: '', cap: 't=2: P1이 2를 다 썼어요. 그사이 도착한 P2·P3를 먼저 넣고 P1은 맨 뒤로 → [P2, P3, P1]. 맨 앞 P2가 실행돼요.' },
+  { t: 4, cpu: ['P3', 1], q: [['P1', 5], ['P4', 4], ['P2', 2, true]], done: '', cap: 't=4: P2가 2를 쓰고 남은 2. 막 도착한 P4를 먼저 넣고 P2는 맨 뒤로 → [P3, P1, P4, P2]. P3 실행.' },
+  { t: 5, cpu: ['P1', 5], q: [['P4', 4], ['P2', 2]], done: 'P3', cap: 't=5: P3는 1만 필요해서 할당량 전에 끝났어요. 다음은 P1.' },
+  { t: 7, cpu: ['P4', 4], q: [['P2', 2], ['P1', 3, true]], done: 'P3', cap: 't=7: P1이 다시 2를 쓰고 맨 뒤로(남은 3). P4 실행.' },
+  { t: 9, cpu: ['P2', 2], q: [['P1', 3], ['P4', 2, true]], done: 'P3', cap: 't=9: P4가 맨 뒤로(남은 2). P2 실행.' },
+  { t: 11, cpu: ['P1', 3], q: [['P4', 2]], done: 'P3 P2', cap: 't=11: P2 완료. P1 실행, 큐에는 P4만 남아요.' },
+  { t: 13, cpu: ['P4', 2], q: [['P1', 1, true]], done: 'P3 P2', cap: 't=13: P1이 맨 뒤로(남은 1). P4 실행.' },
+  { t: 15, cpu: ['P1', 1], q: [], done: 'P3 P2 P4', cap: 't=15: P4 완료. 남은 P1이 실행되고 t=16에 끝나요. 끝난 순서 P3 → P2 → P4 → P1.' },
+];
+const X0 = 24, U = 17, X = (t: number) => X0 + t * U;
+const steps = S.map((s, k) => ({ caption: s.cap, show: [...G.slice(0, k + 1).map((_, i) => `g${i}`), `s${k}`] }));
+const QX = (j: number) => 100 + j * 70;
+---
+<Stepper title="라운드 로빈(q=2) 준비 큐" steps={steps}>
+  <svg class="viz rrq" viewBox="0 0 320 250" role="img" aria-label="RR q=2 간트: P1 0-2, P2 2-4, P3 4-5, P1 5-7, P4 7-9, P2 9-11, P1 11-13, P4 13-15, P1 15-16. 할당량을 다 쓴 프로세스는 준비 큐 맨 뒤로 간다.">
+    {G.map(([p, s, e], i) => (
+      <g data-id={`g${i}`}>
+        <rect class="chip" x={X(s)} y="8" width={(e - s) * U} height="32" rx="3" />
+        <text x={X((s + e) / 2)} y="24" style="font-size:14px">{p}</text>
+      </g>
+    ))}
+    <line class="line" x1={X0} y1="44" x2={X(16)} y2="44" />
+    {[0, 2, 4, 6, 8, 10, 12, 14, 16].map((t) => <text class="sub" x={X(t)} y="58">{t}</text>)}
+
+    <text class="l" x="4" y="104" style="font-weight:700">CPU</text>
+    <text class="l" x="4" y="184" style="font-weight:700">준비 큐</text>
+    <text class="sub" x={QX(0) + 29} y="216">맨 앞</text>
+    <path d={`M${QX(0) + 29} 160 L${QX(0) + 29} 128`} class="line" style="stroke-dasharray:4 3" />
+    {[0, 1, 2].map((j) => <rect class="frame" x={QX(j)} y="162" width="58" height="44" rx="6" />)}
+
+    {S.map((s, k) => (
+      <g data-id={`s${k}`} class="hide">
+        <line x1={X(s.t)} y1="2" x2={X(s.t)} y2="48" style="stroke:var(--sl-color-accent);stroke-width:3" />
+        <rect class="box" x={QX(0)} y="82" width="58" height="44" rx="6" style="stroke:var(--sl-color-accent);stroke-width:2.5" />
+        <text x={QX(0) + 29} y="97" style="font-weight:700">{s.cpu[0]}</text>
+        <text class="sub" x={QX(0) + 29} y="115">남 {s.cpu[1]}</text>
+        <text class="hi l" x={QX(1)} y="96" style="font-size:15px">t = {s.t}</text>
+        {s.done && <text class="sub l" x={QX(1)} y="116">완료: {s.done}</text>}
+        {s.q.length === 0 && <text class="sub l" x={QX(0) + 8} y="184">(비어 있음)</text>}
+        {s.q.map(([p, r, back], j) => (
+          <g>
+            <rect class={back ? 'chip' : 'box'} x={QX(j)} y="162" width="58" height="44" rx="6" />
+            <text x={QX(j) + 29} y="177" style="font-weight:700">{p}</text>
+            <text class="sub" x={QX(j) + 29} y="195">{back ? '↩\uFE0E ' : ''}남 {r}</text>
+          </g>
+        ))}
+      </g>
+    ))}
+    <text class="sub l" x="4" y="238">↩︎ = 할당량을 다 쓰고 방금 맨 뒤로 온 프로세스</text>
+  </svg>
+</Stepper>

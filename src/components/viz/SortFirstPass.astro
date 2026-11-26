@@ -1,0 +1,73 @@
+---
+// 같은 배열 A = [6,3,9,1,7,2,8,4]의 버블·선택·삽입 1회전(+2회전)을 세 줄로 나란히.
+// 줄마다 상태가 바뀌면 그 줄 그룹을 통째로 바꿔 끼운다(같은 자리 번갈아 → class="hide").
+// 칸 표시: c = 비교/이동한 칸(강조), f = 확정된 칸(진한 색 + 아래 "확정" 글자), 정렬 구간은 테두리.
+import Stepper from '../Stepper.astro';
+
+type St = { v: number[]; c?: number[]; f?: number[]; sorted?: number; note: string };
+const A = [6, 3, 9, 1, 7, 2, 8, 4];
+const R: Record<'b' | 's' | 'i', St[]> = {
+  b: [
+    { v: A, note: '' },
+    { v: [3, 6, 9, 1, 7, 2, 8, 4], c: [0, 1], note: '6 > 3 → 교환' },
+    { v: [3, 6, 9, 1, 7, 2, 8, 4], c: [1, 2], note: '6 < 9 → 그대로' },
+    { v: [3, 6, 1, 7, 2, 8, 4, 9], c: [2, 3, 4, 5, 6], f: [7], note: '9가 끝까지 밀려감' },
+    { v: [3, 1, 6, 2, 7, 4, 8, 9], f: [6, 7], note: '2회전: 8 확정' },
+  ],
+  s: [
+    { v: A, note: '' },
+    { v: A, c: [0, 3], note: '최솟값 1 찾음' },
+    { v: [1, 3, 9, 6, 7, 2, 8, 4], c: [3], f: [0], note: '6 ↔ 1 맞바꿈' },
+    { v: [1, 2, 9, 6, 7, 3, 8, 4], f: [0, 1], note: '2회전: 2 확정' },
+  ],
+  i: [
+    { v: A, note: '' },
+    { v: [3, 6, 9, 1, 7, 2, 8, 4], c: [0], sorted: 2, note: '3을 6 앞에 끼움' },
+    { v: [3, 6, 9, 1, 7, 2, 8, 4], c: [2], sorted: 3, note: '2회전: 변화 없음' },
+  ],
+};
+// 단계마다 각 줄이 보여 줄 상태 번호 [버블, 선택, 삽입]
+const S: { r: [number, number, number]; cap: string; sum?: boolean }[] = [
+  { r: [0, 0, 0], cap: '같은 배열 A = [6, 3, 9, 1, 7, 2, 8, 4]를 세 방법으로 오름차순 정렬해요. "1회전"은 바깥 반복 한 번이에요. 버블부터 볼게요.' },
+  { r: [1, 0, 0], cap: '버블: 이웃한 두 칸을 왼쪽부터 비교해요. 6 > 3이라 자리를 바꿔요.' },
+  { r: [2, 0, 0], cap: '버블: 다음 쌍 6과 9는 이미 순서가 맞아서 그대로 둬요.' },
+  { r: [3, 0, 0], cap: '버블: 9 > 1, 9 > 7, 9 > 2, 9 > 8, 9 > 4로 5번 연달아 교환돼요. 비교 7번 만에 최댓값 9가 맨 뒤에 확정돼요.' },
+  { r: [3, 1, 0], cap: '선택: 처음부터 끝까지 훑어 최솟값 1(4번째 칸)을 찾아요. 그동안 배열은 안 바뀌어요.' },
+  { r: [3, 2, 0], cap: '선택: 1을 맨 앞 6과 맞바꿔요. 1이 맨 앞에 확정되고, 6은 멀리 4번째 칸으로 건너뛰어요. 이 먼 교환 때문에 선택 정렬은 불안정해요.' },
+  { r: [3, 2, 1], cap: '삽입: 두 번째 값 3을 앞의 6과 비교해 6 앞에 끼워요. 테두리 안 [3 6]이 정렬된 구간이에요.' },
+  { r: [3, 2, 1], sum: true, cap: '1회전 비교: 버블은 맨 뒤에 최댓값, 선택은 맨 앞에 최솟값이 확정돼요. 삽입은 앞쪽 구간만 정렬됐을 뿐 확정된 칸은 없어요.' },
+  { r: [4, 3, 2], cap: '2회전: 버블은 8까지 뒤에서 2칸, 선택은 2까지 앞에서 2칸 확정. 삽입은 9가 이미 6보다 커서 배열이 안 바뀌어요. "변화 없음"도 정답이 될 수 있어요.' },
+];
+const steps = S.map((s) => ({ caption: s.cap, show: [`b${s.r[0]}`, `s${s.r[1]}`, `i${s.r[2]}`, ...(s.sum ? ['sum'] : [])] }));
+
+const X0 = 16, W = 36, H = 34;
+const rows = [
+  { k: 'b' as const, name: '버블', y: 40 },
+  { k: 's' as const, name: '선택', y: 132 },
+  { k: 'i' as const, name: '삽입', y: 224 },
+];
+---
+<Stepper title="버블·선택·삽입: 1회전 후 무엇이 확정되나" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 330" role="img" aria-label="배열 6, 3, 9, 1, 7, 2, 8, 4의 1회전 결과. 버블은 3 6 1 7 2 8 4 9로 9가 맨 뒤에 확정, 선택은 1 3 9 6 7 2 8 4로 1이 맨 앞에 확정, 삽입은 3 6 다음 9 1 7 2 8 4로 앞 두 칸만 정렬된 구간.">
+    {rows.map((row) => <>
+      <text class="l" x={X0} y={row.y - 16} style="font-weight:700">{row.name}</text>
+      {R[row.k].map((st, n) => <g data-id={`${row.k}${n}`} class="hide">
+        {st.note && <text class="sub" x="304" y={row.y - 16} style="text-anchor:end">{st.note}</text>}
+        {st.v.map((x, j) => {
+          const cls = st.f?.includes(j) ? 'fixc' : st.c?.includes(j) ? 'chip' : 'box';
+          return <><rect class={cls} x={X0 + j * W + 1} y={row.y} width={W - 2} height={H} rx="4" /><text class={st.f?.includes(j) ? 'on-badge' : st.c?.includes(j) ? 'hi' : ''} x={X0 + j * W + W / 2} y={row.y + H / 2 + 1}>{x}</text></>;
+        })}
+        {st.f && <text class="sub" x={X0 + (st.f.reduce((a, b) => a + b, 0) / st.f.length) * W + W / 2} y={row.y + H + 14}>확정</text>}
+        {st.sorted && <><rect class="hl" x={X0 - 2} y={row.y - 3} width={st.sorted * W + 4} height={H + 6} rx="6" /><text class="sub" x={X0 + st.sorted * W / 2} y={row.y + H + 14}>정렬된 구간</text></>}
+      </g>)}
+    </>)}
+    <g data-id="sum" class="hide">
+      <rect class="frame" x="8" y="292" width="304" height="32" rx="6" />
+      <text x="160" y="309">버블 뒤 확정 · 선택 앞 확정 · 삽입 앞만 정렬</text>
+    </g>
+  </svg>
+</Stepper>
+
+<style>
+  .fixc { fill: var(--sl-color-accent); stroke: var(--sl-color-accent); stroke-width: 1.2; }
+</style>

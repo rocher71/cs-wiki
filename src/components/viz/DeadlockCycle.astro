@@ -1,0 +1,79 @@
+---
+// 자원 할당 그래프(RAG): 프로세스=원, 자원=사각형(점=자원 개수). 할당 R→P 실선, 요청 P→R 점선.
+// 마지막 두 단계는 R2를 2개로 늘려 P3가 반납하면 사이클이 있어도 풀리는 경우.
+// R2 점 1개/2개, P1→R2 요청/R2→P1 할당, 결과 배지는 같은 자리를 번갈아 → class hide.
+import Stepper from '../Stepper.astro';
+const base = ['p1', 'p2', 'r1', 'leg'];
+const steps = [
+  { caption: 'P1이 R1(1개뿐)을 받아 쥐고 있어요. 자원 → 프로세스 실선이 "할당"이에요.', show: [...base, 'r2a', 'a1'] },
+  { caption: 'P2는 R2(1개뿐)를 받아 쥐고 있어요.', show: [...base, 'r2a', 'a1', 'a2'] },
+  { caption: 'P1이 R2를 요청해요. 프로세스 → 자원 점선이 "요청"이에요. R2는 P2가 쥐고 있으니 P1은 기다려요.', show: [...base, 'r2a', 'a1', 'a2', 'q1'] },
+  { caption: 'P2도 R1을 요청해요. P1 → R2 → P2 → R1 → P1로 원이 닫혔어요. 자원마다 1개뿐이면 이 순환 대기가 곧 교착이에요.', show: [...base, 'r2a', 'a1', 'a2', 'q1', 'q2', 'ring', 'dead'] },
+  { caption: '이번엔 R2가 2개라고 해요(점 2개). 하나는 P2, 하나는 P3가 쥐었어요. 원은 그대로 있지만 P3는 아무것도 기다리지 않아서 곧 끝나요.', show: [...base, 'p3', 'r2b', 'a1', 'a2', 'a3', 'q1', 'q2', 'maybe'] },
+  { caption: 'P3가 끝나며 R2 하나를 반납하고, 기다리던 P1이 그걸 받아(점선 → 실선) 진행해요. 사이클이 있어도 자원이 여러 개면 교착이 아닐 수 있어요.', show: [...base, 'p3', 'p3done', 'r2b', 'a1', 'a2', 'g1', 'q2', 'ok'] },
+];
+---
+<Stepper title="자원 할당 그래프로 보는 순환 대기" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 420" role="img" aria-label="P1이 R1을, P2가 R2를 쥐고, P1은 R2를, P2는 R1을 요청해 P1→R2→P2→R1→P1 사이클이 생긴다. 자원마다 1개면 교착. R2가 2개이고 나머지를 쥔 P3가 반납하면 P1이 받아 진행하므로 사이클이 있어도 교착이 아니다.">
+    <defs>
+      <marker id="dc-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+
+    <!-- 노드 -->
+    <g data-id="p1"><circle class="box" cx="70" cy="120" r="24" /><text x="70" y="120">P1</text></g>
+    <g data-id="p2"><circle class="box" cx="250" cy="270" r="24" /><text x="250" y="270">P2</text></g>
+    <g data-id="p3"><circle class="box" cx="250" cy="34" r="22" /><text x="250" y="34">P3</text></g>
+    <text data-id="p3done" class="sub hide" x="200" y="34" style="text-anchor:end">끝, 반납</text>
+    <g data-id="r1">
+      <rect class="chip" x="38" y="250" width="64" height="40" rx="5" />
+      <circle cx="70" cy="270" r="5" fill="var(--sl-color-white)" />
+      <text class="sub" x="70" y="306">R1</text>
+    </g>
+    <g data-id="r2a" class="hide">
+      <rect class="chip" x="218" y="100" width="64" height="40" rx="5" />
+      <circle cx="250" cy="120" r="5" fill="var(--sl-color-white)" />
+      <text class="sub l" x="290" y="120">R2</text>
+    </g>
+    <g data-id="r2b" class="hide">
+      <rect class="chip" x="218" y="100" width="64" height="40" rx="5" />
+      <circle cx="238" cy="120" r="5" fill="var(--sl-color-white)" />
+      <circle cx="262" cy="120" r="5" fill="var(--sl-color-white)" />
+      <text class="sub l" x="290" y="120">R2</text>
+    </g>
+
+    <!-- 간선: 할당 실선, 요청 점선. 라벨은 선 옆으로 -->
+    <g data-id="a1"><path class="line" d="M70 248 V148" marker-end="url(#dc-arr)" /><text class="sub l" x="80" y="198">할당</text></g>
+    <g data-id="a2"><path class="line" d="M250 142 V242" marker-end="url(#dc-arr)" /><text class="sub" x="240" y="192" style="text-anchor:end">할당</text></g>
+    <g data-id="a3" class="hide"><path class="line" d="M250 98 V60" marker-end="url(#dc-arr)" /><text class="sub l" x="262" y="79">할당</text></g>
+    <g data-id="q1" class="hide"><path class="line" d="M96 120 H214" stroke-dasharray="5 4" marker-end="url(#dc-arr)" /><text class="sub" x="156" y="104">요청</text></g>
+    <g data-id="g1" class="hide"><path class="line" d="M216 120 H98" marker-end="url(#dc-arr)" /><text class="sub hi" x="156" y="104">할당</text></g>
+    <g data-id="q2" class="hide"><path class="line" d="M224 270 H106" stroke-dasharray="5 4" marker-end="url(#dc-arr)" /><text class="sub" x="164" y="256">요청</text></g>
+
+    <g data-id="ring" class="hide">
+      <circle class="hl" cx="160" cy="195" r="38" stroke-dasharray="6 4" />
+      <text class="hi" x="160" y="186">순환</text>
+      <text class="hi" x="160" y="206">대기</text>
+    </g>
+
+    <!-- 결과 배지 (같은 자리) -->
+    <g data-id="dead" class="hide">
+      <rect class="err" x="8" y="326" width="304" height="40" rx="8" />
+      <text class="err-t" x="160" y="346">교착: 자원마다 1개라 아무도 못 감</text>
+    </g>
+    <g data-id="maybe" class="hide">
+      <rect class="box" x="8" y="326" width="304" height="40" rx="8" />
+      <text x="160" y="346">사이클은 있지만 P3는 안 기다림</text>
+    </g>
+    <g data-id="ok" class="hide">
+      <rect class="badge" x="8" y="326" width="304" height="40" rx="20" />
+      <text class="on-badge" x="160" y="346">교착 아님: P1이 R2를 받아 진행</text>
+    </g>
+
+    <g data-id="leg">
+      <path class="line" d="M10 392 H44" marker-end="url(#dc-arr)" /><text class="sub l" x="50" y="392">할당 (자원→프로세스)</text>
+      <path class="line" d="M10 412 H44" stroke-dasharray="5 4" marker-end="url(#dc-arr)" /><text class="sub l" x="50" y="412">요청 (프로세스→자원)</text>
+    </g>
+  </svg>
+</Stepper>

@@ -1,0 +1,71 @@
+---
+// 예제 그래프 G(정점 1~6)로 DFS·BFS를 각각 Stepper 하나씩. 번호 작은 이웃 먼저.
+// 상태가 바뀌는 요소(방문 표시, 방문 순서, 현재 정점, 탐색 간선, 스택/큐 칸)는 전부 class="hide".
+import Stepper from '../Stepper.astro';
+
+const P: Record<number, [number, number]> = { 1: [30, 110], 2: [115, 45], 3: [115, 175], 4: [215, 45], 5: [215, 175], 6: [290, 110] };
+const E: [number, number][] = [[1, 2], [1, 3], [2, 3], [2, 4], [2, 5], [3, 5], [4, 5], [4, 6], [5, 6]];
+const ln = (a: number, b: number) => ({ x1: P[a][0], y1: P[a][1], x2: P[b][0], y2: P[b][1] });
+
+type S = { cap: string; visit: number[]; cur?: number; tree: string[]; cells: number[]; note: string };
+const dfs: S[] = [
+  { cap: '1에서 시작해요. 1을 방문하고 스택에 넣어요. 이웃이 여럿이면 번호 작은 것부터 가요.', visit: [1], cur: 1, tree: [], cells: [1], note: '방문 순서: 1' },
+  { cap: '1의 이웃 2·3 중 작은 2를 방문하고 스택에 쌓아요.', visit: [1, 2], cur: 2, tree: ['12'], cells: [1, 2], note: '방문 순서: 1 2' },
+  { cap: '2의 미방문 이웃 3·4·5 중 가장 작은 3을 방문해요.', visit: [1, 2, 3], cur: 3, tree: ['12', '23'], cells: [1, 2, 3], note: '방문 순서: 1 2 3' },
+  { cap: '포인트: 3의 이웃 1·2는 이미 방문했어요. 2로 돌아가 4를 보는 게 아니라, 3에서 갈 수 있는 5로 더 깊이 내려가요.', visit: [1, 2, 3, 5], cur: 5, tree: ['12', '23', '35'], cells: [1, 2, 3, 5], note: '방문 순서: 1 2 3 5' },
+  { cap: '5의 미방문 이웃 4·6 중 작은 4를 방문해요.', visit: [1, 2, 3, 5, 4], cur: 4, tree: ['12', '23', '35', '45'], cells: [1, 2, 3, 5, 4], note: '방문 순서: 1 2 3 5 4' },
+  { cap: '4의 미방문 이웃은 6 하나예요. 6을 방문하면 모든 정점을 다 봤어요.', visit: [1, 2, 3, 5, 4, 6], cur: 6, tree: ['12', '23', '35', '45', '46'], cells: [1, 2, 3, 5, 4, 6], note: '방문 순서: 1 2 3 5 4 6' },
+  { cap: '더 갈 곳이 없어 맨 위(6)부터 하나씩 꺼내며 되돌아가요. 스택이 비면 끝. DFS 순서는 1 → 2 → 3 → 5 → 4 → 6이에요.', visit: [1, 2, 3, 5, 4, 6], tree: ['12', '23', '35', '45', '46'], cells: [], note: 'DFS 결과: 1 2 3 5 4 6' },
+];
+const bfs: S[] = [
+  { cap: '1에서 시작해요. 1을 방문하고 큐에 넣어요. 이웃이 여럿이면 번호 작은 것부터 넣어요.', visit: [1], tree: [], cells: [1], note: '방문 순서: 1' },
+  { cap: '큐 앞에서 1을 꺼내요. 1의 이웃 2·3을 방문하고 큐 뒤에 넣어요.', visit: [1, 2, 3], cur: 1, tree: ['12', '13'], cells: [2, 3], note: '방문 순서: 1 2 3' },
+  { cap: '포인트: 2를 꺼내고, 미방문 이웃 4·5를 한꺼번에 방문해 넣어요(3은 이미 방문). 깊이 내려가지 않고 옆으로 넓혀요.', visit: [1, 2, 3, 4, 5], cur: 2, tree: ['12', '13', '24', '25'], cells: [3, 4, 5], note: '방문 순서: 1 2 3 4 5' },
+  { cap: '3을 꺼내요. 이웃 1·2·5는 모두 방문했으니 새로 넣을 게 없어요.', visit: [1, 2, 3, 4, 5], cur: 3, tree: ['12', '13', '24', '25'], cells: [4, 5], note: '방문 순서: 1 2 3 4 5' },
+  { cap: '4를 꺼내요. 미방문 이웃 6을 방문해 넣어요.', visit: [1, 2, 3, 4, 5, 6], cur: 4, tree: ['12', '13', '24', '25', '46'], cells: [5, 6], note: '방문 순서: 1 2 3 4 5 6' },
+  { cap: '5, 6을 차례로 꺼내요. 새로 넣을 게 없어 큐가 비면 끝. 1에서 한 걸음(2, 3) → 두 걸음(4, 5) → 세 걸음(6) 순서예요.', visit: [1, 2, 3, 4, 5, 6], tree: ['12', '13', '24', '25', '46'], cells: [], note: 'BFS 결과: 1 2 3 4 5 6' },
+];
+
+const make = (ss: S[]) => ss.map((s, i) => ({
+  caption: s.cap,
+  show: [...s.visit.map((v) => `v${v}`), ...s.visit.map((v) => `o${v}`), ...(s.cur ? [`c${s.cur}`] : []), ...s.tree.map((t) => `t${t}`), `d${i}`],
+}));
+const order = (ss: S[]) => ss[ss.length - 1].visit;
+const runs = [
+  { title: 'DFS: 스택으로 깊이 먼저 (1에서 시작)', label: '스택 (왼쪽이 바닥, 오른쪽이 맨 위)', ss: dfs, tag: 'DFS' },
+  { title: 'BFS: 큐로 가까운 것 먼저 (1에서 시작)', label: '큐 (왼쪽이 앞, 꺼내는 쪽)', ss: bfs, tag: 'BFS' },
+];
+const CX = 22, CW = 46;
+---
+{runs.map((R) => (
+  <Stepper title={R.title} steps={make(R.ss)}>
+    <svg class="viz" viewBox="0 0 320 316" role="img" aria-label={`정점 1부터 6, 간선 1-2, 1-3, 2-3, 2-4, 2-5, 3-5, 4-5, 4-6, 5-6인 그래프를 1에서 ${R.tag}로 탐색한다. 방문 순서는 ${order(R.ss).join(', ')}.`}>
+      {E.map(([a, b]) => <line class="line" {...ln(a, b)} />)}
+      {E.map(([a, b]) => <line data-id={`t${a}${b}`} class="tree hide" {...ln(a, b)} />)}
+      {Object.entries(P).map(([v, [x, y]]) => <>
+        <circle data-id={`c${v}`} class="hl hide" cx={x} cy={y} r="23" />
+        <circle class="box" cx={x} cy={y} r="17" />
+        <circle data-id={`v${v}`} class="chip hide" cx={x} cy={y} r="17" />
+        <text x={x} y={y}>{v}</text>
+      </>)}
+      {order(R.ss).map((v, k) => <g data-id={`o${v}`} class="hide">
+        <circle class="badge" cx={P[v][0] + 16} cy={P[v][1] - 18} r="10" />
+        <text class="on-badge" x={P[v][0] + 16} y={P[v][1] - 17}>{k + 1}</text>
+      </g>)}
+
+      <text class="l sub" x={CX} y="226">{R.label}</text>
+      {[0, 1, 2, 3, 4, 5].map((k) => <rect class="frame" x={CX + k * CW + 1} y="240" width={CW - 2} height="34" rx="4" />)}
+      {R.ss.map((s, i) => <g data-id={`d${i}`} class="hide">
+        {s.cells.map((v, k) => <><rect class="box" x={CX + k * CW + 1} y="240" width={CW - 2} height="34" rx="4" /><text x={CX + k * CW + CW / 2} y="257">{v}</text></>)}
+        {s.cells.length === 0 && <text class="sub" x="160" y="257">비어 있음</text>}
+        <text class="l" x={CX} y="298" style="font-weight:700">{s.note}</text>
+      </g>)}
+    </svg>
+  </Stepper>
+))}
+<p class="gt-legend">색칠된 원 = 방문함, 정점 옆 작은 숫자 = 몇 번째로 방문했나, 굵은 선 = 탐색이 지나간 간선, 바깥 테두리 = 지금 보고 있는 정점.</p>
+
+<style>
+  .tree { stroke: var(--sl-color-accent); stroke-width: 5; }
+  .gt-legend { font-size: .85rem; color: var(--sl-color-gray-2); }
+</style>

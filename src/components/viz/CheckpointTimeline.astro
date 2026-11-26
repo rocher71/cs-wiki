@@ -1,0 +1,66 @@
+---
+// 체크포인트(10)·장애(20) 시간축에서 T1~T5의 REDO/UNDO/할 일 없음 판정. 값은 transaction-recovery.mdx "단계별 계산"과 같다.
+// 판정 칩은 단계마다 쌓이고, 마지막 단계에서 T3·T5 칩만 "무시"로 바뀐다(.hide 교체).
+import Stepper from '../Stepper.astro';
+const X0 = 108, U = 10; // 시각 0의 x, 시각 1당 px
+const tx = (t: number) => X0 + t * U;
+const TC = 10, TF = 20;
+// [이름, 시작, 커밋(null=없음)]
+const T: [string, number, number | null][] = [['T1', 1, 5], ['T2', 3, 15], ['T3', 4, null], ['T4', 12, 18], ['T5', 14, null]];
+const ry = (i: number) => 64 + i * 36;
+// 판정 칩 스타일: none 회색 점선 / redo 파랑 / undo 빨강 / skip 회색 점선
+const chip = { none: ['할 일 없음', 'bad', ''], redo: ['REDO', 'redo', 'redo-t'], undo: ['UNDO', 'err', 'err-t'], skip: ['무시', 'bad', ''] } as const;
+const J: [string, number, keyof typeof chip][] = [
+  ['j1', 0, 'none'], ['j2', 1, 'redo'], ['j4', 3, 'redo'], ['u3', 2, 'undo'], ['u5', 4, 'undo'], ['i3', 2, 'skip'], ['i5', 4, 'skip'],
+];
+const base = ['axis', 'b0', 'b1', 'b2', 'b3', 'b4'];
+const steps = [
+  { caption: '즉시 갱신 시스템이에요. 시각 10에 체크포인트, 시각 20에 장애가 났어요. ●는 커밋, 막대가 장애선까지 이어지면 커밋 없이 끊긴 거예요.', show: [...base, 'mi'] },
+  { caption: 'T1은 체크포인트(10) 전인 시각 5에 커밋했어요. 체크포인트 때 이미 디스크에 반영됐으니 할 일 없음.', show: [...base, 'mi', 'j1', 'z1'] },
+  { caption: 'T2(15)·T4(18)는 체크포인트 뒤 ~ 장애 전에 커밋했어요 → REDO. T2는 체크포인트 전에 시작했지만 커밋이 뒤라서 포함돼요.', show: [...base, 'mi', 'j1', 'j2', 'j4', 'z2'] },
+  { caption: 'T3·T5는 장애 때까지 커밋이 없어요. 즉시 갱신은 실행 중에 DB를 이미 고쳤으니 이전 값으로 되돌려요 → UNDO.', show: [...base, 'mi', 'j1', 'j2', 'j4', 'u3', 'u5'] },
+  { caption: '지연 갱신이라면 T3·T5는 커밋 전에 DB를 건드리지 않았어요. 되돌릴 게 없으니 무시(로그만 버림). REDO 대상은 그대로예요.', show: [...base, 'md', 'j1', 'j2', 'j4', 'i3', 'i5'] },
+];
+---
+<Stepper title="체크포인트 이후 REDO · UNDO 판정" steps={steps}>
+  <svg class="viz ckt" viewBox="0 0 320 262" role="img" aria-label="시각 10 체크포인트, 시각 20 장애. T1은 5에 커밋해 할 일 없음, T2는 15, T4는 18에 커밋해 REDO, T3와 T5는 커밋이 없어 즉시 갱신에서는 UNDO, 지연 갱신에서는 무시.">
+    <text data-id="mi" class="hide l hi" x="4" y="18" style="font-size:15px">즉시 갱신</text>
+    <text data-id="md" class="hide l hi" x="4" y="18" style="font-size:15px">지연 갱신</text>
+
+    <g data-id="axis">
+      <!-- 체크포인트 이후 구간 -->
+      <rect x={tx(TC)} y="40" width={tx(TF) - tx(TC)} height="190" style="fill:var(--sl-color-gray-6);opacity:.6" />
+      <path class="line" d={`M${tx(0)} 230 L${tx(TF)} 230`} />
+      {[0, 5, 10, 15].map((t) => <text class="sub" x={tx(t)} y="244">{t}</text>)}
+      <path d={`M${tx(TC)} 32 L${tx(TC)} 234`} style="stroke:var(--sl-color-accent);stroke-width:2;stroke-dasharray:5 4" />
+      <text class="hi" x={tx(TC)} y="22" style="font-size:14px">체크포인트 10</text>
+      <path d={`M${tx(TF)} 32 L${tx(TF)} 234`} style="stroke:var(--sl-color-red);stroke-width:2.5" />
+      <text class="err-t" x="316" y="256" style="font-size:14px;text-anchor:end">20 장애</text>
+    </g>
+
+    {T.map(([n, s, c], i) => (
+      <g data-id={`b${i}`}>
+        <text x="14" y={ry(i)} style="font-weight:700">{n}</text>
+        <rect x={tx(s)} y={ry(i) - 6} width={tx(c ?? TF) - tx(s)} height="12" rx="3" class={c === null ? 'bad' : 'box'} />
+        {c !== null && <circle cx={tx(c)} cy={ry(i)} r="6" style="fill:var(--sl-color-white)" />}
+        {c !== null && <text class="sub" x={tx(c)} y={ry(i) - 16}>{c}</text>}
+      </g>
+    ))}
+
+    {J.map(([id, i, k]) => { const [t, cls, tcls] = chip[k]; return (
+      <g data-id={id} class="hide">
+        <rect class={cls} x="26" y={ry(i) - 13} width="78" height="26" rx="6" />
+        <text class={tcls} x="65" y={ry(i)} style="font-size:14px;font-weight:700">{t}</text>
+      </g>
+    ); })}
+
+    <!-- 강조: 커밋 시각이 체크포인트 앞(z1) / 체크포인트~장애 사이(z2) -->
+    <g data-id="z1" class="hide"><circle class="hl" cx={tx(5)} cy={ry(0)} r="11" /></g>
+    <g data-id="z2" class="hide"><circle class="hl" cx={tx(15)} cy={ry(1)} r="11" /><circle class="hl" cx={tx(18)} cy={ry(3)} r="11" /></g>
+  </svg>
+</Stepper>
+
+<style>
+  .ckt :global(.redo) { fill: var(--sl-color-blue-low); stroke: var(--sl-color-blue); stroke-width: 1.4; }
+  .ckt :global(text.redo-t) { fill: var(--sl-color-blue-high); }
+</style>

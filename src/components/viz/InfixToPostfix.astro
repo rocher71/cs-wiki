@@ -1,0 +1,91 @@
+---
+// 중위 → 후위 변환: A * ( B + C ) - D / E 를 토큰 하나씩 읽으며 스택·출력 변화.
+// 단계마다 스택 내용(k{s}), 출력 줄(o{s}), pop 화살표(a{s}), 읽는 토큰 테두리(t{s})가 같은 자리에 번갈아 나와서 전부 class="hide".
+import Stepper from '../Stepper.astro';
+
+const toks = 'A * ( B + C ) - D / E'.split(' ');
+const pr: Record<string, number> = { '+': 1, '-': 1, '*': 2, '/': 2, '(': 0 };
+type Snap = { tok: number; stack: string[]; out: string[]; pops: { op: string; slot: number; to: number }[]; drop: number };
+const snaps: Snap[] = [{ tok: -1, stack: [], out: [], pops: [], drop: -1 }];
+{
+  const st: string[] = [], out: string[] = [];
+  const pop = (pops: Snap['pops']) => { const slot = st.length - 1; const op = st.pop()!; out.push(op); pops.push({ op, slot, to: out.length - 1 }); };
+  toks.forEach((t, i) => {
+    const pops: Snap['pops'] = []; let drop = -1;
+    if (/[A-Z]/.test(t)) out.push(t);
+    else if (t === '(') st.push(t);
+    else if (t === ')') { while (st[st.length - 1] !== '(') pop(pops); drop = st.length - 1; st.pop(); }
+    else { while (st.length && pr[st[st.length - 1]] >= pr[t]) pop(pops); st.push(t); }
+    snaps.push({ tok: i, stack: [...st], out: [...out], pops, drop });
+  });
+  const pops: Snap['pops'] = []; // 식 끝: 남은 연산자 전부 pop
+  while (st.length) pop(pops);
+  snaps.push({ tok: -2, stack: [], out: [...out], pops, drop: -1 });
+}
+
+const captions = [
+  '중위식 A * ( B + C ) - D / E를 왼쪽부터 한 토큰씩 읽어요. 피연산자(문자)는 바로 출력하고, 연산자는 스택에 잠깐 맡겨요.',
+  'A는 피연산자라 바로 출력해요.',
+  '*는 연산자예요. 스택이 비어 있으니 그냥 넣어요(push).',
+  '(는 무조건 넣어요. 괄호 안 계산이 끝날 때까지 칸막이 역할을 해요.',
+  'B는 바로 출력해요.',
+  '+를 넣어요. 스택 맨 위가 (라서 비교할 것 없이 그냥 쌓여요.',
+  'C는 바로 출력해요.',
+  ')가 오면 (를 만날 때까지 꺼내서(pop) 출력해요. +가 출력되고, (는 출력하지 않고 버려요.',
+  '-가 와요. 맨 위 *는 우선순위가 -보다 높아서 먼저 꺼내 출력하고, 그다음 -를 넣어요.',
+  'D는 바로 출력해요.',
+  '/가 와요. 맨 위 -보다 우선순위가 높아서 꺼낼 것 없이 그 위에 쌓아요.',
+  'E는 바로 출력해요. 이제 읽을 토큰이 없어요.',
+  '식이 끝나면 스택에 남은 걸 위에서부터 꺼내요. / 다음 - 순서예요. 완성: A B C + * D E / -',
+];
+const steps = snaps.map((s, i) => ({
+  caption: captions[i],
+  show: ['base', `k${i}`, `o${i}`, ...(s.tok >= 0 ? [`t${i}`] : []), ...(s.pops.length || s.drop >= 0 ? [`a${i}`] : []), ...(i === snaps.length - 1 ? ['fin'] : [])],
+}));
+
+const TX = (i: number) => 17 + i * 26;          // 토큰 칸 x
+const SX = 24, SW = 72, SB = 250, SH = 30;      // 스택 통
+const sy = (k: number) => SB - (k + 1) * SH;    // k번 칸 위쪽 y
+const OX = (i: number) => 16 + i * 32, OY = 302; // 출력 칸
+---
+<Stepper title="중위식 → 후위식: 스택으로 연산자 맡기기" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 372" role="img" aria-label="A * ( B + C ) - D / E를 왼쪽부터 읽는다. 피연산자는 바로 출력하고 연산자는 스택에 넣는다. 닫는 괄호에서 +를 꺼내고, -가 올 때 *를 꺼내고, 끝에서 / 와 -를 꺼내 A B C + * D E / -가 된다.">
+    <defs>
+      <marker id="itp-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+    </defs>
+    <g data-id="base">
+      <text class="l sub" x="16" y="14">읽는 식 (왼쪽부터)</text>
+      {toks.map((t, i) => <><rect class="box" x={TX(i)} y="26" width="24" height="30" rx="4" /><text x={TX(i) + 12} y="41">{t}</text></>)}
+      <text x={SX + SW / 2} y="140" style="font-weight:700">스택</text>
+      <path class="line" d={`M${SX} 152V${SB}H${SX + SW}V152`} />
+      <text class="l" x="122" y="100" style="font-weight:700">우선순위</text>
+      <text class="l sub" x="122" y="126">높음: * /</text>
+      <text class="l sub" x="122" y="150">낮음: + -</text>
+      <text class="l sub" x="122" y="174">( 는 ) 올 때까지 대기</text>
+      <text class="l" x="16" y="286" style="font-weight:700">출력 (후위식)</text>
+      {Array.from({ length: 9 }, (_, i) => <rect class="frame" x={OX(i)} y={OY} width="30" height="30" rx="4" />)}
+    </g>
+
+    {snaps.map((s, i) => <>
+      {s.tok >= 0 && <rect data-id={`t${i}`} class="hl" x={TX(s.tok) - 2} y="24" width="28" height="34" rx="5" />}
+      <g data-id={`k${i}`} class="hide">
+        {s.stack.map((op, k) => <><rect class={snaps[i - 1]?.stack[k] !== op ? 'chip' : 'box'} x={SX + 4} y={sy(k) + 2} width={SW - 8} height={SH - 4} rx="4" /><text x={SX + SW / 2} y={sy(k) + SH / 2}>{op}</text></>)}
+      </g>
+      <g data-id={`o${i}`} class="hide">
+        {s.out.map((t, k) => { const isNew = k >= (snaps[i - 1]?.out.length ?? 0); return <><rect class={isNew ? 'chip' : 'box'} x={OX(k)} y={OY} width="30" height="30" rx="4" /><text class={isNew ? 'hi' : ''} x={OX(k) + 15} y={OY + 15}>{t}</text></>; })}
+      </g>
+      {(s.pops.length > 0 || s.drop >= 0) && <g data-id={`a${i}`} class="hide">
+        {s.pops.map((p) => <><rect class="bad" x={SX + 4} y={sy(p.slot) + 2} width={SW - 8} height={SH - 4} rx="4" /><text class="sub" x={SX + SW / 2} y={sy(p.slot) + SH / 2}>{p.op}</text>
+          <line class="line acc" x1={SX + SW + 2} y1={sy(p.slot) + SH / 2} x2={OX(p.to) + 15} y2={OY - 4} marker-end="url(#itp-arr)" /></>)}
+        {s.drop >= 0 && <><rect class="err" x={SX + 4} y={sy(s.drop) + 2} width={SW - 8} height={SH - 4} rx="4" /><text class="err-t" x={SX + SW / 2} y={sy(s.drop) + SH / 2}>( 버림</text></>}
+      </g>}
+    </>)}
+    <text data-id="fin" class="hide hi" x="160" y="356">완성: A B C + * D E / -</text>
+  </svg>
+</Stepper>
+
+<style>
+  svg.viz .line.acc { stroke: var(--sl-color-accent); stroke-width: 2; }
+</style>

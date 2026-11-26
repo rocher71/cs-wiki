@@ -1,0 +1,52 @@
+---
+// 결합도 6단계(왼쪽)·응집도 7단계(오른쪽)를 세로 사다리로. 위 = 나쁨, 아래 = 좋음으로 두 사다리 방향을 맞추고
+// 맨 아래 줄(자료 결합·기능 응집)을 좋은 설계 목표로 강조. 결합도는 한 칸 적어서 맨 위 칸이 빈다.
+import Stepper from '../Stepper.astro';
+
+const CP: [string, string][] = [['내용', '코드 내부'], ['공통', '전역 변수'], ['외부', '외부 포맷'], ['제어', '플래그'], ['스탬프', '구조체 통째'], ['자료', '값만']];
+const CH: [string, string][] = [['우연', '우연히'], ['논리', '종류가 같아서'], ['시간', '시점이 같아서'], ['절차', '순서만'], ['교환', '같은 데이터'], ['순차', '출력 → 입력'], ['기능', '한 기능']];
+const LX = 8, RX = 166, W = 146, H = 42, Y0 = 84, DY = 47;
+const ry = (i: number) => Y0 + i * DY; // 응집도 i번째 칸 위쪽 y. 결합도는 i+1 칸에 둔다(아래 맞춤)
+const last = ry(6);
+const cls = (i: number, n: number) => (i === 0 ? 'err' : i === n - 1 ? 'chip' : 'box');
+
+const steps = [
+  { caption: '결합도는 모듈끼리 얼마나 엮였나예요. 위에서 아래로 갈수록 주고받는 게 줄어들어요. 남의 코드 내부를 건드리는 내용 결합이 가장 나쁘고, 값만 넘기는 자료 결합이 가장 좋아요. 약할수록 좋아요.', show: ['cp'] },
+  { caption: '응집도는 한 모듈 안이 한 목적으로 얼마나 뭉쳤나예요. 우연히 모인 우연 응집이 가장 나쁘고, 한 기능만 하는 기능 응집이 가장 좋아요. 강할수록 좋아요.', show: ['ch'] },
+  { caption: '두 사다리 모두 아래로 갈수록 좋은 설계예요. 목표는 맨 아래 줄, 결합도는 자료 결합(가장 약함), 응집도는 기능 응집(가장 강함)이에요. 결합도는 6단계라 한 칸 짧아요.', show: ['cp', 'ch', 'goal'] },
+];
+---
+<Stepper title="결합도·응집도 사다리: 아래로 갈수록 좋은 설계" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 470" role="img" aria-label="결합도는 나쁜 것부터 내용, 공통, 외부, 제어, 스탬프, 자료 순이고 약할수록 좋다. 응집도는 나쁜 것부터 우연, 논리, 시간, 절차, 교환, 순차, 기능 순이고 강할수록 좋다. 목표는 자료 결합과 기능 응집.">
+    <text x="160" y="14" class="sub">▲ 나쁨</text>
+
+    <g data-id="cp">
+      <text x={LX + W / 2} y="40" style="font-weight:700">결합도 (모듈 사이)</text>
+      <text class="sub" x={LX + W / 2} y="62">강 → 약 · 약할수록 좋음</text>
+      <rect class="bad" x={LX} y={ry(0)} width={W} height={H} rx="6" />
+      <text class="sub" x={LX + W / 2} y={ry(0) + H / 2}>(6단계라 빈칸)</text>
+      {CP.map(([n, r], i) => <>
+        <rect class={cls(i, CP.length)} x={LX} y={ry(i + 1)} width={W} height={H} rx="6" />
+        <text x={LX + W / 2} y={ry(i + 1) + 13} style="font-weight:700" class={i === 0 ? 'err-t' : ''}>{n} 결합</text>
+        <text class="sub" x={LX + W / 2} y={ry(i + 1) + 31}>{r}</text>
+      </>)}
+    </g>
+
+    <g data-id="ch">
+      <text x={RX + W / 2} y="40" style="font-weight:700">응집도 (모듈 안)</text>
+      <text class="sub" x={RX + W / 2} y="62">약 → 강 · 강할수록 좋음</text>
+      {CH.map(([n, r], i) => <>
+        <rect class={cls(i, CH.length)} x={RX} y={ry(i)} width={W} height={H} rx="6" />
+        <text x={RX + W / 2} y={ry(i) + 13} style="font-weight:700" class={i === 0 ? 'err-t' : ''}>{n} 응집</text>
+        <text class="sub" x={RX + W / 2} y={ry(i) + 31}>{r}</text>
+      </>)}
+    </g>
+
+    <text x="160" y={last + H + 18} class="sub">▼ 좋음</text>
+
+    <g data-id="goal" class="hide">
+      <rect class="hl" x={LX - 4} y={last - 4} width={RX + W - LX + 8} height={H + 8} rx="9" />
+      <text class="hi" x="160" y={last + H + 42}>좋은 설계 = 자료 결합 + 기능 응집</text>
+    </g>
+  </svg>
+</Stepper>

@@ -1,0 +1,85 @@
+---
+// 참조열 12개 × 프레임 3칸. 위 FIFO, 아래 LRU 격자를 나란히 두고 열을 묶음 단위로 드러낸다.
+// 열 i(1~12)는 data-id f{i}/l{i}(class hide). 교체 이유 메모는 같은 자리 번갈아 → hide.
+import Stepper from '../Stepper.astro';
+
+const ref = [4, 2, 1, 4, 1, 5, 1, 2, 3, 2, 1, 3];
+type Col = { fr: (number | null)[]; miss: boolean; slot: number };
+function run(lru: boolean) {
+  const fr: number[] = [], arr: Record<number, number> = {}, used: Record<number, number> = {};
+  const cols: Col[] = [];
+  ref.forEach((p, i) => {
+    let slot = fr.indexOf(p), miss = slot < 0;
+    if (miss) {
+      if (fr.length < 3) { fr.push(p); slot = fr.length - 1; }
+      else {
+        const key = lru ? used : arr;
+        const ev = fr.reduce((a, b) => (key[a] <= key[b] ? a : b));
+        slot = fr.indexOf(ev); fr[slot] = p;
+      }
+      arr[p] = i;
+    }
+    used[p] = i;
+    cols.push({ fr: [0, 1, 2].map((k) => fr[k] ?? null), miss, slot });
+  });
+  return cols;
+}
+const fifo = run(false), lru = run(true);
+
+const X0 = 16, W = 24, H = 26;
+const cx = (i: number) => X0 + i * W;
+const RY = 30;            // 참조열 행 y
+const GY = { f: 92, l: 250 }; // 격자 시작 y (프레임 3행 + 결과 1행)
+const upto = (n: number) => Array.from({ length: n }, (_, k) => [`f${k + 1}`, `l${k + 1}`]).flat();
+const hl = (a: number, b: number) => ({ x: cx(a - 1) - 2, w: (b - a + 1) * W + 4 });
+const groups: [number, number][] = [[1, 3], [4, 5], [6, 6], [7, 8], [9, 9], [10, 12]];
+
+const steps = [
+  { caption: '참조열 12개, 프레임 3칸이에요. 위 격자가 FIFO, 아래가 LRU예요. 아래 F는 부재(없어서 디스크에서 가져옴), ·는 적중이에요.', show: ['ref', 'gf', 'gl'] },
+  { caption: '4, 2, 1이 빈 칸에 차례로 들어와요. 빈 칸을 채우는 것도 부재라서 둘 다 F 3번이에요.', show: ['ref', 'gf', 'gl', ...upto(3), 'h1', 'nf1', 'nl1'] },
+  { caption: '4, 1은 이미 있어서 둘 다 적중이에요. LRU는 이때 "4와 1은 방금 썼다"고 기억해 둬요.', show: ['ref', 'gf', 'gl', ...upto(5), 'h2', 'nf2', 'nl2'] },
+  { caption: '5가 오는데 빈 칸이 없어요. FIFO는 가장 먼저 들어온 4를, LRU는 가장 오래전에 쓴 2를 내보내요. 여기서 갈라져요.', show: ['ref', 'gf', 'gl', ...upto(6), 'h3', 'nf3', 'nl3'] },
+  { caption: '1은 둘 다 적중이에요. 2는 FIFO엔 아직 있어서 적중, LRU는 방금 내보내서 부재예요. LRU는 4를 내보내요(1·5보다 오래전에 씀).', show: ['ref', 'gf', 'gl', ...upto(8), 'h4', 'nf4', 'nl4'] },
+  { caption: '3이 와요. FIFO는 남은 것 중 먼저 들어온 2를, LRU는 가장 오래전에 쓴 5를 내보내요.', show: ['ref', 'gf', 'gl', ...upto(9), 'h5', 'nf5', 'nl5'] },
+  { caption: 'FIFO는 방금 내보낸 2를 다시 찾고, 이어서 1도 다시 찾느라 부재가 연달아 나요. LRU는 2·1·3이 모두 남아 있어 전부 적중이에요.', show: ['ref', 'gf', 'gl', ...upto(12), 'h6', 'nf6', 'nl6'] },
+  { caption: '합계: FIFO 부재 7번, LRU 부재 6번. 최근에 쓴 걸 남기는 LRU가 이 참조열에선 한 번 덜 부재가 나요.', show: ['ref', 'gf', 'gl', ...upto(12), 'tf', 'tl'] },
+];
+
+const notes = {
+  f: ['', '빈 칸 채움', '적중', '4 내보냄: 가장 먼저 들어옴', '적중 (2가 아직 있음)', '2 내보냄: 가장 먼저 들어옴', '1, 5 내보냄: 들어온 순서대로'],
+  l: ['', '빈 칸 채움', '적중', '2 내보냄: 가장 오래전에 씀', '4 내보냄: 가장 오래전에 씀', '5 내보냄: 가장 오래전에 씀', '모두 적중'],
+};
+const grids = [
+  { k: 'f', name: 'FIFO', cols: fifo, y: GY.f, total: 7 },
+  { k: 'l', name: 'LRU', cols: lru, y: GY.l, total: 6 },
+];
+---
+<Stepper title="페이지 교체: FIFO vs LRU (프레임 3칸)" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 412" role="img" aria-label="참조열 4, 2, 1, 4, 1, 5, 1, 2, 3, 2, 1, 3을 프레임 3칸으로 처리한다. FIFO는 5가 올 때 4, 3이 올 때 2, 이어서 1과 5를 내보내 부재 7번. LRU는 5가 올 때 2, 2가 올 때 4, 3이 올 때 5를 내보내 부재 6번.">
+    <g data-id="ref">
+      <text class="l sub" x={X0} y="14">참조열 (왼쪽부터 차례로)</text>
+      {ref.map((p, i) => <><rect class="chip" x={cx(i) + 1} y={RY} width={W - 2} height={H} rx="4" /><text x={cx(i) + W / 2} y={RY + H / 2}>{p}</text></>)}
+    </g>
+
+    {groups.map(([a, b], g) => { const r = hl(a, b); return <g data-id={`h${g + 1}`} class="hl">{[[RY, H], [GY.f, 4 * H], [GY.l, 4 * H]].map(([y, h]) => <rect x={r.x} y={y - 3} width={r.w} height={h + 6} rx="5" />)}</g>; })}
+
+    {grids.map((G) => <>
+      <g data-id={`g${G.k}`}>
+        <text class="l" x={X0} y={G.y - 16} style="font-weight:700">{G.name}</text>
+        {[0, 1, 2].map((r) => ref.map((_, i) => <rect class="frame" x={cx(i) + 1} y={G.y + r * H + 1} width={W - 2} height={H - 2} />))}
+      </g>
+      {G.cols.map((c, i) => <g data-id={`${G.k}${i + 1}`} class="hide">
+        {c.fr.map((p, r) => p === null ? null : <><rect class={c.miss && r === c.slot ? 'chip' : 'box'} x={cx(i) + 1} y={G.y + r * H + 1} width={W - 2} height={H - 2} /><text class={c.miss && r === c.slot ? 'hi' : ''} x={cx(i) + W / 2} y={G.y + r * H + H / 2}>{p}</text></>)}
+        {c.miss
+          ? <><rect class="err" x={cx(i) + 2} y={G.y + 3 * H + 3} width={W - 4} height={H - 4} rx="4" /><text class="err-t" x={cx(i) + W / 2} y={G.y + 3 * H + H / 2 + 1}>F</text></>
+          : <text class="ok" x={cx(i) + W / 2} y={G.y + 3 * H + H / 2}>·</text>}
+      </g>)}
+      {notes[G.k as 'f' | 'l'].map((t, n) => n === 0 ? null : <text data-id={`n${G.k}${n}`} class="l sub hide" x={X0} y={G.y + 4 * H + 18}>{t}</text>)}
+      <text data-id={`t${G.k}`} class="hide err-t" x="304" y={G.y - 16} style="text-anchor:end">부재 {G.total}번</text>
+    </>)}
+  </svg>
+</Stepper>
+
+<style>
+  svg.viz text.ok { fill: var(--sl-color-green-high); font-weight: 700; font-size: 22px; }
+</style>

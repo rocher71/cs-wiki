@@ -1,0 +1,62 @@
+---
+// 예제 A 트리 하나로 전위·중위·후위·레벨 순회. 모드마다 3단계(번호를 나눠 찍음).
+// 모드 제목(M), 번호 배지(b), 현재 노드 테두리(r), 아래 순서 글자(q)는 모드마다 같은 자리에 번갈아 나와서 class="hide".
+import Stepper from '../Stepper.astro';
+
+const kids: Record<string, [string | null, string | null]> = { A: ['B', 'C'], B: ['D', 'E'], C: [null, 'F'], E: ['G', null], F: ['H', 'I'] };
+const L = (n: string) => kids[n] ?? [null, null];
+const parent: Record<string, [string, string]> = {};
+for (const [p, [l, r]] of Object.entries(kids)) { if (l) parent[l] = [p, '왼쪽']; if (r) parent[r] = [p, '오른쪽']; }
+const pre = (n: string | null): string[] => (n ? [n, ...pre(L(n)[0]), ...pre(L(n)[1])] : []);
+const ino = (n: string | null): string[] => (n ? [...ino(L(n)[0]), n, ...ino(L(n)[1])] : []);
+const post = (n: string | null): string[] => (n ? [...post(L(n)[0]), ...post(L(n)[1]), n] : []);
+const lvl = (() => { const q = ['A'], o: string[] = []; while (q.length) { const n = q.shift()!; o.push(n); q.push(...L(n).filter((c): c is string => !!c)); } return o; })();
+
+// 노드 좌표와 배지 방향(왼쪽 자식은 왼쪽 위, 오른쪽 자식·루트는 오른쪽 위, 리프는 아래 — 들어오는 간선과 안 겹치게)
+const P: Record<string, [number, number]> = { A: [160, 66], B: [85, 126], C: [225, 126], D: [45, 186], E: [125, 186], F: [262, 186], G: [100, 246], H: [232, 246], I: [292, 246] };
+const badge = (n: string): [number, number] => {
+  const [x, y] = P[n];
+  if (!kids[n]) return [x, y + 30];
+  return parent[n]?.[1] === '왼쪽' ? [x - 21, y - 19] : [x + 21, y - 19];
+};
+const edges = Object.entries(kids).flatMap(([p, cs]) => cs.filter((c): c is string => !!c).map((c) => [P[p], P[c]]));
+
+// 모드마다 3단계(폰에서 넘기기 부담 줄이기): 방문 cut[0]개 → cut[1]개 → 9개. 이번 단계에 새로 찍힌 노드에 테두리.
+const modes = [
+  { k: 'p', name: '전위: 루트 → 왼쪽 → 오른쪽', order: pre('A'), cut: [3, 5, 9], cap: [
+    '전위: 루트를 먼저 적고 왼쪽, 오른쪽 순서예요. A를 적고 왼쪽 B, 다시 B의 왼쪽 D로 내려가며 만나자마자 적어요.',
+    'D는 자식이 없어요. B의 오른쪽 E를 적고, E의 왼쪽 G를 적어요. 이걸로 A의 왼쪽 서브트리가 끝나요.',
+    '이제 A의 오른쪽: C → F → H → I. 완성: A B D E G C F H I. 전위의 첫 글자는 언제나 루트예요.'] },
+  { k: 'i', name: '중위: 왼쪽 → 루트 → 오른쪽', order: ino('A'), cut: [3, 5, 9], cap: [
+    '중위: 왼쪽 서브트리를 다 본 뒤 루트를 가운데에 적어요. 맨 왼쪽 D, 그다음 B, 이어서 B의 오른쪽 서브트리에서 E의 왼쪽 G를 적어요.',
+    'G 다음 E를 적으면 A의 왼쪽 서브트리가 끝나요. 이제 가운데 A를 적어요.',
+    'A의 오른쪽: C는 왼쪽 자식이 없어 바로 적고, F 서브트리는 H → F → I. 완성: D B G E A C H F I.'] },
+  { k: 'o', name: '후위: 왼쪽 → 오른쪽 → 루트', order: post('A'), cut: [3, 5, 9], cap: [
+    '후위: 왼쪽, 오른쪽을 다 본 뒤 루트를 마지막에 적어요. D, 그다음 B의 오른쪽에서 G, 자식을 다 본 E 순서예요.',
+    'B의 양쪽 서브트리가 끝나서 B를 적어요. 이제 A의 오른쪽으로 가서 가장 아래 H를 적어요.',
+    'I → F(자식 다 봄) → C → 마지막에 루트 A. 완성: D G E B H I F C A. 후위의 마지막 글자는 언제나 루트예요.'] },
+  { k: 'l', name: '레벨: 위층부터, 왼쪽부터', order: lvl, cut: [3, 6, 9], cap: [
+    '레벨: 위층부터 한 층씩, 같은 층은 왼쪽부터 적어요(큐로 구현). 레벨 1의 A, 레벨 2의 B, C.',
+    '레벨 3: D, E, F를 왼쪽부터 적어요.',
+    '레벨 4: G, H, I. 완성: A B C D E F G H I. 층별로 읽으면 알파벳 순서와 같아요.'] },
+];
+const steps = modes.flatMap((m) => m.cut.map((n, c) => ({
+  caption: m.cap[c],
+  show: ['tree', `M${m.k}`, ...m.order.slice(c ? m.cut[c - 1] : 0, n).map((x) => `r${m.k}${x}`), ...m.order.slice(0, n).flatMap((x, j) => [`b${m.k}${x}`, `q${m.k}${j}`])],
+})));
+---
+<Stepper title="트리 순회 4가지: 루트를 언제 적나" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 350" role="img" aria-label="A의 왼쪽 B, 오른쪽 C, B의 자식 D와 E, E의 왼쪽 G, C의 오른쪽 F, F의 자식 H와 I인 트리. 전위 A B D E G C F H I, 중위 D B G E A C H F I, 후위 D G E B H I F C A, 레벨 A B C D E F G H I.">
+    <g data-id="tree">
+      {edges.map(([a, b]) => <line class="line" x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} />)}
+      {Object.entries(P).map(([n, [x, y]]) => <><circle class="box" cx={x} cy={y} r="17" /><text x={x} y={y} style="font-weight:700">{n}</text></>)}
+      <text class="l sub" x="16" y="304">방문 순서</text>
+    </g>
+    {modes.map((m) => <>
+      <text data-id={`M${m.k}`} class="l hide" x="16" y="18" style="font-weight:700">{m.name}</text>
+      {m.order.map((n) => <circle data-id={`r${m.k}${n}`} class="hl" cx={P[n][0]} cy={P[n][1]} r="22" />)}
+      {m.order.map((n, k) => { const [x, y] = badge(n); return <g data-id={`b${m.k}${n}`} class="hide"><circle class="badge" cx={x} cy={y} r="11" /><text class="on-badge" x={x} y={y + 1}>{k + 1}</text></g>; })}
+      {m.order.map((n, k) => <text data-id={`q${m.k}${k}`} class="hide hi" x={40 + k * 30} y="330">{n}</text>)}
+    </>)}
+  </svg>
+</Stepper>

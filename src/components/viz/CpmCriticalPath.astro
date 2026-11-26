@@ -1,0 +1,77 @@
+---
+// lifecycle.mdx 예제 4: A3, B4(A), C2(A), D5(B), E3(C), F2(D,E). 위 경로 A-B-D-F 14일, 아래 A-C-E-F 10일, C·E 여유 4.
+// 누적 숫자·경로 강조·여유 배지는 같은 자리 번갈아 → class="hide".
+import Stepper from '../Stepper.astro';
+
+const HW = 24, HH = 22;
+const N: Record<string, [number, number, number]> = { A: [32, 120, 3], B: [116, 70, 4], C: [116, 170, 2], D: [204, 70, 5], E: [204, 170, 3], F: [288, 120, 2] };
+const E: [string, string][] = [['A', 'B'], ['A', 'C'], ['B', 'D'], ['C', 'E'], ['D', 'F'], ['E', 'F']];
+// 사각형 테두리에서 잘라 화살표가 박스에 닿게
+const seg = (a: string, b: string) => {
+  const [x1, y1] = N[a], [x2, y2] = N[b];
+  const dx = x2 - x1, dy = y2 - y1;
+  const t = Math.min(HW / Math.abs(dx || 1e-9), HH / Math.abs(dy || 1e-9));
+  return { x1: x1 + dx * t, y1: y1 + dy * t, x2: x2 - dx * t * 1.12, y2: y2 - dy * t * 1.12 };
+};
+const TOP = ['A', 'B', 'D', 'F'], BOT = ['A', 'C', 'E', 'F'];
+const pairs = (p: string[]) => p.slice(1).map((v, i) => [p[i], v] as [string, string]);
+const cum = (p: string[]) => p.map((_, i) => p.slice(0, i + 1).reduce((s, v) => s + N[v][2], 0));
+const cTop = cum(TOP), cBot = cum(BOT); // [3,7,12,14], [3,5,8,10]
+// 누적 라벨 위치: 위 경로는 박스 위, 아래 경로는 박스 아래
+const above = (v: string) => [N[v][0], N[v][1] - HH - 12];
+const below = (v: string) => [N[v][0], N[v][1] + HH + 13];
+
+const steps = [
+  { caption: '작업 A~F를 상자로, "끝나야 시작할 수 있다"는 선행 관계를 화살표로 그렸어요. 상자 안 숫자가 걸리는 날수예요. 시작에서 끝(F)까지 가는 길은 두 개예요.', show: ['net'] },
+  { caption: '위 경로 A → B → D → F를 따라 날수를 더해요. 3 → 7 → 12 → 14. 이 길로 가면 14일이 걸려요.', show: ['net', 'pTop', 'cTop', 'r1'] },
+  { caption: '아래 경로 A → C → E → F도 더해요. 3 → 5 → 8 → 10. 이 길은 10일이면 끝나요.', show: ['net', 'pBot', 'cBot', 'r1', 'r2'] },
+  { caption: 'F는 D와 E가 둘 다 끝나야 시작하니, 프로젝트는 더 긴 쪽 14일이 걸려요. 그래서 가장 긴 A → B → D → F가 임계 경로예요. 짧은 쪽 C·E는 14 − 10 = 4일 늦어도 괜찮아요(여유 4일).', show: ['net', 'pCrit', 'slack', 'r1', 'r2', 'r3'] },
+];
+---
+<Stepper title="CPM: 경로별 합을 비교해 임계 경로 찾기" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 300" role="img" aria-label="작업 네트워크 A에서 B, C로 갈라져 B는 D로, C는 E로 가고 D와 E가 F로 모인다. 위 경로 A-B-D-F는 3+4+5+2=14일, 아래 경로 A-C-E-F는 3+2+3+2=10일. 더 긴 14일 경로가 임계 경로이고 C와 E는 여유 4일.">
+    <defs>
+      <marker id="cpm-a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+
+    <!-- 경로 강조(선 아래 깔림) -->
+    {pairs(TOP).map(([a, b]) => <line data-id="pTop" class="pth hide" {...seg(a, b)} />)}
+    {pairs(BOT).map(([a, b]) => <line data-id="pBot" class="pth hide" {...seg(a, b)} />)}
+    {pairs(TOP).map(([a, b]) => <line data-id="pCrit" class="crit hide" {...seg(a, b)} />)}
+
+    <g data-id="net">
+      {E.map(([a, b]) => <line class="line" {...seg(a, b)} marker-end="url(#cpm-a)" />)}
+      {Object.entries(N).map(([k, [x, y, d]]) => <>
+        <rect class="box" x={x - HW} y={y - HH} width={HW * 2} height={HH * 2} rx="6" />
+        <text x={x} y={y - 8} style="font-weight:700">{k}</text>
+        <text class="sub" x={x} y={y + 11}>{d}일</text>
+      </>)}
+    </g>
+
+    <!-- 임계 경로 상자 테두리 -->
+    {TOP.map((v) => <rect data-id="pCrit" class="hl hide" x={N[v][0] - HW - 3} y={N[v][1] - HH - 3} width={HW * 2 + 6} height={HH * 2 + 6} rx="8" />)}
+
+    <!-- 누적 합 -->
+    {TOP.map((v, i) => { const [x, y] = above(v); return <text data-id="cTop" class="hi hide" x={x} y={y}>누적 {cTop[i]}</text>; })}
+    {BOT.map((v, i) => { const [x, y] = below(v); return <text data-id="cBot" class="hi hide" x={x} y={y}>누적 {cBot[i]}</text>; })}
+
+    <!-- 여유 배지 (C, E 아래) -->
+    {['C', 'E'].map((v) => { const [x, y] = below(v); return <g data-id="slack" class="hide">
+      <rect class="bad" x={x - 30} y={y - 11} width="60" height="22" rx="5" />
+      <text class="sub" x={x} y={y}>여유 4</text>
+    </g>; })}
+    <text data-id="pCrit" class="hi hide" x="160" y="34">임계 경로 (가장 긴 길)</text>
+
+    <!-- 경로별 합 -->
+    <text data-id="r1" class="l hide" x="12" y="236">위: A→B→D→F = 3+4+5+2 = <tspan class="hi">14일</tspan></text>
+    <text data-id="r2" class="l hide" x="12" y="260">아래: A→C→E→F = 3+2+3+2 = 10일</text>
+    <text data-id="r3" class="l hide" x="12" y="286" style="font-weight:700">최소 완료 기간 = 긴 쪽 <tspan class="hi">14일</tspan></text>
+  </svg>
+</Stepper>
+
+<style>
+  .pth { stroke: var(--sl-color-accent); stroke-width: 5; opacity: .9; }
+  .crit { stroke: var(--sl-color-accent); stroke-width: 8; }
+</style>

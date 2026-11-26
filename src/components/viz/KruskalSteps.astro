@@ -1,0 +1,76 @@
+---
+// 예제 그래프 G로 크루스칼: 가중치 오름차순 간선 목록(3열 칩)을 앞에서부터 하나씩 채택/버림. 합 13.
+// 칩 상태(검사 중·채택·버림·안 봄), 그래프 위 채택 간선·버린 간선, 합계 줄, 마지막 프림 비교는 같은 자리 번갈아 → class="hide".
+import Stepper from '../Stepper.astro';
+
+const P: Record<number, [number, number]> = { 1: [30, 110], 2: [115, 45], 3: [115, 175], 4: [215, 45], 5: [215, 175], 6: [290, 110] };
+// 가중치 오름차순(같으면 번호순). 본문 예제 C 순서와 같음.
+const L: [number, number, number][] = [[1, 3, 1], [2, 3, 2], [5, 6, 2], [4, 6, 3], [1, 2, 4], [2, 4, 5], [4, 5, 6], [2, 5, 7], [3, 5, 8]];
+const ln = (a: number, b: number) => ({ x1: P[a][0], y1: P[a][1], x2: P[b][0], y2: P[b][1] });
+const mid = (a: number, b: number) => [(P[a][0] + P[b][0]) / 2, (P[a][1] + P[b][1]) / 2];
+const chip = (i: number) => ({ x: 14 + (i % 3) * 100, y: 236 + Math.floor(i / 3) * 34 });
+
+const ADOPT = [0, 1, 2, 3, 5];
+// 단계별: 몇 번째 간선까지 봤나(n), 합계 문구
+const S = [
+  { n: 0, sum: '간선 9개를 가중치 작은 순으로 줄 세움', cap: '간선 9개를 가중치 오름차순으로 줄 세웠어요(아래 목록, 왼쪽 위부터). 앞에서부터 하나씩 보며 "넣으면 고리(사이클)가 생기나?"만 확인해요.' },
+  { n: 1, sum: '채택 1개 · 합 1', cap: '(1,3) 1: 1과 3은 아직 따로 떨어져 있어요. 고리가 안 생기니 채택해요.' },
+  { n: 2, sum: '채택 2개 · 합 3', cap: '(2,3) 2: 2는 아직 아무와도 안 이어졌어요. 채택해요. 이제 1-3-2가 한 덩어리예요.' },
+  { n: 3, sum: '채택 3개 · 합 5', cap: '(5,6) 2: 5와 6은 다른 덩어리예요. 채택해요. 가중치가 같은 (2,3)과 순서는 바뀌어도 결과 합은 같아요.' },
+  { n: 4, sum: '채택 4개 · 합 8', cap: '(4,6) 3: 4는 처음 이어져요. 채택해요. 이제 덩어리가 1-2-3과 4-5-6 두 개예요.' },
+  { n: 5, sum: '채택 4개 · 합 8 (버림 1개)', cap: '(1,2) 4: 1과 2는 이미 1-3-2로 이어져 있어요. 넣으면 1→2→3→1 고리가 생겨서 버려요.' },
+  { n: 6, sum: '채택 5개 = 정점 6 − 1 → 종료', cap: '(2,4) 5: 두 덩어리를 잇는 간선이라 채택해요. 간선이 5개(정점 6 − 1)가 됐으니 여기서 끝이에요.' },
+  { n: 9, sum: '남은 3개는 볼 필요 없음', cap: '남은 (4,5) 6, (2,5) 7, (3,5) 8은 이미 다 이어진 정점끼리라 넣으면 모두 고리예요. 검사할 필요가 없어요.' },
+  { n: 9, sum: '', cap: 'MST 합 = 1 + 2 + 2 + 3 + 5 = 13. 프림(1에서 시작)으로 해도 같은 트리, 같은 합 13이 나와요. 고르는 순서만 달라요.' },
+];
+const steps = S.map((s, k) => {
+  const show = [`s${k}`];
+  if (k === 8) show.push('cmp', ...ADOPT.map((i) => `g${i}`));
+  else {
+    show.push('list');
+    for (let i = 0; i < L.length; i++) {
+      if (i < Math.min(s.n, 6)) show.push(ADOPT.includes(i) ? `a${i}` : `r${i}`);
+      else if (k === 7) show.push(`k${i}`);
+      if (ADOPT.includes(i) && i < s.n) show.push(`g${i}`);
+    }
+    if (k >= 1 && k <= 6) show.push(`h${s.n - 1}`);
+    if (k === 5) show.push('rej');
+  }
+  return { caption: s.cap, show };
+});
+---
+<Stepper title="크루스칼: 싼 간선부터, 고리가 생기면 버림" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 340" role="img" aria-label="예제 그래프 G의 간선을 가중치 오름차순으로 보며 (1,3)1, (2,3)2, (5,6)2, (4,6)3을 채택하고, (1,2)4는 1-3-2 고리가 생겨 버리고, (2,4)5를 채택해 간선 5개로 끝난다. 합은 13. 프림은 (1,3), (3,2), (2,4), (4,6), (6,5) 순으로 같은 트리를 만든다.">
+    {L.map(([a, b]) => <line class="line" {...ln(a, b)} />)}
+    {L.map(([a, b], i) => ADOPT.includes(i) && <line data-id={`g${i}`} class="mst hide" {...ln(a, b)} />)}
+    <line data-id="rej" class="rejl hide" {...ln(1, 2)} />
+    {L.map(([a, b, w]) => { const [x, y] = mid(a, b); return <><rect class="wbg" x={x - 11} y={y - 11} width="22" height="22" rx="4" /><text class="sub" x={x} y={y + 1}>{w}</text></>; })}
+    {Object.entries(P).map(([v, [x, y]]) => <><circle class="box" cx={x} cy={y} r="17" /><text x={x} y={y}>{v}</text></>)}
+
+    {S.map((s, k) => s.sum && <text data-id={`s${k}`} class="l hide" x="14" y="218" style="font-weight:700">{s.sum}</text>)}
+    <g data-id="list" class="hide">
+      {L.map(([a, b, w], i) => { const c = chip(i); return <><rect class="box" x={c.x} y={c.y} width="92" height="28" rx="5" /><text x={c.x + 46} y={c.y + 15}>({a},{b}) {w}</text></>; })}
+    </g>
+    {L.map(([a, b, w], i) => { const c = chip(i); return <>
+      <rect data-id={`h${i}`} class="hl hide" x={c.x - 3} y={c.y - 3} width="98" height="34" rx="7" />
+      <g data-id={`a${i}`} class="hide"><rect class="chip" x={c.x} y={c.y} width="92" height="28" rx="5" /><text x={c.x + 46} y={c.y + 15}>({a},{b}) {w} ✓</text></g>
+      <g data-id={`r${i}`} class="hide"><rect class="err" x={c.x} y={c.y} width="92" height="28" rx="5" /><text class="err-t" x={c.x + 46} y={c.y + 15}>({a},{b}) 버림</text></g>
+      <g data-id={`k${i}`} class="hide"><rect class="bad" x={c.x} y={c.y} width="92" height="28" rx="5" /><text class="sub" x={c.x + 46} y={c.y + 15}>({a},{b}) 안 봄</text></g>
+    </>; })}
+
+    <g data-id="cmp" class="hide">
+      <text class="l" x="14" y="210" style="font-weight:700">MST 합 = 1+2+2+3+5 = <tspan class="hi">13</tspan></text>
+      <text class="l sub" x="14" y="240">크루스칼 순서 (가중치 순)</text>
+      <text class="l" x="14" y="262">(1,3) → (2,3) → (5,6) → (4,6) → (2,4)</text>
+      <text class="l sub" x="14" y="292">프림 순서 (1에서 붙은 간선 중 최소)</text>
+      <text class="l" x="14" y="314">(1,3) → (3,2) → (2,4) → (4,6) → <tspan class="hi">(6,5)</tspan></text>
+      <text class="l sub" x="14" y="334">같은 트리, 같은 합. (5,6)은 프림에선 마지막</text>
+    </g>
+  </svg>
+</Stepper>
+
+<style>
+  .mst { stroke: var(--sl-color-accent); stroke-width: 6; }
+  .rejl { stroke: var(--sl-color-red); stroke-width: 4; stroke-dasharray: 7 5; }
+  .wbg { fill: var(--sl-color-gray-7, var(--sl-color-black)); stroke: var(--sl-color-gray-5); }
+</style>

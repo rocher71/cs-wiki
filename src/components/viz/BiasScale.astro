@@ -1,0 +1,97 @@
+---
+// float 지수 8비트의 바이어스 127. 엘리베이터 층 비유처럼 세로 건물로 그린다.
+// 왼쪽 = 저장된 번호(0~255), 오른쪽 = 실제 지수(번호 - 127). 눈금은 비례가 아니라 주요 층만 골라 그림.
+import Stepper from '../Stepper.astro';
+
+// [저장값, 실제 지수] — null은 생략(⋮) 줄
+const rows: ([number, number] | null)[] = [
+  [255, 128], [254, 127], null, [129, 2], [128, 1], [127, 0], null, [123, -4], null, [1, -126], [0, -127],
+];
+const Y0 = 62, DY = 28, BH = 22;
+const y = (i: number) => Y0 + i * DY;
+const iOf = (s: number) => rows.findIndex((r) => r && r[0] === s);
+const LX = 40, LW = 70, RX = 200, RW = 90;
+const neg = (n: number) => (n < 0 ? `−${-n}` : `${n}`);
+const special = new Set([0, 255]);
+
+const steps = [
+  { caption: '왼쪽은 지수 칸에 실제로 저장된 번호(0~255), 오른쪽은 진짜 지수예요. 같은 줄끼리 짝이에요. 엘리베이터 번호판과 진짜 층수처럼요.', show: ['base', 'raw', 'rawMid'] },
+  { caption: '저장값 127이 실제 지수 0이에요. 번호판 한가운데가 지상 0층인 셈이라, 127보다 크면 양수 지수, 작으면 음수 지수예요.', show: ['base', 'raw', 'rawMid', 'hl127', 'n2'] },
+  { caption: '읽을 때는 127을 빼요. 129 − 127 = 2, 123 − 127 = −4. 저장할 때는 반대로 127을 더해요(실제 2 → 129). −6.25의 지수 2가 129로 저장되는 이유예요.', show: ['base', 'raw', 'rawMid', 'a129', 'a123', 'n3'] },
+  { caption: '맨 끝 0과 255는 특수값 전용이에요(0은 0·비정규수, 255는 무한대·NaN). 그래서 보통 수는 저장값 1~254, 실제 지수 −126~127만 써요.', show: ['base', 'spc', 'rawMid', 'brk', 'n4'] },
+];
+---
+<Stepper title="지수 바이어스 127: 번호판과 진짜 층" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 420" role="img" aria-label="float 지수 칸의 저장값 0~255와 실제 지수(저장값 빼기 127)의 대응. 127이 0, 129가 2, 123이 -4이고, 0과 255는 특수값">
+    <defs>
+      <marker id="bias-a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+    </defs>
+
+    <g data-id="base">
+      <text class="sub" x={LX + LW / 2} y="18">저장값</text>
+      <text class="sub" x={LX + LW / 2} y="38">(번호판)</text>
+      <text class="sub" x={RX + RW / 2} y="18">실제 지수</text>
+      <text class="sub" x={RX + RW / 2} y="38">(진짜 층)</text>
+      <text class="sub" x="155" y="28">− 127 →</text>
+      {rows.map((r, i) => r ? (
+        <>
+          <rect class="box" x={LX} y={y(i) - BH / 2} width={LW} height={BH} rx="4" />
+          <rect class="box" x={RX} y={y(i) - BH / 2} width={RW} height={BH} rx="4" />
+        </>
+      ) : (
+        <>
+          <text x={LX + LW / 2} y={y(i)}>⋮</text>
+          <text x={RX + RW / 2} y={y(i)}>⋮</text>
+        </>
+      ))}
+    </g>
+
+    <!-- 4단계: 특수값 칸 덮개 -->
+    {[0, 255].map((s) => (
+      <g data-id="spc" class="hide">
+        <rect class="err" x={LX} y={y(iOf(s)) - BH / 2} width={LW} height={BH} rx="4" />
+        <rect class="err" x={RX} y={y(iOf(s)) - BH / 2} width={RW} height={BH} rx="4" />
+        <text class="err-t" x={RX + RW / 2} y={y(iOf(s))} style="font-size:14px">{s === 0 ? '0·비정규수' : '∞·NaN'}</text>
+      </g>
+    ))}
+
+    <!-- 숫자: 저장값은 늘 보이고, 실제 지수 중 0·255 짝은 4단계에서 특수값 글자로 바뀜 -->
+    {rows.map((r, i) => r && (
+      <>
+        <text data-id="base" x={LX + LW / 2} y={y(i)}>{r[0]}</text>
+        <text data-id={special.has(r[0]) ? 'raw' : 'rawMid'} class={special.has(r[0]) ? 'hide' : ''} x={RX + RW / 2} y={y(i)}>{neg(r[1])}</text>
+      </>
+    ))}
+
+    <!-- 2단계: 127 ↔ 0 -->
+    <rect data-id="hl127" class="hl" x={LX - 4} y={y(iOf(127)) - BH / 2 - 4} width={RX + RW - LX + 8} height={BH + 8} rx="6" />
+    <text data-id="hl127" class="hi hide" x="155" y={y(iOf(127))}>= 0층</text>
+
+    <!-- 3단계: 화살표. 라벨은 선 위로 비켜 둔다 -->
+    {[129, 123].map((s) => (
+      <g data-id={`a${s}`} class="hide">
+        <line x1={LX + LW + 3} y1={y(iOf(s)) + 4} x2={RX - 3} y2={y(iOf(s)) + 4} style="stroke:var(--sl-color-accent);stroke-width:2" marker-end="url(#bias-a)" />
+        <text class="hi" x="155" y={y(iOf(s)) - 7} style="font-size:14px">{s} − 127</text>
+        <rect class="hl" x={RX - 2} y={y(iOf(s)) - BH / 2 - 2} width={RW + 4} height={BH + 4} rx="5" />
+      </g>
+    ))}
+
+    <!-- 4단계: 보통 수 범위 괄호 (254 ~ 1) -->
+    <g data-id="brk" class="hide">
+      <path class="line" d={`M${LX - 8} ${y(1) - BH / 2} h-6 V${y(9) + BH / 2} h6`} style="stroke:var(--sl-color-accent)" />
+      <text class="hi" x="14" y={(y(1) + y(9)) / 2} transform={`rotate(-90 14 ${(y(1) + y(9)) / 2})`} style="font-size:14px">보통 수 1~254</text>
+      <path class="line" d={`M${RX + RW + 6} ${y(1) - BH / 2} h6 V${y(9) + BH / 2} h-6`} style="stroke:var(--sl-color-accent)" />
+      <text class="hi" x="308" y={(y(1) + y(9)) / 2} transform={`rotate(90 308 ${(y(1) + y(9)) / 2})`} style="font-size:14px">−126 ~ 127</text>
+    </g>
+
+    <!-- 아래 메모 (같은 자리 번갈아) -->
+    <text data-id="n2" class="hi hide" x="160" y="380">127 = 가운데 = 지수 0</text>
+    <text data-id="n2" class="sub hide" x="160" y="404">위로 가면 +, 아래로 가면 −</text>
+    <text data-id="n3" class="hi hide" x="160" y="380">읽기: 저장값 − 127</text>
+    <text data-id="n3" class="hi hide" x="160" y="404">저장: 실제 지수 + 127 (2 → 129)</text>
+    <text data-id="n4" class="err-t hide" x="160" y="380">0과 255는 층이 아니라 특수 표시</text>
+    <text data-id="n4" class="sub hide" x="160" y="404">보통 수 지수: −126 ~ 127</text>
+  </svg>
+</Stepper>

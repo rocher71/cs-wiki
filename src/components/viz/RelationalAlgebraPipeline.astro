@@ -1,0 +1,103 @@
+---
+// 학생 표가 σ → π → ⋈ 순서로 줄어들고 이어 붙는 과정. 값은 relational.mdx "단계별 계산" 예제 1과 같다.
+// 같은 자리에 번갈아 나오는 표(학생 / π 결과+수강 / 조인 결과)는 class "hide"로 바꿔 끼운다.
+import Stepper from '../Stepper.astro';
+const head = ['학번', '이름', '학과', '학년'];
+const stu = [['S1', '김', '컴공', '3'], ['S2', '이', '경영', '2'], ['S3', '박', '컴공', '1'], ['S4', '최', '수학', '3']];
+const su = [['S1', 'DB'], ['S1', 'OS'], ['S2', 'DB'], ['S3', 'DB'], ['S3', 'OS'], ['S3', 'NW']];
+const res = [['S1', '김', 'DB'], ['S1', '김', 'OS'], ['S3', '박', 'DB'], ['S3', '박', 'OS'], ['S3', '박', 'NW']];
+const Y = 44, HD = 28, RH = 26;
+const ry = (i: number) => Y + HD + i * RH;
+const SX = 16, SW = 72; // 학생 표
+const cell = (r: number, c: number) => `c${r}${c}`;
+const cells = (rows: number[], cols: number[]) => rows.flatMap((r) => cols.map((c) => cell(r, c)));
+const ALL = [0, 1, 2, 3];
+const chips = [['ops', 'σ 학과=컴공'], ['opp', 'π 학번·이름'], ['opj', '⋈ 수강']];
+const steps = [
+  { caption: '학생 릴레이션: 열 4개(차수 4), 행 4개(카디널리티 4). 질의는 "컴공 학생의 학번·이름과 수강 과목"이에요.', show: ['stu', 'hd', 'hd0', 'hd1', ...cells(ALL, ALL), 'n0'] },
+  { caption: 'σ 학과=\'컴공\': 조건에 맞는 행만 남겨요. S2(경영)·S4(수학)가 빠져 4행 → 2행. 열은 그대로 4개예요.', show: ['stu', 'hd', 'hd0', 'hd1', ...cells([0, 2], ALL), 'n1', 'ops', 'h-ops'] },
+  { caption: 'π 학번,이름: 원하는 열만 남겨요. 학과·학년 열이 빠져 4열 → 2열. 남은 건 (S1, 김), (S3, 박)이에요.', show: ['stu', 'hd0', 'hd1', ...cells([0, 2], [0, 1]), 'n2', 'ops', 'opp', 'h-opp'] },
+  { caption: '⋈ 수강: π 결과(왼쪽)와 수강 표(오른쪽)를 학번이 같은 행끼리 짝지어요. S2 행은 짝이 없어서 빠져요.', show: ['pj', 'sl', 'sr', 'n3', 'ops', 'opp', 'opj', 'h-opj'] },
+  { caption: '조인 결과: 수강 행마다 이름이 붙어 5행 × 3열. 공통 속성 학번은 한 번만 나와요. σ·π로 먼저 줄여 둬서 이어 붙일 행이 적었어요.', show: ['rs', 'n4', 'ops', 'opp', 'opj', 'h-opj'] },
+];
+const notes = ['4행 × 4열', '2행 × 4열', '2행 × 2열', '왼쪽 2행 · 수강 6행', '5행 × 3열 (결과)'];
+---
+<Stepper title="σ → π → ⋈ 로 표가 바뀌는 과정" steps={steps}>
+  <svg class="viz rap" viewBox="0 0 320 262" role="img" aria-label="학생 표 4행 4열에서 σ 학과=컴공으로 2행, π 학번 이름으로 2열이 되고, 수강 표와 자연 조인해 5행 3열 결과가 나오는 과정">
+    {chips.map(([id, t], i) => (
+      <g data-id={id}>
+        <rect class="box" x={6 + i * 104} y="4" width="98" height="28" rx="14" />
+        <text x={55 + i * 104} y="18" style="font-size:14px">{t}</text>
+      </g>
+    ))}
+    {chips.map(([id], i) => (
+      <rect data-id={`h-${id}`} class="hl" x={6 + i * 104} y="4" width="98" height="28" rx="14" />
+    ))}
+
+    <!-- 1~3단계: 학생 표 -->
+    <g data-id="stu" class="hide">
+      {head.map((h, c) => (
+        <g data-id={c < 2 ? `hd${c}` : 'hd'}>
+          <rect class="chip" x={SX + c * SW} y={Y} width={SW} height={HD} />
+          <text x={SX + c * SW + SW / 2} y={Y + HD / 2} style="font-weight:700">{h}</text>
+        </g>
+      ))}
+      {stu.map((row, r) => row.map((v, c) => (
+        <g data-id={cell(r, c)}>
+          <rect class="box" x={SX + c * SW} y={ry(r)} width={SW} height={RH} />
+          <text x={SX + c * SW + SW / 2} y={ry(r) + RH / 2}>{v}</text>
+        </g>
+      )))}
+    </g>
+    <!-- hd0·hd1은 π 단계에서도 남아야 해서 따로 data-id. 나머지 머리칸은 'hd' -->
+
+    <!-- 4단계: π 결과 + 수강 -->
+    <g data-id="pj" class="hide">
+      <text class="sub" x="68" y={Y - 2}>π 결과</text>
+      {['학번', '이름'].map((h, c) => (
+        <g><rect class="chip" x={8 + c * 60} y={Y + 8} width="60" height={HD} /><text x={38 + c * 60} y={Y + 8 + HD / 2} style="font-weight:700">{h}</text></g>
+      ))}
+      {[['S1', '김'], ['S3', '박']].map((row, r) => row.map((v, c) => (
+        <g><rect class="box" x={8 + c * 60} y={ry(r) + 8} width="60" height={RH} /><text x={38 + c * 60} y={ry(r) + 8 + RH / 2}>{v}</text></g>
+      )))}
+      <text class="sub" x="68" y={ry(2) + 30}>학번이 같은</text>
+      <text class="sub" x="68" y={ry(2) + 48}>수강 행과 짝</text>
+      <path class="line" d={`M128 ${ry(0) + 21} L178 ${ry(0) + 21}`} />
+      <path class="line" d={`M128 ${ry(1) + 21} L178 ${ry(3) + 21}`} />
+    </g>
+    <g data-id="sl" class="hide">
+      <text class="sub" x="242" y={Y - 2}>수강</text>
+      {['학번', '과목'].map((h, c) => (
+        <g><rect class="chip" x={180 + c * 64} y={Y + 8} width="64" height={HD} /><text x={212 + c * 64} y={Y + 8 + HD / 2} style="font-weight:700">{h}</text></g>
+      ))}
+      {su.map((row, r) => r !== 2 && row.map((v, c) => (
+        <g><rect class="box" x={180 + c * 64} y={ry(r) + 8} width="64" height={RH} /><text x={212 + c * 64} y={ry(r) + 8 + RH / 2}>{v}</text></g>
+      )))}
+    </g>
+    <!-- 짝 없는 S2 행: 흐리게 -->
+    <g data-id="sr" class="hide">
+      {su[2].map((v, c) => (
+        <g><rect class="bad" x={180 + c * 64} y={ry(2) + 8} width="64" height={RH} /><text x={212 + c * 64} y={ry(2) + 8 + RH / 2}>{v}</text></g>
+      ))}
+    </g>
+
+    <!-- 5단계: 조인 결과 -->
+    <g data-id="rs" class="hide">
+      {['학번', '이름', '과목'].map((h, c) => (
+        <g><rect class="chip" x={28 + c * 88} y={Y} width="88" height={HD} /><text x={72 + c * 88} y={Y + HD / 2} style="font-weight:700">{h}</text></g>
+      ))}
+      {res.map((row, r) => row.map((v, c) => (
+        <g><rect class="box" x={28 + c * 88} y={ry(r)} width="88" height={RH} /><text x={72 + c * 88} y={ry(r) + RH / 2}>{v}</text></g>
+      )))}
+    </g>
+
+    {notes.map((t, i) => (
+      <text data-id={`n${i}`} class="hide hi" x="160" y="246" style="font-size:16px">{t}</text>
+    ))}
+  </svg>
+</Stepper>
+
+<style>
+  /* 4단계 흐린 S2 행: Stepper의 opacity 전환보다 약하게 보이도록 */
+  .rap :global([data-id='sr']:not(.is-off)) { opacity: .4; }
+</style>

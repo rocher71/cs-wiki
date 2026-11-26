@@ -1,0 +1,97 @@
+---
+// M = 7, h(k) = k mod 7, 키 12 25 18 32 40 19를 선형 조사로 삽입. 마지막에 1차 군집·적재율, 체이닝 비교.
+// 넣은 키(k*)는 넣은 뒤 계속 보임. 조사 경로(p*), 설명 줄(t*), 순환 화살표, 군집·체이닝 상자는 같은 자리 번갈아 → class="hide".
+import Stepper from '../Stepper.astro';
+
+const M = 7, KEYS = [12, 25, 18, 32, 40, 19];
+const T: (number | null)[] = Array(M).fill(null);
+const runs = KEYS.map((k) => {
+  const path: number[] = [];
+  let h = k % M;
+  while (T[h] !== null) { path.push(h); h = (h + 1) % M; }
+  path.push(h); T[h] = k;
+  return { k, path, slot: h, wrap: path.some((p, i) => i > 0 && p < path[i - 1]) };
+});
+
+const X0 = 13, W = 42, TY = 120, TH = 40;
+const cx = (i: number) => X0 + i * W + W / 2;
+const kx = (i: number) => 80 + i * 39;
+
+const S = [
+  { cap: '7칸짜리 테이블이에요. 키 k는 k ÷ 7의 나머지 칸(홈 주소)에 넣어요. 그 칸이 차 있으면 오른쪽으로 한 칸씩 옮겨 빈칸을 찾아요(선형 조사).', show: [] as string[] },
+  ...runs.map((r, n) => ({
+    cap: [
+      '12 mod 7 = 5. 5번 칸이 비어 있어 바로 들어가요.',
+      '25 mod 7 = 4. 4번 칸이 비어 있어 바로 들어가요.',
+      '18 mod 7 = 4. 4번(25)이 차 있어 5번(12)으로, 또 차 있어 6번으로 가서 들어가요. 충돌 2번.',
+      '32 mod 7 = 4. 4·5·6번이 다 차 있어요. 6번 다음은 끝이라 0번으로 돌아가 들어가요. 충돌 3번.',
+      '40 mod 7 = 5. 5·6·0번이 차 있어 1번에 들어가요. 홈 주소가 다른 32가 만든 덩어리에도 걸렸어요.',
+      '19 mod 7 = 5. 5·6·0·1번을 지나 2번에 들어가요. 충돌 4번. 뒤에 넣을수록 점점 멀리 밀려나요.',
+    ][n],
+    show: [`p${n}`, `t${n}`, `kc${n}`, ...(r.wrap ? ['wrap'] : [])],
+  })),
+  { cap: '완성: 4·5·6·0·1·2번이 끊김 없이 이어진 덩어리가 됐어요. 이게 1차 군집이에요. 이 덩어리에 걸리는 키는 덩어리 끝까지 밀려나요. 적재율은 6 ÷ 7 ≈ 0.86.', show: ['clu'] },
+  { cap: '같은 키를 체이닝으로 넣으면 옆 칸으로 가지 않고 홈 주소 칸에 줄줄이 매달아요. 버킷 4에 25 → 18 → 32, 버킷 5에 12 → 40 → 19. 나머지 버킷은 비어 있어요.', show: ['chain'] },
+];
+const steps = S.map((s, i) => ({ caption: s.cap, show: [...s.show, ...runs.slice(0, Math.min(i, 6)).map((r) => `k${r.k}`)] }));
+---
+<Stepper title="선형 조사: 막히면 옆 칸으로 (M = 7)" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 320" role="img" aria-label="크기 7 해시 테이블에 h(k) = k mod 7로 12, 25, 18, 32, 40, 19를 선형 조사로 넣는다. 결과는 0번 32, 1번 40, 2번 19, 3번 빈칸, 4번 25, 5번 12, 6번 18. 4번부터 2번까지 이어진 1차 군집이 생긴다. 체이닝이면 버킷 4에 25, 18, 32, 버킷 5에 12, 40, 19.">
+    <text class="l sub" x="14" y="40">넣을 키</text>
+    {KEYS.map((k, i) => <><rect class="box" x={kx(i)} y="26" width="35" height="28" rx="5" /><text x={kx(i) + 17.5} y="41">{k}</text></>)}
+    {KEYS.map((_, i) => <rect data-id={`kc${i}`} class="hl hide" x={kx(i) - 3} y="23" width="41" height="34" rx="7" />)}
+
+    {runs.map((r, n) => <g data-id={`t${n}`} class="hide">
+      <text class="l" x="14" y="80" style="font-weight:700">h({r.k}) = {r.k} mod 7 = {r.k % M}</text>
+      <text class={r.path.length > 1 ? 'err-t' : 'sub'} x="306" y="80" style="text-anchor:end">{r.path.length > 1 ? `충돌 ${r.path.length - 1}번` : '충돌 없음'}</text>
+    </g>)}
+
+    {T.map((_, i) => <><rect class="frame" x={X0 + i * W + 1} y={TY} width={W - 2} height={TH} rx="4" /><text class="sub" x={cx(i)} y={TY + TH + 14}>{i}</text></>)}
+    {runs.map((r, n) => <g data-id={`p${n}`} class="hide">
+      {r.path.map((p, j) => { const last = j === r.path.length - 1; return <>
+        <rect class={last ? 'hl' : 'err'} x={X0 + p * W + 1} y={TY} width={W - 2} height={TH} rx="4" />
+        <circle class="badge" cx={cx(p)} cy={TY - 16} r="10" /><text class="on-badge" x={cx(p)} y={TY - 15}>{j + 1}</text>
+      </>; })}
+      <text class="l sub" x="14" y="250">작은 원 = 확인한 순서, 빨간 칸 = 이미 참</text>
+    </g>)}
+    {runs.map((r) => <text data-id={`k${r.k}`} class="hide" x={cx(r.slot)} y={TY + TH / 2 + 1}>{r.k}</text>)}
+
+    <g data-id="wrap" class="hide">
+      <path class="line wrapl" d={`M${cx(6)} ${TY + TH + 24} C ${cx(6)} 214, ${cx(0)} 214, ${cx(0)} ${TY + TH + 28}`} marker-end="url(#lp-arr)" />
+      <text class="hi" x="160" y="222">6번 다음은 0번 (처음으로)</text>
+    </g>
+    <defs>
+      <marker id="lp-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+    </defs>
+
+    <g data-id="clu" class="hide">
+      <rect class="hl" x={X0 + 4 * W - 2} y={TY - 4} width={3 * W + 4} height={TH + 8} rx="6" />
+      <rect class="hl" x={X0 - 2} y={TY - 4} width={3 * W + 4} height={TH + 8} rx="6" />
+      <text class="l" x="14" y="214" style="font-weight:700">1차 군집: 4·5·6·0·1·2번이 한 덩어리</text>
+      <text class="l sub" x="14" y="240">3번만 비어 있어요(끝과 처음은 이어짐)</text>
+      <text class="l" x="14" y="272">적재율 = 6 ÷ 7 ≈ <tspan class="hi">0.86</tspan></text>
+    </g>
+
+    <g data-id="chain" class="hide">
+      <text class="l" x="14" y="206" style="font-weight:700">체이닝이었다면</text>
+      {[[4, [25, 18, 32]], [5, [12, 40, 19]]].map(([b, ks], r) => { const y = 224 + r * 44; return <>
+        <rect class="box" x="14" y={y} width="72" height="32" rx="5" /><text x="50" y={y + 17}>버킷 {b}</text>
+        {(ks as number[]).map((k, j) => <>
+          <line class="line" x1={86 + j * 76} y1={y + 16} x2={106 + j * 76} y2={y + 16} marker-end="url(#lp-arr2)" />
+          <rect class="chip" x={108 + j * 76} y={y} width="54" height="32" rx="5" /><text x={135 + j * 76} y={y + 17}>{k}</text>
+        </>)}
+      </>; })}
+      <defs>
+        <marker id="lp-arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+        </marker>
+      </defs>
+    </g>
+  </svg>
+</Stepper>
+
+<style>
+  .wrapl { stroke: var(--sl-color-accent); stroke-width: 2; }
+</style>

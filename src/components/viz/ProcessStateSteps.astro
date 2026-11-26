@@ -1,0 +1,60 @@
+---
+// OS 프로세스 5상태 전이도. 전이 화살표는 회색으로 쌓이고, 지금 설명하는 이벤트 하나만 강조색(.hide 오버레이)으로 겹쳐 그린다.
+// (Java Thread.State 그림은 ThreadStateFlow.astro — 이쪽은 OS 교과서 상태)
+import Stepper from '../Stepper.astro';
+const B = { n: [10, 10, 84, 40, '생성'], x: [226, 10, 84, 40, '종료'], r: [10, 120, 84, 44, '준비'], u: [226, 120, 84, 44, '실행'], w: [118, 236, 84, 44, '대기'] } as const;
+// [id, path, 라벨 x, y, 정렬, 라벨]  정렬 l=왼쪽, e=오른쪽 끝, m=가운데
+const A: [string, string, number, number, string, string][] = [
+  ['ad', 'M52 52 L52 116', 62, 84, 'l', '승인'],
+  ['di', 'M96 132 L222 132', 160, 118, 'm', '디스패치'],
+  ['to', 'M224 154 L98 154', 160, 170, 'm', '타이머 런아웃'],
+  ['bl', 'M268 166 L206 248', 246, 216, 'l', '블록'],
+  ['wu', 'M116 250 L54 168', 74, 216, 'e', '웨이크업'],
+  ['ex', 'M268 118 L268 54', 278, 84, 'l', 'exit'],
+];
+const all = ['ad', 'di', 'to', 'bl', 'wu', 'ex'];
+const st = ['n', 'x', 'r', 'u', 'w'];
+const upto = (k: number) => all.slice(0, k).map((id) => `a-${id}`);
+const steps = [
+  { caption: '프로세스 상태는 다섯 가지예요. 생성 · 준비 · 실행 · 대기 · 종료.', show: [...st] },
+  { caption: '승인: 생성된 프로세스가 메모리에 올라와 준비 큐에 줄을 서요.', show: [...st, ...upto(1), 'h-ad'] },
+  { caption: '디스패치(준비 → 실행): 스케줄러가 준비 큐 맨 앞 프로세스에 CPU를 줘요.', show: [...st, ...upto(2), 'h-di'] },
+  { caption: '타이머 런아웃(실행 → 준비): 할당 시간을 다 써서 CPU를 내놓고 다시 줄 뒤로 가요.', show: [...st, ...upto(3), 'h-to'] },
+  { caption: '블록(실행 → 대기): 입출력을 요청하고 결과가 올 때까지 기다려요. 그동안 CPU는 다른 프로세스가 써요.', show: [...st, ...upto(4), 'h-bl'] },
+  { caption: '웨이크업(대기 → 준비): 입출력이 끝나면 바로 실행이 아니라 준비 큐로 돌아가 다시 줄을 서요.', show: [...st, ...upto(5), 'h-wu'] },
+  { caption: '종료(실행 → 종료): 일을 다 끝내면 자원을 돌려주고 사라져요.', show: [...st, ...upto(6), 'h-ex'] },
+  { caption: '대기에서 실행으로 바로 가는 길은 없어요. 깨어나면 반드시 준비를 거쳐 디스패치를 받아야 해요.', show: [...st, ...upto(6), 'nox'] },
+];
+const anchor = (a: string) => (a === 'e' ? 'text-anchor:end' : '');
+---
+<Stepper title="프로세스 상태 전이" steps={steps}>
+  <svg class="viz pss" viewBox="0 0 320 290" role="img" aria-label="생성에서 승인으로 준비, 준비에서 디스패치로 실행, 실행에서 타이머 런아웃으로 준비, 실행에서 블록으로 대기, 대기에서 웨이크업으로 준비, 실행에서 종료로 가는 상태 전이도. 대기에서 실행으로 가는 직접 전이는 없다.">
+    <defs>
+      <marker id="pss-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" /></marker>
+      <marker id="pss-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" /></marker>
+    </defs>
+
+    {A.map(([id, d, x, y, al, t]) => (
+      <g data-id={`a-${id}`}>
+        <path d={d} class="line" marker-end="url(#pss-g)" />
+        <text class={`sub${al === 'l' ? ' l' : ''}`} x={x} y={y} style={anchor(al)}>{t}</text>
+      </g>
+    ))}
+    {A.map(([id, d, x, y, al, t]) => (
+      <g data-id={`h-${id}`} class="hide">
+        <path d={d} style="fill:none;stroke:var(--sl-color-accent);stroke-width:3.5" marker-end="url(#pss-a)" />
+        <text class={`hi${al === 'l' ? ' l' : ''}`} x={x} y={y} style={`font-size:15px;${anchor(al)}`}>{t}</text>
+      </g>
+    ))}
+
+    {st.map((id) => { const [x, y, w, h, t] = B[id as 'n']; return (
+      <g data-id={id}><rect class="box" x={x} y={y} width={w} height={h} rx="8" /><text x={x + w / 2} y={y + h / 2} style="font-weight:700">{t}</text></g>
+    ); })}
+
+    <g data-id="nox" class="hide">
+      <path d="M182 234 L232 168" class="err" style="fill:none;stroke-dasharray:5 4;stroke-width:2" />
+      <text class="err-t" x="207" y="201" style="font-size:20px">✕</text>
+      <text class="err-t" x="150" y="200" style="font-size:14px;text-anchor:end">직행 없음</text>
+    </g>
+  </svg>
+</Stepper>

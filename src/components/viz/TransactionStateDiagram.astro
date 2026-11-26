@@ -1,0 +1,66 @@
+---
+// 트랜잭션 5상태 전이도. 지나간 전이는 회색으로 쌓이고, 지금 단계의 전이만 강조색(.hide 오버레이)으로 겹친다.
+import Stepper from '../Stepper.astro';
+const B = {
+  ac: [4, 44, 80, 44, '활동'], pc: [120, 44, 80, 44, '부분 완료'], co: [236, 44, 80, 44, '완료'],
+  fa: [4, 164, 80, 44, '실패'], ab: [4, 268, 80, 44, '철회'],
+} as const;
+// [id, path, 라벨 x, y, 왼쪽정렬?, 라벨]
+const A: [string, string, number, number, boolean, string][] = [
+  ['lo', 'M86 66 L116 66', 102, 30, false, '마지막 연산'],
+  ['cm', 'M202 66 L232 66', 218, 30, false, 'commit'],
+  ['f1', 'M44 90 L44 160', 52, 126, true, '장애'],
+  ['f2', 'M156 90 L88 172', 134, 140, true, '장애'],
+  ['rb', 'M44 210 L44 264', 56, 238, true, 'rollback'],
+  ['rs', 'M86 290 L128 290', 0, 0, true, ''],
+];
+const st = Object.keys(B);
+const g = (ids: string[]) => ids.map((id) => `a-${id}`);
+const h = (ids: string[]) => ids.map((id) => `h-${id}`);
+const steps = [
+  { caption: '활동(active): 트랜잭션이 연산을 실행하고 있는 상태예요. 모든 트랜잭션은 여기서 시작해요.', show: ['ac'] },
+  { caption: '마지막 연산까지 실행하면 부분 완료가 돼요. 아직 commit 전이라 결과가 확정된 건 아니에요.', show: ['ac', 'pc', ...g(['lo']), ...h(['lo'])] },
+  { caption: 'commit을 실행하면 완료(committed). 이제 결과가 확정돼서 장애가 나도 남아야 해요.', show: ['ac', 'pc', 'co', ...g(['lo', 'cm']), ...h(['cm'])] },
+  { caption: '장애가 나면 실패(failed). 활동 중에도, 부분 완료에서 디스크에 확정하다가도 실패할 수 있어요.', show: [...st.slice(0, 4), ...g(['lo', 'cm', 'f1', 'f2']), ...h(['f1', 'f2'])] },
+  { caption: '실패 뒤 rollback을 해야 철회(aborted). 실패와 철회는 다른 상태예요. 철회 뒤엔 재시작하거나 폐기해요.', show: [...st, 'nx', ...g(['lo', 'cm', 'f1', 'f2', 'rb', 'rs']), ...h(['rb', 'rs'])] },
+  { caption: '끝나는 상태는 완료와 철회 두 가지예요. 부분 완료는 아직 끝이 아니라는 점이 필기 함정이에요.', show: [...st, 'nx', ...g(['lo', 'cm', 'f1', 'f2', 'rb', 'rs']), 'end'] },
+];
+---
+<Stepper title="트랜잭션 상태 전이" steps={steps}>
+  <svg class="viz tsd" viewBox="0 0 320 340" role="img" aria-label="활동에서 마지막 연산으로 부분 완료, commit으로 완료. 활동과 부분 완료에서 장애로 실패, 실패에서 rollback으로 철회, 철회 뒤 재시작 또는 폐기.">
+    <defs>
+      <marker id="tsd-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" /></marker>
+      <marker id="tsd-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" /></marker>
+    </defs>
+
+    {A.map(([id, d, x, y, l, t]) => (
+      <g data-id={`a-${id}`}>
+        <path d={d} class="line" marker-end="url(#tsd-g)" />
+        {t && <text class={`sub${l ? ' l' : ''}`} x={x} y={y}>{t}</text>}
+      </g>
+    ))}
+    {A.map(([id, d, x, y, l, t]) => (
+      <g data-id={`h-${id}`} class="hide">
+        <path d={d} style="fill:none;stroke:var(--sl-color-accent);stroke-width:3.5" marker-end="url(#tsd-a)" />
+        {t && <text class={`hi${l ? ' l' : ''}`} x={x} y={y} style="font-size:15px">{t}</text>}
+      </g>
+    ))}
+
+    {st.map((id) => { const [x, y, w, hh, t] = B[id as 'ac']; return (
+      <g data-id={id}><rect class="box" x={x} y={y} width={w} height={hh} rx="8" /><text x={x + w / 2} y={y + hh / 2} style="font-weight:700">{t}</text></g>
+    ); })}
+
+    <g data-id="nx" class="hide">
+      <rect class="frame" x="132" y="256" width="184" height="68" rx="8" />
+      <text class="l" x="142" y="278" style="font-size:14px">재시작: HW·SW 문제</text>
+      <text class="l" x="142" y="304" style="font-size:14px">폐기: 논리 오류</text>
+    </g>
+
+    <g data-id="end" class="hide">
+      <rect class="hl" x="232" y="40" width="88" height="52" rx="10" />
+      <rect class="hl" x="0" y="264" width="88" height="52" rx="10" />
+      <text class="hi" x="276" y="108" style="font-size:14px">끝 상태</text>
+      <text class="hi" x="44" y="330" style="font-size:14px">끝 상태</text>
+    </g>
+  </svg>
+</Stepper>
