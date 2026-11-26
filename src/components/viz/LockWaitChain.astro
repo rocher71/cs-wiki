@@ -1,0 +1,88 @@
+---
+// 락 대기 추적: 세션 A가 id=1 X 락을 쥔 채 SLEEP → B가 WAITING → innodb_trx → data_lock_waits(1571→1570)
+// → blocking_query 함정(SELECT SLEEP) → 50초 뒤 ERROR 1205. 확인 패널 내용은 같은 자리에 번갈아 나와서 class="hide".
+import Stepper from '../Stepper.astro';
+const base = ['sA', 'row', 'lkA'];
+const withB = [...base, 'sB', 'lkB'];
+const steps = [
+  { caption: '세션 A(trx 1570)가 트랜잭션을 열고 id=1 행을 UPDATE해요. 그 행에 X 락(배타 락)이 GRANTED. 그런데 커밋하지 않고 SELECT SLEEP(8) 같은 다른 일을 해요.', show: [...base, 'hlA'] },
+  { caption: '세션 B(trx 1571)가 같은 id=1 행을 UPDATE하려 해요. X 락이 WAITING 상태로 멈추고, PROCESSLIST의 TIME(초)이 계속 늘어나요.', show: [...withB, 'hlB'] },
+  { caption: '확인 세션에서 innodb_trx를 봐요. B는 LOCK WAIT(기다리는 쪽), A는 trx_started가 한참 전인 RUNNING(범인 후보)이에요.', show: [...withB, 'panel', 'p1', 'hlP'] },
+  { caption: 'performance_schema.data_lock_waits 한 줄이 "누가 누구를 기다리나"예요. 요청 trx 1571(B)이 막는 trx 1570(A)을 기다려요.', show: [...withB, 'panel', 'p2', 'hlP'] },
+  { caption: '함정: sys.innodb_lock_waits의 blocking_query는 A가 "지금" 실행 중인 SELECT SLEEP(8)이에요. 락을 잡은 UPDATE가 아니에요. trx_started와 앱 로그로 추적해요.', show: [...withB, 'panel', 'p3', 'hlP'] },
+  { caption: 'A가 안 끝나면 B는 innodb_lock_wait_timeout(기본 50초) 뒤 ERROR 1205를 받아요. 기본적으로 그 문장만 롤백되고 트랜잭션은 열린 채예요.', show: [...base, 'sB', 'lkB2', 'panel', 'p4', 'hlP'] },
+];
+---
+<Stepper title="락 대기: 누가 막고 있나 찾기" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 404" role="img" aria-label="세션 A가 id=1 행 락을 쥐고 다른 일을 하는 동안 세션 B가 기다리고, innodb_trx와 data_lock_waits로 막는 쪽을 찾으며, blocking_query가 락을 잡은 UPDATE가 아니라 SELECT SLEEP으로 보이는 함정과 50초 뒤 ERROR 1205를 보여주는 그림">
+    <g data-id="sA">
+      <rect class="box" x="8" y="6" width="304" height="92" rx="7" />
+      <text x="160" y="22" style="font-weight:700">세션 A · trx 1570</text>
+      <text class="mono l" x="20" y="44">START TRANSACTION;</text>
+      <text class="mono l" x="20" y="63">UPDATE orders … WHERE id=1;</text>
+      <text class="mono l" x="20" y="82">SELECT SLEEP(8);<tspan class="sub"> (커밋 안 함)</tspan></text>
+    </g>
+    <g data-id="row">
+      <rect class="frame" x="8" y="108" width="304" height="72" rx="7" />
+      <text x="160" y="124">orders 테이블 · id=1 행</text>
+    </g>
+    <g data-id="lkA">
+      <rect class="chip" x="16" y="138" width="138" height="34" rx="6" />
+      <text x="85" y="155">A: X 락 GRANTED</text>
+    </g>
+    <g data-id="lkB" class="hide">
+      <rect class="bad" x="166" y="138" width="138" height="34" rx="6" />
+      <text x="235" y="155">B: X 락 WAITING</text>
+    </g>
+    <g data-id="lkB2" class="hide">
+      <rect class="err" x="166" y="138" width="138" height="34" rx="6" />
+      <text class="err-t" x="235" y="155">B: 1205로 포기</text>
+    </g>
+    <g data-id="sB">
+      <rect class="box" x="8" y="190" width="304" height="64" rx="7" />
+      <text x="160" y="206" style="font-weight:700">세션 B · trx 1571</text>
+      <text class="mono l" x="20" y="228">UPDATE orders … WHERE id=1;</text>
+      <text class="sub l" x="20" y="246">PROCESSLIST TIME: 계속 증가 …</text>
+    </g>
+    <g data-id="panel">
+      <rect class="box" x="8" y="266" width="304" height="132" rx="7" />
+      <text class="sub" x="160" y="282">확인 세션</text>
+    </g>
+    <g data-id="p1" class="hide">
+      <text class="mono" x="160" y="306">innodb_trx</text>
+      <text class="mono l" x="24" y="334">1570</text><text class="l" x="100" y="334">RUNNING (범인 후보)</text>
+      <text class="mono l" x="24" y="362">1571</text><text class="l hi" x="100" y="362">LOCK WAIT (대기)</text>
+    </g>
+    <g data-id="p2" class="hide">
+      <text class="mono" x="160" y="306">data_lock_waits (한 줄)</text>
+      <rect class="bad" x="24" y="322" width="110" height="52" rx="6" />
+      <text class="sub" x="79" y="338">REQUESTING</text>
+      <text x="79" y="358" style="font-weight:700">1571 (B)</text>
+      <path class="line" d="M136 348 H182" marker-end="url(#lwc-arr)" />
+      <text class="sub" x="159" y="384">기다림</text>
+      <rect class="chip" x="186" y="322" width="110" height="52" rx="6" />
+      <text class="sub" x="241" y="338">BLOCKING</text>
+      <text x="241" y="358" style="font-weight:700">1570 (A)</text>
+    </g>
+    <g data-id="p3" class="hide">
+      <text class="mono" x="160" y="306">sys.innodb_lock_waits</text>
+      <text class="mono l" x="24" y="334">blocking_query =</text>
+      <text class="mono hi" x="160" y="358">SELECT SLEEP(8)</text>
+      <text class="err-t" x="160" y="384">락을 잡은 UPDATE가 아님!</text>
+    </g>
+    <g data-id="p4" class="hide">
+      <text class="sub" x="160" y="308">50초 뒤 (innodb_lock_wait_timeout)</text>
+      <rect class="err" x="20" y="322" width="280" height="34" rx="6" />
+      <text class="mono err-t" x="160" y="339">ERROR 1205 Lock wait timeout</text>
+      <text class="sub" x="160" y="378">B의 그 문장만 롤백 (데드락 1213과 다름)</text>
+    </g>
+    <defs>
+      <marker id="lwc-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+    <rect data-id="hlA" class="hl" x="4" y="2" width="312" height="182" rx="9" />
+    <rect data-id="hlB" class="hl" x="4" y="134" width="312" height="124" rx="9" />
+    <rect data-id="hlP" class="hl" x="4" y="262" width="312" height="140" rx="9" />
+  </svg>
+</Stepper>

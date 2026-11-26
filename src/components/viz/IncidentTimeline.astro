@@ -1,0 +1,84 @@
+---
+// 장애 대응 7단계. 1~5는 대응 중(피해 멈추기), 6~7은 사후(재발 막기). 단계마다 해당 상자 강조.
+import Stepper from '../Stepper.astro';
+const base = ['ph1', 'b1', 'a1', 'b2', 'a2', 'b3', 'a3', 'b4', 'a4', 'b5', 'a5', 'ph2', 'b6', 'a6', 'b7'];
+const upto = (n: number) => base.slice(0, base.indexOf('b' + n) + 1);
+const steps = [
+  { caption: '탐지: 에러율·응답 지연(p99) 알림이나 고객 문의로 알아채요. "사용자가 실제로 겪고 있나?"부터 봐요.', show: [...upto(1), 'hl1'] },
+  { caption: '공유·역할: 사고로 선언하고 지휘자(IC)를 정해요. 채널·상태 문서를 열고 첫 공지를 해요. "누가 지휘하고 누가 시스템을 만지나?"', show: [...upto(2), 'hl2'] },
+  { caption: '영향 평가: 어떤 기능이, 몇 % 사용자에게, 언제부터 문제인지 봐요. 직전에 바뀐 것(배포·설정·플래그·트래픽)도 확인해요.', show: [...upto(3), 'hl3'] },
+  { caption: '완화: 롤백, 플래그 끄기, 트래픽 차단, 스케일아웃. 원인을 몰라도 쓸 수 있는 가장 빠른 수단으로 피해부터 멈춰요.', show: [...upto(4), 'hl4'] },
+  { caption: '복구 확인: 지표가 평소 수준으로 돌아왔는지 숫자로 확인하고 공지를 업데이트해요. 여기까지가 "대응 중"이에요.', show: [...upto(5), 'hl5'] },
+  { caption: '원인 분석: 이제부터는 사후 단계예요. 완화하면서 남겨 둔 로그·지표·덤프로 "왜 일어났고 왜 못 막았나"를 찾아요.', show: [...upto(6), 'hl6'] },
+  { caption: '포스트모템: 타임라인·영향·원인·액션 아이템(담당자·기한)을 비난 없이 적고, 리뷰받아 공유해요. "구조를 어떻게 바꾸나?"', show: [...upto(7), 'hl7'] },
+];
+---
+<Stepper title="장애 대응 7단계" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 470" role="img" aria-label="탐지, 공유·역할, 영향 평가, 완화, 복구 확인까지가 대응 중 단계이고, 원인 분석과 포스트모템이 사후 단계인 7단계 흐름">
+    <defs>
+      <marker id="irt-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+    <text data-id="ph1" class="hi" x="34" y="13" text-anchor="start" style="text-anchor:start">대응 중: 피해부터 멈추기</text>
+    <g data-id="ph2">
+      <line class="frame" x1="34" y1="336" x2="148" y2="336" />
+      <text class="hi" x="286" y="336" style="text-anchor:end">사후: 재발 막기</text>
+    </g>
+    <g data-id="b1">
+      <rect class="box" x="34" y="30" width="252" height="46" rx="7" />
+      <circle class="badge" cx="54" cy="53" r="12" /><text class="on-badge" x="54" y="54">1</text>
+      <text x="174" y="45">탐지</text>
+      <text class="sub" x="174" y="64">“사용자가 실제로 겪고 있나?”</text>
+    </g>
+    <line data-id="a1" class="line" x1="160" y1="76" x2="160" y2="88" marker-end="url(#irt-arr)" />
+    <g data-id="b2">
+      <rect class="box" x="34" y="90" width="252" height="46" rx="7" />
+      <circle class="badge" cx="54" cy="113" r="12" /><text class="on-badge" x="54" y="114">2</text>
+      <text x="174" y="105">공유·역할</text>
+      <text class="sub" x="174" y="124">“누가 지휘하고 누가 만지나?”</text>
+    </g>
+    <line data-id="a2" class="line" x1="160" y1="136" x2="160" y2="148" marker-end="url(#irt-arr)" />
+    <g data-id="b3">
+      <rect class="box" x="34" y="150" width="252" height="46" rx="7" />
+      <circle class="badge" cx="54" cy="173" r="12" /><text class="on-badge" x="54" y="174">3</text>
+      <text x="174" y="165">영향 평가</text>
+      <text class="sub" x="174" y="184">“직전에 뭐가 바뀌었나?”</text>
+    </g>
+    <line data-id="a3" class="line" x1="160" y1="196" x2="160" y2="208" marker-end="url(#irt-arr)" />
+    <g data-id="b4">
+      <rect class="box" x="34" y="210" width="252" height="46" rx="7" />
+      <circle class="badge" cx="54" cy="233" r="12" /><text class="on-badge" x="54" y="234">4</text>
+      <text x="174" y="225">완화</text>
+      <text class="sub" x="174" y="244">“원인 몰라도 멈출 수단은?”</text>
+    </g>
+    <line data-id="a4" class="line" x1="160" y1="256" x2="160" y2="268" marker-end="url(#irt-arr)" />
+    <g data-id="b5">
+      <rect class="box" x="34" y="270" width="252" height="46" rx="7" />
+      <circle class="badge" cx="54" cy="293" r="12" /><text class="on-badge" x="54" y="294">5</text>
+      <text x="174" y="285">복구 확인</text>
+      <text class="sub" x="174" y="304">“정말 멈췄나? 숫자로 확인”</text>
+    </g>
+    <line data-id="a5" class="line" x1="160" y1="316" x2="160" y2="354" marker-end="url(#irt-arr)" />
+    <g data-id="b6">
+      <rect class="box" x="34" y="356" width="252" height="46" rx="7" />
+      <circle class="badge" cx="54" cy="379" r="12" /><text class="on-badge" x="54" y="380">6</text>
+      <text x="174" y="371">원인 분석</text>
+      <text class="sub" x="174" y="390">“왜 일어났고 왜 못 막았나?”</text>
+    </g>
+    <line data-id="a6" class="line" x1="160" y1="402" x2="160" y2="414" marker-end="url(#irt-arr)" />
+    <g data-id="b7">
+      <rect class="box" x="34" y="416" width="252" height="46" rx="7" />
+      <circle class="badge" cx="54" cy="439" r="12" /><text class="on-badge" x="54" y="440">7</text>
+      <text x="174" y="431">포스트모템</text>
+      <text class="sub" x="174" y="450">“구조를 어떻게 바꾸나?”</text>
+    </g>
+    <rect data-id="hl1" class="hl" x="30" y="26" width="260" height="54" rx="9" />
+    <rect data-id="hl2" class="hl" x="30" y="86" width="260" height="54" rx="9" />
+    <rect data-id="hl3" class="hl" x="30" y="146" width="260" height="54" rx="9" />
+    <rect data-id="hl4" class="hl" x="30" y="206" width="260" height="54" rx="9" />
+    <rect data-id="hl5" class="hl" x="30" y="266" width="260" height="54" rx="9" />
+    <rect data-id="hl6" class="hl" x="30" y="352" width="260" height="54" rx="9" />
+    <rect data-id="hl7" class="hl" x="30" y="412" width="260" height="54" rx="9" />
+  </svg>
+</Stepper>

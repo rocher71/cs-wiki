@@ -1,0 +1,83 @@
+---
+// 총 커넥션 = 파드 수 × 풀 크기 vs MySQL max_connections 151. 수치는 본문 표와 같음(풀 10 기본값, 해결 예시 30×4=120).
+import Stepper from '../Stepper.astro';
+const B = 300, K = 0.75;          // 바닥 y, 커넥션 1개당 px (0~320)
+const Y = (c: number) => B - c * K;
+const W = 48;
+const bars = [
+  { id: 'bar1', cx: 78, pods: 10, pool: 10 },
+  { id: 'bar2', cx: 146, pods: 15, pool: 10 },
+  { id: 'bar3', cx: 214, pods: 30, pool: 10 },
+  { id: 'bar4', cx: 282, pods: 30, pool: 4 },
+];
+const LIM = 151;
+const base = ['axis', 'lim'];
+const steps = [
+  { caption: '평소 파드 10개 × 풀 10 = 커넥션 100개예요. MySQL 기본 max_connections 151 아래라 여유가 있어요.', show: [...base, 'bar1', 'h1'] },
+  { caption: '트래픽이 몰려 파드가 15개가 되면 150개예요. 151에 거의 닿아서 관리 도구 하나만 붙어도 넘어요.', show: [...base, 'bar1', 'bar2', 'h2'] },
+  { caption: '파드 30개면 300개로 한도의 2배예요. 151을 넘는 149개 연결은 DB가 거절해서, 새로 뜬 파드는 DB에 붙지 못해요.', show: [...base, 'bar1', 'bar2', 'bar3', 'over', 'h3'] },
+  { caption: '연결을 못 얻은 요청은 풀에서 최대 30초(HikariCP 기본 connectionTimeout) 기다려요. 그동안 요청 스레드가 묶여서 DB와 상관없는 API까지 느려져요.', show: [...base, 'bar1', 'bar2', 'bar3', 'over', 'chain'] },
+  { caption: '해결: 풀 크기를 파드 수와 같이 다시 계산해 총합을 151 아래로 맞춰요(예: 30 × 4 = 120). 그리고 캐시·대기열로 DB까지 가는 요청 자체를 줄여요.', show: [...base, 'bar1', 'bar2', 'bar3', 'over', 'bar4', 'fix', 'h4'] },
+];
+---
+<Stepper title="파드 × 풀 크기 vs DB 최대 연결 수" steps={steps}>
+  <svg class="viz dcb" viewBox="0 0 320 404" role="img" aria-label="총 커넥션 막대: 파드 10×풀 10=100, 15×10=150, 30×10=300, 해결 예시 30×4=120. 가로선은 MySQL 기본 max_connections 151이다. 300 막대는 151을 넘는 149개가 거절되고, 연결 대기 최대 30초 동안 요청 스레드가 묶여 전체 API가 느려진다.">
+    <g data-id="axis">
+      <line class="line" x1="40" y1={B} x2="312" y2={B} />
+      <text class="sub" x="34" y={Y(0)} style="text-anchor:end">0</text>
+      <text class="sub" x="34" y={Y(300)} style="text-anchor:end">300</text>
+      <text class="sub l" x="8" y="14">총 커넥션 = 파드 수 × 풀 크기</text>
+    </g>
+
+    {bars.map((b) => {
+      const tot = b.pods * b.pool;
+      const ok = Math.min(tot, LIM);
+      return (
+        <g data-id={b.id}>
+          <rect class={b.id === 'bar4' ? 'fixbar' : 'okbar'} x={b.cx - W / 2} y={Y(ok)} width={W} height={ok * K} />
+          {tot > LIM && <rect data-id="over" class="err" x={b.cx - W / 2} y={Y(tot)} width={W} height={(tot - LIM) * K} />}
+          <text x={b.cx} y={Y(tot) - 12} style="font-weight:700">{tot}</text>
+          <text class="sub" x={b.cx} y={B + 16}>파드 {b.pods}</text>
+          <text class="sub" x={b.cx} y={B + 34}>× 풀 {b.pool}</text>
+        </g>
+      );
+    })}
+    <g data-id="over" class="hide">
+      <text class="err-t" x="214" y={Y(250)}>거절</text>
+      <text class="err-t" x="214" y={Y(250) + 20}>149개</text>
+    </g>
+
+    <g data-id="lim">
+      <line class="limit" x1="40" y1={Y(LIM)} x2="312" y2={Y(LIM)} />
+      <text class="hi l" x="8" y="40">┄ max_connections 151</text>
+    </g>
+
+    <!-- 아래 설명 줄: 4단계와 5단계가 같은 자리에 번갈아 -->
+    <g data-id="chain" class="hide">
+      <rect class="err" x="8" y="352" width="92" height="40" rx="8" />
+      <text x="54" y="372">대기 30초</text>
+      <path class="arr" d="M102 372h10m-5 -5l5 5l-5 5" />
+      <rect class="err" x="114" y="352" width="92" height="40" rx="8" />
+      <text x="160" y="372">스레드 묶임</text>
+      <path class="arr" d="M208 372h10m-5 -5l5 5l-5 5" />
+      <rect class="err" x="220" y="352" width="92" height="40" rx="8" />
+      <text x="266" y="372">API 지연</text>
+    </g>
+    <g data-id="fix" class="hide">
+      <rect class="chip" x="8" y="352" width="304" height="40" rx="8" />
+      <text x="160" y="372">+ 캐시·대기열로 DB 가는 요청 줄이기</text>
+    </g>
+
+    <rect data-id="h1" class="hl" x="50" y={Y(100) - 30} width="56" height={100 * K + 36} rx="6" />
+    <rect data-id="h2" class="hl" x="118" y={Y(150) - 30} width="56" height={150 * K + 36} rx="6" />
+    <rect data-id="h3" class="hl" x="186" y={Y(300) - 30} width="56" height={300 * K + 36} rx="6" />
+    <rect data-id="h4" class="hl" x="254" y={Y(120) - 30} width="56" height={120 * K + 36} rx="6" />
+  </svg>
+</Stepper>
+
+<style>
+  .dcb :global(.okbar) { fill: var(--sl-color-gray-5); stroke: var(--sl-color-gray-3); stroke-width: 1.2; }
+  .dcb :global(.fixbar) { fill: var(--sl-color-accent-low); stroke: var(--sl-color-accent); stroke-width: 1.4; }
+  .dcb :global(.limit) { stroke: var(--sl-color-accent-high); stroke-width: 2; stroke-dasharray: 6 4; }
+  .dcb :global(.arr) { fill: none; stroke: var(--sl-color-gray-2); stroke-width: 1.6; }
+</style>

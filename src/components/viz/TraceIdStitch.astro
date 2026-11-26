@@ -1,0 +1,70 @@
+---
+// 로그 검색으로 요청 하나 꿰기: 신고(orderId) → orderId 검색으로 traceId 확보 → traceId 검색으로 서비스별 로그가 시간순 한 줄
+// → 미니 트레이스에서 PG 구간만 3초 + ERROR. 같은 자리에 번갈아 나오는 검색창 내용·로그 목록은 class="hide".
+// traceId 4bf92f35…는 예시 값.
+import Stepper from '../Stepper.astro';
+const steps = [
+  { caption: '고객센터에 "주문 1234 결제가 실패했어요" 신고가 들어왔어요. 손에 쥔 단서는 주문번호 하나뿐이에요.', show: ['qbox', 'q1'] },
+  { caption: '로그 저장소에서 orderId=1234로 검색해요. 여러 서비스 로그가 섞인 가운데 그 줄을 찾고, 그 줄에 찍힌 traceId(4bf9…)를 손에 넣어요.', show: ['qbox', 'q2', 'mixed', 'hit'] },
+  { caption: '이번엔 traceId=4bf9…로 다시 검색해요. 주문·결제·PG 호출 로그가 서버가 달라도 시간순으로 한 줄로 모여요. 다른 요청 로그는 사라져요.', show: ['qbox', 'q3', 'stitched'] },
+  { caption: '같은 traceId로 트레이스를 열면 구간별 시간이 보여요. 결제 → PG 호출 구간만 3초를 쓰고 ERROR(타임아웃)예요. 원인 구간은 외부 PG 호출이에요.', show: ['qbox', 'q3', 'stitched', 'hlRows', 'wf'] },
+];
+---
+<Stepper title="traceId로 흩어진 로그 꿰기" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 362" role="img" aria-label="주문번호로 로그를 검색해 traceId를 얻고, 그 traceId로 다시 검색하면 주문, 결제, PG 호출 로그가 시간순으로 모이며, 트레이스에서 PG 호출 구간만 3초 걸리고 ERROR인 것을 보여주는 그림">
+    <g data-id="qbox">
+      <rect class="box" x="8" y="6" width="304" height="44" rx="7" />
+    </g>
+    <g data-id="q1" class="hide">
+      <text class="sub l" x="20" y="28">신고</text>
+      <text class="l" x="64" y="28" style="font-weight:700">주문 1234 결제 실패</text>
+    </g>
+    <g data-id="q2" class="hide">
+      <text class="sub l" x="20" y="28">검색</text>
+      <text class="mono l hi" x="64" y="28">orderId=1234</text>
+    </g>
+    <g data-id="q3" class="hide">
+      <text class="sub l" x="20" y="28">검색</text>
+      <text class="mono l hi" x="64" y="28">traceId=4bf92f35…</text>
+    </g>
+
+    <!-- 2단계: 여러 요청 로그가 섞인 저장소 -->
+    <g data-id="mixed" class="hide">
+      <text class="sub" x="160" y="68">로그 저장소 (모든 서버·모든 요청)</text>
+      <text class="mono l" x="14" y="92">10:02:00</text><text class="sub l" x="88" y="92">user</text><text class="l" x="150" y="92">로그인</text><text class="mono sub" x="306" y="92" style="text-anchor:end">77e2…</text>
+      <text class="mono l" x="14" y="122">10:02:01</text><text class="sub l" x="88" y="122">order</text><text class="mono l" x="150" y="122">orderId=1233</text><text class="mono sub" x="306" y="122" style="text-anchor:end">a1c0…</text>
+      <text class="mono l" x="14" y="182">10:02:02</text><text class="sub l" x="88" y="182">payment</text><text class="l" x="150" y="182">결제 요청</text><text class="mono sub" x="306" y="182" style="text-anchor:end">a1c0…</text>
+      <text class="mono l" x="14" y="212">10:02:02</text><text class="sub l" x="88" y="212">user</text><text class="l" x="150" y="212">조회</text><text class="mono sub" x="306" y="212" style="text-anchor:end">9d3e…</text>
+    </g>
+    <g data-id="hit" class="hide">
+      <rect class="chip" x="8" y="138" width="304" height="28" rx="5" />
+      <text class="mono l" x="14" y="152">10:02:01</text><text class="l" x="88" y="152">order</text><text class="mono l" x="150" y="152">orderId=1234</text><text class="mono hi" x="306" y="152" style="text-anchor:end">4bf9…</text>
+    </g>
+
+    <!-- 3단계: 같은 traceId만, 시간순 -->
+    <g data-id="stitched" class="hide">
+      <text class="sub" x="160" y="68">traceId 4bf9…만 · 시간순</text>
+      <text class="mono l" x="14" y="92">10:02:01</text><text class="sub l" x="88" y="92">order</text><text class="l" x="160" y="92">주문 생성</text>
+      <text class="mono l" x="14" y="122">10:02:01</text><text class="sub l" x="88" y="122">payment</text><text class="l" x="160" y="122">결제 요청</text>
+      <text class="mono l" x="14" y="152">10:02:01</text><text class="sub l" x="88" y="152">pg-client</text><text class="l" x="160" y="152">PG 호출</text>
+      <text class="mono l" x="14" y="182">10:02:04</text><text class="sub l" x="88" y="182">pg-client</text><text class="err-t l" x="160" y="182">ERROR 타임아웃</text>
+      <text class="mono l" x="14" y="212">10:02:04</text><text class="sub l" x="88" y="212">order</text><text class="err-t l" x="160" y="212">ERROR 결제 실패</text>
+    </g>
+    <rect data-id="hlRows" class="hl hide" x="4" y="136" width="312" height="60" rx="7" />
+
+    <!-- 4단계: 미니 트레이스 -->
+    <g data-id="wf" class="hide">
+      <text class="sub" x="160" y="244">트레이스 (같은 traceId)</text>
+      <text class="sub l" x="14" y="270">order</text>
+      <rect class="box" x="96" y="259" width="210" height="22" rx="4" />
+      <text x="201" y="270">3.04s</text>
+      <text class="sub l" x="14" y="300">payment</text>
+      <rect class="box" x="100" y="289" width="204" height="22" rx="4" />
+      <text x="202" y="300">3.03s</text>
+      <text class="sub l" x="14" y="330">PG 호출</text>
+      <rect class="err" x="104" y="319" width="200" height="22" rx="4" />
+      <text class="err-t" x="204" y="330">3.00s ERROR</text>
+      <text class="sub" x="160" y="354">나머지 구간은 합쳐도 0.04s</text>
+    </g>
+  </svg>
+</Stepper>

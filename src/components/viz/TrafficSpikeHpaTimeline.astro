@@ -1,0 +1,82 @@
+---
+// 급증 vs HPA 반응 시간: 요청은 t=0에 4→40(10배), HPA가 정한 파드 수는 15초마다 "현재의 100%(2배) 또는 +4개 중 큰 쪽"(4→8→16→32→40),
+// Ready 파드(처리 능력)는 그보다 준비 시간만큼 늦게 계단식으로 오른다. 시간 수치는 예시(준비 60초 가정).
+import Stepper from '../Stepper.astro';
+const X = (t: number) => 44 + (t + 20) * (260 / 180); // t: -20~160초
+const Y = (p: number) => 250 - p * (180 / 44);       // p: 파드 0~44
+const P = (a: [number, number][]) => a.map(([t, p]) => `${X(t).toFixed(1)},${Y(p).toFixed(1)}`).join(' ');
+const demand = P([[-20, 4], [0, 4], [0, 40], [160, 40]]);
+const want = P([[-20, 4], [30, 4], [30, 8], [45, 8], [45, 16], [60, 16], [60, 32], [75, 32], [75, 40], [160, 40]]);
+const cap0 = P([[-20, 4], [90, 4]]);
+const capUp = P([[90, 4], [90, 8], [105, 8], [105, 16], [120, 16], [120, 32], [135, 32], [135, 40], [160, 40]]);
+const lost = P([[0, 40], [135, 40], [135, 32], [120, 32], [120, 16], [105, 16], [105, 8], [90, 8], [90, 4], [0, 4]]);
+const ticks = [0, 30, 60, 90, 120, 150];
+const base = ['demand', 'cap0'];
+const steps = [
+  { caption: 't=0에 요청이 평소의 10배로 수직으로 뛰어요. 파드는 그대로 4개라 CPU가 100%에 붙고 응답이 느려져요.', show: [...base, 't1'] },
+  { caption: 'Metrics Server는 15초마다 수집해요. 그래서 HPA가 보는 숫자는 최대 15초 전 값이고, 이 동안 파드 수는 그대로예요.', show: [...base, 'b2', 't2'] },
+  { caption: 'HPA는 15초마다 판단해요. 한 번에 늘리는 폭은 "현재의 100%"와 "4개" 중 큰 쪽까지라 4→8→16→32→40처럼 나눠서 올라가요(점선).', show: [...base, 'want', 't3'] },
+  { caption: '하지만 점선은 "띄우라고 정한 수"일 뿐이에요. 새 파드는 스케줄링·이미지 받기·JVM/Spring 기동·readiness 통과를 거쳐야 트래픽을 받아서, 처리 능력(실선)은 한참 뒤에 계단식으로 올라요(준비 60초는 예시).', show: [...base, 'want', 'capUp', 'prep', 't4'] },
+  { caption: '막 뜬 파드는 JIT·캐시·커넥션 풀이 비어 있어 처음엔 느려요. 그 사이 버티던 기존 파드는 타임아웃이 쌓이고, liveness 실패로 재시작될 위험도 있어요.', show: [...base, 'want', 'capUp', 'b5', 't5'] },
+  { caption: '요청선과 처리 능력선 사이의 빨간 면적이 실패하거나 한참 기다린 요청이에요. 그래서 예정된 이벤트는 미리 늘려 두고(사전 스케일아웃), 갑작스러운 급증은 입장 제한·기능 끄기로 버텨요.', show: [...base, 'want', 'capUp', 'lost', 't6', 'fix'] },
+];
+---
+<Stepper title="급증에 HPA가 늦는 시간 (수치는 예시)" steps={steps}>
+  <svg class="viz tsh" viewBox="0 0 320 362" role="img" aria-label="t=0에 요청이 4에서 40으로 10배 뛴다. 메트릭 수집 최대 15초, HPA가 15초마다 현재의 100% 또는 4개 중 큰 쪽만큼 늘려 정한 파드 수(점선)가 4, 8, 16, 32, 40으로 오르고, 실제 처리 능력(Ready 파드, 실선)은 준비 시간 뒤 90초부터 135초까지 계단식으로 늦게 오른다. 두 선 사이 면적이 실패한 요청이다. 시간 수치는 예시다.">
+    <!-- 범례 -->
+    <line class="dem" x1="10" y1="14" x2="30" y2="14" />
+    <text class="l" x="36" y="14">들어온 요청</text>
+    <line class="cap" x1="150" y1="14" x2="170" y2="14" />
+    <text class="l" x="176" y="14">처리 능력(Ready)</text>
+    <line class="want" x1="10" y1="36" x2="30" y2="36" />
+    <text class="l" x="36" y="36">HPA가 정한 파드 수</text>
+
+    <!-- 축 -->
+    <line class="line" x1="44" y1={Y(0)} x2="304" y2={Y(0)} />
+    <line class="line" x1="44" y1={Y(0)} x2="44" y2={Y(44)} />
+    <text class="sub" x="38" y={Y(40)} style="text-anchor:end">40</text>
+    <text class="sub" x="38" y={Y(4)} style="text-anchor:end">4</text>
+    {ticks.map((t) => <text class="sub" x={X(t)} y="266">{t}</text>)}
+    <text class="sub l" x="44" y="288">시간(초) · 세로는 파드 수 · 예시</text>
+
+    <!-- 구간 띠 -->
+    <rect data-id="b2" class="band hide" x={X(0)} y={Y(44)} width={X(15) - X(0)} height={Y(0) - Y(44)} />
+    <rect data-id="b5" class="band hide" x={X(90)} y={Y(44)} width={X(150) - X(90)} height={Y(0) - Y(44)} />
+    <polygon data-id="lost" class="lost hide" points={lost} />
+
+    <polyline data-id="demand" class="dem" points={demand} />
+    <polyline data-id="want" class="want" points={want} />
+    <polyline data-id="cap0" class="cap" points={cap0} />
+    <polyline data-id="capUp" class="cap" points={capUp} />
+
+    <!-- 준비 시간 화살표: 정한 32개(60초) → Ready 32개(120초) -->
+    <g data-id="prep" class="hide">
+      <line class="arr" x1={X(62)} y1={Y(24)} x2={X(118)} y2={Y(24)} />
+      <path class="arr" d={`M${X(118) - 6} ${Y(24) - 5}L${X(118)} ${Y(24)}L${X(118) - 6} ${Y(24) + 5}`} />
+      <text class="hi" x={X(90)} y={Y(24) - 14}>준비 약 60초</text>
+    </g>
+
+    <!-- 단계별 태그(같은 줄, 번갈아 표시) -->
+    <text data-id="t1" class="hi l hide" x={X(3)} y="66">요청 10배 · CPU 100%</text>
+    <text data-id="t2" class="hi l hide" x={X(3)} y="66">수집 최대 15초</text>
+    <text data-id="t3" class="hi l hide" x={X(3)} y="66">15초마다 · 2배 또는 +4개</text>
+    <text data-id="t4" class="hi l hide" x={X(3)} y="66">정한 수 ≠ 일하는 수</text>
+    <text data-id="t5" class="hi hide" x={X(120)} y="66">콜드: 처음엔 느림</text>
+    <text data-id="t6" class="err-t l hide" x={X(3)} y={Y(36)}>실패한 요청</text>
+
+    <g data-id="fix" class="hide">
+      <rect class="chip" x="8" y="304" width="304" height="54" rx="8" />
+      <text x="160" y="322">대비: 사전 스케일아웃(미리 늘리기)</text>
+      <text x="160" y="342">+ 입장 제한 + 부가 기능 끄기</text>
+    </g>
+  </svg>
+</Stepper>
+
+<style>
+  .tsh :global(.dem) { fill: none; stroke: var(--sl-color-white); stroke-width: 2.6; stroke-linejoin: round; }
+  .tsh :global(.cap) { fill: none; stroke: var(--sl-color-accent); stroke-width: 3; stroke-linejoin: round; }
+  .tsh :global(.want) { fill: none; stroke: var(--sl-color-accent-high); stroke-width: 1.6; stroke-dasharray: 4 4; }
+  .tsh :global(.band) { fill: var(--sl-color-accent-low); opacity: .7; }
+  .tsh :global(.lost) { fill: var(--sl-color-red-low); stroke: var(--sl-color-red); stroke-width: 1; }
+  .tsh :global(.arr) { fill: none; stroke: var(--sl-color-accent-high); stroke-width: 1.8; }
+</style>

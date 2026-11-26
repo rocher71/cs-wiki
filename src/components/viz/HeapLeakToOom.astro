@@ -1,0 +1,85 @@
+---
+// 힙 사용량 그래프: 위 = 정상(톱니, 바닥선 일정), 아래 = 누수(바닥선 계단 → To-space exhausted → Full GC 반복 → OOM).
+// 아래 패널 수치는 실험(-Xmx32m) 로그와 맞춤: Young GC 14M->14M, 20M->20M, Full GC 30M->29M.
+import Stepper from '../Stepper.astro';
+const X0 = 44, X1 = 310;
+const yN = (mb: number) => 104 - mb * (70 / 32); // 정상 패널: 0~32M → y 104~34
+const yL = (mb: number) => 340 - mb * (180 / 32); // 누수 패널: 0~32M → y 340~160
+const pts = (a: [number, number][], y: (mb: number) => number) => a.map(([x, mb]) => `${x},${y(mb).toFixed(1)}`).join(' ');
+// 정상: 6M↔16M 톱니
+const norm: [number, number][] = [[X0, 6]];
+for (let x = X0; x + 38 <= X1; x += 38) norm.push([x + 34, 16], [x + 34, 6], [x + 38, 6]);
+// 누수 A: 초반 톱니(조금 회수) → 14M->14M, 20M->20M(회수 0, 평평)
+const leakA: [number, number][] = [[X0, 1], [70, 9], [70, 4], [100, 12], [100, 8], [130, 14], [138, 14], [168, 20], [176, 20]];
+const floor: [number, number][] = [[70, 4], [100, 8], [138, 14], [176, 20]];
+const leakB: [number, number][] = [[176, 20], [214, 30]];
+// Full GC 반복: 30M ↔ 29M
+const fgc: [number, number][] = [[214, 30]];
+for (let x = 214; x + 6 <= 286; x += 6) fgc.push([x + 3, 29], [x + 6, 30]);
+const steps = [
+  { caption: '정상: 요청을 처리하면 힙이 오르고, GC가 돌면 뚝 떨어져요. GC 직후 남는 양(바닥선)이 거의 일정해서 톱니 모양이에요.', show: ['norm', 'hl1'] },
+  { caption: '누수: GC 후 바닥선이 계단처럼 올라가요. 실험에선 Young GC 전후가 14M→14M, 20M→20M으로 같았어요. 전부 살아 있어서 하나도 못 버린 거예요.', show: ['norm', 'leakA', 'floor', 'lab14', 'lab20', 'hl2'] },
+  { caption: '32MB 힙이 거의 차서 살아남은 객체를 옮길 빈칸이 없어요. GC 로그에 To-space exhausted가 찍혀요.', show: ['norm', 'leakA', 'floor', 'lab14', 'lab20', 'leakB', 'tsLab', 'hl3'] },
+  { caption: 'GC 폭주: Full GC가 연달아 도는데 30M→29M처럼 거의 못 비워요. 운영 힙(수 GB)에선 이 동안 앱이 자주 멈춰서 응답이 느려지고 CPU는 GC가 다 써요.', show: ['norm', 'leakA', 'floor', 'leakB', 'tsLab', 'fgc', 'band', 'hl4'] },
+  { caption: '결국 새 객체를 넣을 자리가 없어 OutOfMemoryError: Java heap space가 나요. HeapDumpOnOutOfMemoryError 옵션을 켰다면 이 순간 힙 덤프(힙 크기만 한 파일)가 저장돼요.', show: ['norm', 'leakA', 'floor', 'leakB', 'fgc', 'band', 'oom', 'hl5'] },
+];
+---
+<Stepper title="힙 그래프: 톱니(정상) vs 계단(누수) → OOM" steps={steps}>
+  <svg class="viz hlo" viewBox="0 0 320 412" role="img" aria-label="위는 정상 힙 그래프로 GC 후 바닥선이 일정한 톱니 모양이다. 아래는 누수로, GC 후 바닥선이 14M, 20M으로 계단처럼 오르다 To-space exhausted, Full GC 반복(30M에서 29M), 마지막에 OutOfMemoryError가 난다.">
+    <!-- 정상 패널 -->
+    <text class="l" x="10" y="14" style="font-weight:700">정상: 톱니</text>
+    <text class="sub" x="310" y="14" style="text-anchor:end">GC 후 바닥선 일정</text>
+    <line class="line ceil" x1={X0} y1={yN(32)} x2={X1} y2={yN(32)} />
+    <line class="line" x1={X0} y1={yN(0)} x2={X1} y2={yN(0)} />
+    <text class="sub" x="38" y={yN(32)} style="text-anchor:end">32M</text>
+    <text class="sub" x="38" y={yN(0)} style="text-anchor:end">0</text>
+    <polyline data-id="norm" class="use" points={pts(norm, yN)} />
+
+    <!-- 누수 패널 -->
+    <text class="l" x="10" y="136" style="font-weight:700">누수: 계단</text>
+    <line class="line ceil" x1={X0} y1={yL(32)} x2={X1} y2={yL(32)} />
+    <line class="line" x1={X0} y1={yL(0)} x2={X1} y2={yL(0)} />
+    <text class="sub" x="38" y={yL(32)} style="text-anchor:end">32M</text>
+    <text class="sub" x="38" y={yL(0)} style="text-anchor:end">0</text>
+    <text class="sub l" x={X0} y="356">시간 →</text>
+
+    <g data-id="band" class="hide">
+      <rect class="burst" x="206" y={yL(32)} width="84" height={yL(0) - yL(32)} />
+      <text class="sub" x="248" y="200">Full GC 반복</text>
+      <text class="mono" x="248" y="220">30M→29M</text>
+      <text class="err-t" x="248" y="292">GC 폭주</text>
+      <text class="sub" x="248" y="312">지연·CPU↑</text>
+    </g>
+    <g data-id="floor">
+      <polyline class="floor" points={pts(floor, yL)} />
+      <text class="sub l" x="108" y="326">GC 후 바닥선</text>
+    </g>
+    <polyline data-id="leakA" class="use" points={pts(leakA, yL)} />
+    <polyline data-id="leakB" class="use" points={pts(leakB, yL)} />
+    <polyline data-id="fgc" class="use" points={pts(fgc, yL)} />
+    <text data-id="lab14" class="mono hide" x="128" y="246" style="text-anchor:end">14M→14M</text>
+    <text data-id="lab20" class="mono hide" x="162" y="210" style="text-anchor:end">20M→20M</text>
+    <text data-id="tsLab" class="hi hide" x="200" y="148" style="text-anchor:end;font-size:14px">To-space exhausted</text>
+
+    <g data-id="oom" class="hide">
+      <path class="x" d={`M286 ${yL(29.5) - 7}l12 14m0 -14l-12 14`} />
+      <line class="line" x1="292" y1={yL(29.5) + 10} x2="292" y2="364" style="stroke-dasharray:3 3" />
+      <text class="mono err-t" x="160" y="378">OutOfMemoryError: Java heap space</text>
+      <text class="sub" x="160" y="400">옵션을 켰다면 → 힙 덤프 저장</text>
+    </g>
+
+    <rect data-id="hl1" class="hl" x="4" y="2" width="312" height="110" rx="8" />
+    <rect data-id="hl2" class="hl" x="50" y="194" width="136" height="150" rx="8" />
+    <rect data-id="hl3" class="hl" x="54" y="134" width="166" height="98" rx="8" />
+    <rect data-id="hl4" class="hl" x="202" y="154" width="92" height="190" rx="8" />
+    <rect data-id="hl5" class="hl" x="8" y="364" width="304" height="46" rx="8" />
+  </svg>
+</Stepper>
+
+<style>
+  .hlo :global(.use) { fill: none; stroke: var(--sl-color-accent); stroke-width: 2.2; stroke-linejoin: round; }
+  .hlo :global(.floor) { fill: none; stroke: var(--sl-color-red); stroke-width: 1.6; stroke-dasharray: 5 4; }
+  .hlo :global(.ceil) { stroke-dasharray: 3 4; stroke-width: 1; }
+  .hlo :global(.burst) { fill: var(--sl-color-red-low); opacity: .6; }
+  .hlo :global(.x) { fill: none; stroke: var(--sl-color-red); stroke-width: 3; }
+</style>

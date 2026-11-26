@@ -1,0 +1,91 @@
+---
+// 스레드 덤프에서 교착상태 읽기: 본문 실험 발췌(order-worker / payment-worker, 주소 끝 4자리만)를 위에,
+// 그 줄들이 뜻하는 "쥠(실선) / 기다림(점선)" 원을 아래에 그린다. 마지막에 Found one Java-level deadlock + cpu 0 근처.
+import Stepper from '../Stepper.astro';
+const cards = ['cA', 'cB'];
+const steps = [
+  { caption: 'order-worker 덤프의 "- locked <…afa0>" 줄: 이 스레드가 락 1(…afa0)을 쥐고 있다는 뜻이에요(실선).', show: [...cards, 'cAl', 'tA', 'k1', 'holdA', 'hlA'] },
+  { caption: 'payment-worker 덤프의 "- locked <…afb0>" 줄: 이 스레드는 락 2(…afb0)를 쥐고 있어요(실선).', show: [...cards, 'cAl', 'cBl', 'tA', 'k1', 'holdA', 'tB', 'k2', 'holdB', 'hlB'] },
+  { caption: 'order-worker는 "waiting to lock <…afb0>"이에요. 락 2를 기다리느라 상태가 BLOCKED(synchronized 입구에서 대기)예요(점선).', show: [...cards, 'cAl', 'cBl', 'cAs', 'cAw', 'tA', 'k1', 'holdA', 'tB', 'k2', 'holdB', 'waitA', 'hlA'] },
+  { caption: 'payment-worker는 "waiting to lock <…afa0>", 락 1을 기다려요. 두 스레드가 서로 상대가 쥔 락을 기다리는 원이 완성돼요. 둘 다 BLOCKED예요.', show: [...cards, 'cAl', 'cBl', 'cAs', 'cAw', 'cBs', 'cBw', 'tA', 'k1', 'holdA', 'tB', 'k2', 'holdB', 'waitA', 'waitB', 'hlB'] },
+  { caption: '덤프 맨 아래에 JVM이 "Found one Java-level deadlock"을 붙여 줘요. cpu=는 둘 다 0.2ms 미만: 멈췄는데 CPU는 한가한 모양이 교착상태예요.', show: [...cards, 'cAl', 'cBl', 'cAs', 'cAw', 'cBs', 'cBw', 'tA', 'k1', 'holdA', 'tB', 'k2', 'holdB', 'waitA', 'waitB', 'found', 'cpu', 'cpuA', 'cpuB', 'hlF'] },
+];
+---
+<Stepper title="스레드 덤프에서 BLOCKED 읽기" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 446" role="img" aria-label="order-worker는 락 1을 쥐고 락 2를 기다리고, payment-worker는 락 2를 쥐고 락 1을 기다려 둘 다 BLOCKED인 덤프 발췌와, 그 관계를 쥠은 실선 기다림은 점선으로 그린 원형 대기, 덤프 끝의 Found one Java-level deadlock과 거의 0인 CPU 사용량을 보여주는 그림">
+    <defs>
+      <marker id="ddp-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+
+    <!-- 덤프 발췌 카드 -->
+    <g data-id="cA">
+      <rect class="box" x="8" y="6" width="304" height="96" rx="7" />
+      <text class="mono l" x="18" y="24" style="font-weight:700">"order-worker"</text>
+      <text class="mono sub" x="302" y="24" style="text-anchor:end">cpu=0.17ms</text>
+    </g>
+    <text data-id="cAs" class="mono l" x="18" y="46">State: <tspan class="hi">BLOCKED</tspan></text>
+    <text data-id="cAw" class="mono l" x="18" y="68">- waiting to lock &lt;…afb0&gt;</text>
+    <text data-id="cAl" class="mono l" x="18" y="90">- locked &lt;…afa0&gt;</text>
+
+    <g data-id="cB">
+      <rect class="box" x="8" y="110" width="304" height="96" rx="7" />
+      <text class="mono l" x="18" y="128" style="font-weight:700">"payment-worker"</text>
+      <text class="mono sub" x="302" y="128" style="text-anchor:end">cpu=0.12ms</text>
+    </g>
+    <text data-id="cBs" class="mono l" x="18" y="150">State: <tspan class="hi">BLOCKED</tspan></text>
+    <text data-id="cBw" class="mono l" x="18" y="172">- waiting to lock &lt;…afa0&gt;</text>
+    <text data-id="cBl" class="mono l" x="18" y="194">- locked &lt;…afb0&gt;</text>
+
+    <!-- 관계도: 위 order-worker → 락 2, 아래 payment-worker → 락 1 -->
+    <g data-id="tA">
+      <rect class="box" x="8" y="222" width="118" height="38" rx="6" />
+      <text x="67" y="241">order-worker</text>
+    </g>
+    <g data-id="k2">
+      <rect class="chip" x="202" y="222" width="110" height="38" rx="6" />
+      <text x="257" y="241">락 2 <tspan class="mono">…afb0</tspan></text>
+    </g>
+    <g data-id="k1">
+      <rect class="chip" x="8" y="304" width="118" height="38" rx="6" />
+      <text x="67" y="323">락 1 <tspan class="mono">…afa0</tspan></text>
+    </g>
+    <g data-id="tB">
+      <rect class="box" x="194" y="304" width="118" height="38" rx="6" />
+      <text x="253" y="323">payment-worker</text>
+    </g>
+    <g data-id="holdA">
+      <path class="line" d="M67 302 V262" marker-end="url(#ddp-arr)" />
+      <text class="sub l" x="74" y="282">쥠</text>
+    </g>
+    <g data-id="holdB">
+      <path class="line" d="M253 302 V262" marker-end="url(#ddp-arr)" />
+      <text class="sub" x="236" y="282">쥠</text>
+    </g>
+    <g data-id="waitA">
+      <path class="line" d="M128 241 H198" stroke-dasharray="5 4" marker-end="url(#ddp-arr)" />
+      <text class="sub" x="164" y="228">기다림</text>
+    </g>
+    <g data-id="waitB">
+      <path class="line" d="M192 323 H130" stroke-dasharray="5 4" marker-end="url(#ddp-arr)" />
+      <text class="sub" x="161" y="337">기다림</text>
+    </g>
+
+    <!-- 덤프 끝 -->
+    <g data-id="found">
+      <rect class="err" x="8" y="356" width="304" height="34" rx="6" />
+      <text class="mono err-t" x="160" y="373">Found one Java-level deadlock</text>
+    </g>
+    <text data-id="cpu" class="sub l" x="14" y="410">CPU</text>
+    <g data-id="cpuA">
+      <rect class="frame" x="56" y="402" width="250" height="14" rx="3" />
+      <rect class="badge" x="56" y="402" width="3" height="14" />
+    </g>
+    <text data-id="cpuB" class="sub" x="160" y="434">거의 0 → 멈췄는데 한가함</text>
+
+    <rect data-id="hlA" class="hl hide" x="4" y="2" width="312" height="104" rx="9" />
+    <rect data-id="hlB" class="hl hide" x="4" y="106" width="312" height="104" rx="9" />
+    <rect data-id="hlF" class="hl hide" x="4" y="352" width="312" height="90" rx="9" />
+  </svg>
+</Stepper>

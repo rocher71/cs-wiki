@@ -1,0 +1,50 @@
+---
+// 안전한 백필 루프: 진행 위치 → 키셋 범위 → UPDATE → 위치 저장+COMMIT → 지연 확인 → 쉼 → 반복, 끝나면 검증.
+import Stepper from '../Stepper.astro';
+const BX = 46, BW = 266, BH = 48;
+const Y = (i: number) => 8 + i * 64;
+const boxes = [
+  { t: '1. 진행 위치 읽기', d: 'last_id (처음이면 0)', mono: false },
+  { t: '2. 다음 범위 (키셋)', d: 'id > last AND id <= last+N', mono: true },
+  { t: '3. UPDATE 실행', d: '대상만: new IS NULL', mono: false },
+  { t: '4. 위치 저장 + COMMIT', d: '같은 트랜잭션으로 함께', mono: false },
+  { t: '5. 레플리카 지연·지표 확인', d: '기준 넘으면 따라잡을 때까지 대기', mono: false },
+  { t: '6. 잠깐 쉬기', d: '서비스에 락·CPU 양보 → 1로', mono: false },
+  { t: '7. 다 돌면 검증 → 읽기 전환', d: '행 수 · 범위 체크섬 · 샘플', mono: false },
+];
+const upto = (n: number) => Array.from({ length: n }, (_, k) => `b${k + 1}`);
+const steps = [
+  { caption: '먼저 진행 위치 테이블에서 마지막으로 처리한 id(last_id)를 읽어요. 처음이면 0, 중간에 죽었다면 멈춘 그 자리예요.', show: [...upto(1), 'h1'] },
+  { caption: '키셋으로 다음 범위를 정해요: id > last AND id <= last+N. OFFSET과 달리 몇 번째 청크든 비용이 같고, PK 범위라 잠그는 범위도 그 청크로 좁아요.', show: [...upto(2), 'h2'] },
+  { caption: '그 범위에서 아직 안 바뀐 행(new IS NULL)만 UPDATE해요. 같은 청크를 두 번 돌려도 결과가 같아요(멱등).', show: [...upto(3), 'h3'] },
+  { caption: 'UPDATE와 진행 위치 저장을 같은 트랜잭션으로 COMMIT해요. 위치만 먼저 저장되고 청크가 실패해서 영영 건너뛰는 일을 막아요.', show: [...upto(4), 'h4'] },
+  { caption: '레플리카 지연(Seconds_Behind_Source)·p99·락 대기를 확인해요. 기준(예: 1초)을 넘으면 따라잡을 때까지 멈춰요.', show: [...upto(5), 'h5'] },
+  { caption: '잠깐 쉬어서 서비스 트랜잭션에 락·CPU·I/O를 넘겨주고 1번으로 돌아가요. 이 고리를 범위 끝까지 반복해요.', show: [...upto(6), 'loop', 'h6'] },
+  { caption: '범위를 다 돌면 검증해요: 행 수, 범위별 체크섬, 샘플 비교. 다 맞을 때만 읽기를 새 쪽으로 전환해요.', show: [...upto(7), 'loop', 'done', 'h7'] },
+];
+---
+<Stepper title="다시 돌려도 안전한 백필 루프" steps={steps}>
+  <svg class="viz sbl" viewBox="0 0 320 456" role="img" aria-label="백필 루프: 1 진행 위치 읽기, 2 키셋으로 다음 범위, 3 대상 행만 UPDATE, 4 진행 위치 저장과 COMMIT을 같은 트랜잭션으로, 5 레플리카 지연 확인 후 기준 초과면 대기, 6 잠깐 쉬고 1로 반복. 끝나면 7 행 수·범위 체크섬·샘플로 검증 후 읽기 전환.">
+    {boxes.map((b, i) => (
+      <g data-id={`b${i + 1}`}>
+        {i > 0 && i < 6 && <path class="arr" d={`M179 ${Y(i) - 16}v13m-5 -5l5 5l5 -5`} />}
+        <rect class={i === 6 ? 'chip' : 'box'} x={BX} y={Y(i)} width={BW} height={BH} rx="8" />
+        <text class="l" x={BX + 10} y={Y(i) + 15} style="font-weight:700">{b.t}</text>
+        <text class={b.mono ? 'mono l' : 'sub l'} x={BX + 10} y={Y(i) + 35}>{b.d}</text>
+      </g>
+    ))}
+    <g data-id="loop" class="hide">
+      <path class="arr" d={`M${BX} ${Y(5) + 24}H30V${Y(0) + 24}H${BX - 2}m-5 -5l5 5l-5 5`} />
+      <text class="hi" x="16" y={(Y(0) + Y(5)) / 2 + 24} transform={`rotate(-90 16 ${(Y(0) + Y(5)) / 2 + 24})`}>반복</text>
+    </g>
+    <g data-id="done" class="hide">
+      <path class="arr" d={`M179 ${Y(6) - 16}v13m-5 -5l5 5l5 -5`} />
+      <text class="sub l" x="190" y={Y(6) - 9}>범위 끝</text>
+    </g>
+    {boxes.map((_, i) => <rect data-id={`h${i + 1}`} class="hl" x={BX - 4} y={Y(i) - 4} width={BW + 8} height={BH + 8} rx="10" />)}
+  </svg>
+</Stepper>
+
+<style>
+  .sbl :global(.arr) { fill: none; stroke: var(--sl-color-gray-2); stroke-width: 1.6; }
+</style>

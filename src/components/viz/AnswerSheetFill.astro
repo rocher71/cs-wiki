@@ -1,0 +1,93 @@
+---
+// 서술형 6단 답안지가 외부 API 장애 예시로 한 칸씩 채워지는 그림. 내용(cN)은 .hide라 빈 칸에선 안 보인다.
+import Stepper from '../Stepper.astro';
+const all = ['c1', 'c2', 'c3', 'c4', 'c5', 'c6'];
+const upto = (n: number) => all.slice(0, n);
+const steps = [
+  { caption: '빈 답안지예요. 문제는 "추천 API가 10초 넘게 걸리더니 주문 API까지 멈췄다"예요. 6칸을 위에서부터 채워 볼게요.', show: [] },
+  { caption: '1칸 상황 정리: 추천을 안 쓰는 주문까지 죽었으니, 둘이 같이 쓰는 자원(스레드 풀, DB 커넥션 풀)이 바닥난 연쇄 장애로 봐요.', show: [...upto(1), 'hl1'] },
+  { caption: '2칸 원인 후보: 하나만 찍지 않고 여러 개를 번호 붙여 적어요. 타임아웃 없음, 트랜잭션 안 외부 호출, 스레드 풀 칸막이 없음.', show: [...upto(2), 'hl2'] },
+  { caption: '3칸 확인 방법: 후보마다 "무엇을 보면 맞는지"를 지표 이름으로 적어요. 바쁜 스레드 수, 스레드 덤프, 커넥션 대기 수.', show: [...upto(3), 'hl3'] },
+  { caption: '4칸 즉시 완화: 기능 플래그로 추천 영역을 꺼서 주문부터 살려요. 답안에선 4번째지만 현장에선 3칸 확인보다 먼저 해요(왼쪽 화살표).', show: [...upto(4), 'hl4'] },
+  { caption: '5칸 근본 해결: 해결책마다 단점을 한 줄씩 붙이고, 그중 무엇을 왜 고르는지 체크해요. 추천은 폴백으로 대체해도 손해가 작아요.', show: [...upto(5), 'hl5'] },
+  { caption: '6칸 재발 방지: 다음엔 더 빨리 알아채고(알림), 미리 터뜨려 보는(장애 주입 테스트) 장치를 적어요.', show: [...upto(6), 'hl6'] },
+  { caption: '완성된 답안지예요. 원인을 100% 몰라도 6칸이 다 차 있으면 생각 순서가 보이는 좋은 답이 돼요.', show: all },
+];
+---
+<Stepper title="6단 답안지 채우기: 외부 API 장애" steps={steps}>
+  <svg class="viz asf" viewBox="0 0 320 556" role="img" aria-label="문제 카드 아래에 상황 정리, 원인 후보, 확인 방법, 즉시 완화, 근본 해결, 재발 방지 6칸이 세로로 쌓인 답안지. 단계마다 한 칸씩 채워진다.">
+    <defs>
+      <marker id="asf-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+    </defs>
+    <rect class="chip" x="22" y="2" width="292" height="46" rx="7" />
+    <text x="168" y="16">문제: 추천 API가 10초 넘게 걸림</text>
+    <text x="168" y="35">→ 추천 안 쓰는 주문 API까지 멈춤</text>
+
+    <rect class="box" x="22" y="54" width="292" height="66" rx="7" />
+    <circle class="badge" cx="38" cy="66" r="10" /><text class="on-badge" x="38" y="67">1</text>
+    <text class="l t" x="54" y="67">상황 정리</text>
+    <g data-id="c1" class="hide">
+      <text class="l" x="34" y="87">주문은 추천을 안 쓰는데 같이 멈춤</text>
+      <text class="l hi" x="34" y="105">→ 공용 자원 고갈 의심</text>
+    </g>
+
+    <rect class="box" x="22" y="126" width="292" height="84" rx="7" />
+    <circle class="badge" cx="38" cy="138" r="10" /><text class="on-badge" x="38" y="139">2</text>
+    <text class="l t" x="54" y="139">원인 후보</text>
+    <g data-id="c2" class="hide">
+      <text class="l" x="34" y="159">① 추천 호출에 타임아웃 없음</text>
+      <text class="l" x="34" y="177">② 트랜잭션 안 호출 → 커넥션 묶임</text>
+      <text class="l" x="34" y="195">③ 스레드 풀 칸막이 없음</text>
+    </g>
+
+    <rect class="box" x="22" y="216" width="292" height="84" rx="7" />
+    <circle class="badge" cx="38" cy="228" r="10" /><text class="on-badge" x="38" y="229">3</text>
+    <text class="l t" x="54" y="229">확인 방법</text>
+    <g data-id="c3" class="hide">
+      <text class="l mono" x="34" y="249">tomcat.threads.busy 최대치?</text>
+      <text class="l" x="34" y="267">스레드 덤프: 소켓 읽기에 몰림?</text>
+      <text class="l mono" x="34" y="285">hikaricp pending 쌓임?</text>
+    </g>
+
+    <rect class="box" x="22" y="306" width="292" height="66" rx="7" />
+    <circle class="badge" cx="38" cy="318" r="10" /><text class="on-badge" x="38" y="319">4</text>
+    <text class="l t" x="54" y="319">즉시 완화</text>
+    <g data-id="c4" class="hide">
+      <text class="l" x="34" y="339">기능 플래그로 추천 영역 OFF</text>
+      <text class="l hi" x="34" y="357">↑ 원인 확인(3)보다 먼저 한다</text>
+      <path class="go" d="M22 339 H10 V228 H19" marker-end="url(#asf-arr)" />
+    </g>
+
+    <rect class="box" x="22" y="378" width="292" height="102" rx="7" />
+    <circle class="badge" cx="38" cy="390" r="10" /><text class="on-badge" x="38" y="391">5</text>
+    <text class="l t" x="54" y="391">근본 해결 + 트레이드오프</text>
+    <g data-id="c5" class="hide">
+      <text class="l" x="34" y="411">타임아웃: 짧은 대기가 반복될 수 있음</text>
+      <text class="l" x="34" y="429">서킷+폴백: 실패율 기준 튜닝 필요</text>
+      <text class="l" x="34" y="447">벌크헤드: 상한 넘치면 바로 폴백</text>
+      <text class="l hi" x="34" y="465">✓ 선택: 타임아웃 + 서킷·벌크헤드</text>
+    </g>
+
+    <rect class="box" x="22" y="486" width="292" height="66" rx="7" />
+    <circle class="badge" cx="38" cy="498" r="10" /><text class="on-badge" x="38" y="499">6</text>
+    <text class="l t" x="54" y="499">재발 방지</text>
+    <g data-id="c6" class="hide">
+      <text class="l" x="34" y="519">외부 API별 지연·에러율 알림</text>
+      <text class="l" x="34" y="537">장애 주입 테스트(추천 일부러 늦춤)</text>
+    </g>
+
+    <rect data-id="hl1" class="hl" x="19" y="51" width="298" height="72" rx="9" />
+    <rect data-id="hl2" class="hl" x="19" y="123" width="298" height="90" rx="9" />
+    <rect data-id="hl3" class="hl" x="19" y="213" width="298" height="90" rx="9" />
+    <rect data-id="hl4" class="hl" x="19" y="303" width="298" height="72" rx="9" />
+    <rect data-id="hl5" class="hl" x="19" y="375" width="298" height="108" rx="9" />
+    <rect data-id="hl6" class="hl" x="19" y="483" width="298" height="72" rx="9" />
+  </svg>
+</Stepper>
+
+<style>
+  .asf :global(text.t) { font-weight: 700; }
+  .asf :global(.go) { fill: none; stroke: var(--sl-color-accent); stroke-width: 2; }
+</style>

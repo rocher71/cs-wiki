@@ -1,0 +1,80 @@
+---
+// 잔액 1,000에 10원 차감 2건. 앞 4단계는 읽고 계산해 덮어쓰기(갱신 손실, 최종 990), 뒤 3단계는 조건부 UPDATE(최종 980).
+// 두 방식이 같은 자리에 번갈아 나오므로 모든 data-id 요소는 class="hide".
+import Stepper from '../Stepper.astro';
+
+const steps = [
+  { caption: '잔액은 1,000원이에요. 요청 A가 먼저 SELECT로 1,000을 읽어요. 락은 없어요.', show: ['m1', 'dv1000', 'a1', 'ha1'] },
+  { caption: '요청 B도 SELECT로 1,000을 읽어요. A가 읽었다고 B를 막지 않아요.', show: ['m1', 'dv1000', 'a1', 'b1', 'hb1'] },
+  { caption: 'A가 앱에서 1,000 - 10을 계산해 SET balance = 990으로 쓰고 COMMIT해요.', show: ['m1', 'dv990', 'a1', 'b1', 'a2', 'ha2', 'hdb'] },
+  { caption: 'B도 자기가 읽은 1,000 기준으로 990을 써요. A의 차감을 덮어써서 최종 990이에요. 기대값은 980인데 에러는 0건이에요.', show: ['m1', 'dv990x', 'a1', 'b1', 'a2', 'b2', 'hb2', 'r1', 'hdb'] },
+  { caption: '같은 상황을 조건부 UPDATE로 바꿔요. A와 B 모두 읽지 않고 이 한 문장만 보내요.', show: ['m2', 'dv1000', 'c0', 'hc0'] },
+  { caption: 'A가 먼저 행 락을 잡고 1,000을 990으로 바꿔요. B는 같은 행에서 락이 풀릴 때까지 기다려요.', show: ['m2', 'dv990l', 'c0', 'a3', 'b3', 'ha3', 'hb3', 'hdb'] },
+  { caption: 'A가 커밋하면 B는 최신 값 990 기준으로 계산해 980을 만들어요. 둘 다 affected rows 1이고 차감 2건이 모두 남아요.', show: ['m2', 'dv980', 'c0', 'a3', 'b3', 'a4', 'b4', 'ha4', 'hb4', 'r2', 'hdb'] },
+];
+
+// 칸: A는 왼쪽, B는 오른쪽, 위에서 아래로 시간 순서
+const A = 6, B = 164, W = 150;
+const cells = [
+  { id: 'a1', x: A, y: 118, t: 'SELECT', s: '1,000 읽음' },
+  { id: 'b1', x: B, y: 166, t: 'SELECT', s: '1,000 읽음 (안 막힘)' },
+  { id: 'a2', x: A, y: 214, t: 'SET balance=990', mono: true, s: '1,000-10 · COMMIT' },
+  { id: 'b2', x: B, y: 262, t: 'SET balance=990', mono: true, s: 'A 차감 덮어씀', err: true },
+  { id: 'a3', x: A, y: 176, t: '행 락 잡음', s: '1,000 → 990' },
+  { id: 'b3', x: B, y: 176, t: '같은 행에서 대기', s: '락 풀릴 때까지' },
+  { id: 'a4', x: A, y: 236, t: 'COMMIT', s: 'affected rows 1' },
+  { id: 'b4', x: B, y: 236, t: '최신 990 기준', s: '990 → 980 · rows 1' },
+];
+const dvals = [
+  { id: 'dv1000', v: '1,000', note: '' },
+  { id: 'dv990', v: '990', note: 'A가 씀' },
+  { id: 'dv990x', v: '990', note: '기대 980', err: true },
+  { id: 'dv990l', v: '990', note: 'A가 락 잡고 변경 중' },
+  { id: 'dv980', v: '980', note: '기대값과 같음', hi: true },
+];
+---
+<Stepper title="잔액 1,000에 10원씩 두 번: 덮어쓰기 vs 조건부 UPDATE" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 352" role="img" aria-label="잔액 1,000에서 요청 A와 B가 10원씩 뺀다. 둘 다 1,000을 읽고 990을 쓰면 최종 990으로 차감 하나가 사라진다. 조건부 UPDATE를 쓰면 B가 A의 락을 기다렸다가 990에서 빼서 최종 980이 된다.">
+    <text data-id="m1" class="hide" x="160" y="16" style="font-weight:700">방식 ①: 읽고 계산해서 덮어쓰기</text>
+    <text data-id="m2" class="hide" x="160" y="16" style="font-weight:700">방식 ②: 조건부 UPDATE</text>
+
+    <rect class="box" x="6" y="32" width="308" height="50" rx="8" />
+    <text class="l" x="18" y="57">DB 잔액 (id=1)</text>
+    {dvals.map((d) => (
+      <g data-id={d.id} class="hide">
+        <text x="196" y="50" class={d.err ? 'err-t' : d.hi ? 'hi' : ''} style="font-weight:700;font-size:20px">{d.v}</text>
+        {d.note && <text x="232" y="70" class={d.err ? 'err-t' : 'sub'} style="font-size:14px">{d.note}</text>}
+      </g>
+    ))}
+    <rect data-id="hdb" class="hl hide" x="3" y="29" width="314" height="56" rx="10" />
+
+    <text x="81" y="100" style="font-weight:700">요청 A</text>
+    <text x="239" y="100" style="font-weight:700">요청 B</text>
+    <path class="line" d="M160 92 V290" style="stroke-dasharray:3 4" />
+
+    <g data-id="c0" class="hide">
+      <rect class="chip" x="6" y="114" width="308" height="50" rx="8" />
+      <text class="mono" x="160" y="130">SET balance = balance - 10</text>
+      <text class="mono" x="160" y="150">WHERE id=1 AND balance &gt;= 10</text>
+    </g>
+    <rect data-id="hc0" class="hl hide" x="3" y="111" width="314" height="56" rx="10" />
+
+    {cells.map((c) => <>
+      <g data-id={c.id} class="hide">
+        <rect class={c.err ? 'err' : 'box'} x={c.x} y={c.y} width={W} height="42" rx="7" />
+        <text x={c.x + W / 2} y={c.y + 14} class={c.mono ? 'mono' : ''}>{c.t}</text>
+        <text x={c.x + W / 2} y={c.y + 31} class={c.err ? 'err-t' : 'sub'} style="font-size:14px">{c.s}</text>
+      </g>
+      <rect data-id={'h' + c.id} class="hl hide" x={c.x - 2} y={c.y - 2} width={W + 4} height="46" rx="8" />
+    </>)}
+
+    <g data-id="r1" class="hide">
+      <rect class="err" x="6" y="312" width="308" height="34" rx="8" />
+      <text x="160" y="329" class="err-t">최종 990 · 기대 980 · 에러 0건</text>
+    </g>
+    <g data-id="r2" class="hide">
+      <rect class="chip" x="6" y="312" width="308" height="34" rx="8" />
+      <text x="160" y="329">최종 <tspan class="hi">980</tspan> · 차감 2건 모두 반영</text>
+    </g>
+  </svg>
+</Stepper>

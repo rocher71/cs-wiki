@@ -1,0 +1,59 @@
+---
+// 느린 추천 API 하나가 스레드 풀 10칸을 다 잡아 전체 장애처럼 번지는 과정과, 타임아웃·벌크헤드·서킷의 효과.
+// 단계마다 풀·대기열·API 상태를 통째로 갈아끼운다(같은 자리에 번갈아 나오므로 class="hide").
+import Stepper from '../Stepper.astro';
+
+// 칸 상태: e 빈칸, w 처리, r 추천 대기 10초, t 추천 대기 1초 이하, b 폴백
+const layers = [
+  { cells: 'wwweeeeeee', q: 0, api: '추천 API 정상 · 0.1초 응답', apiErr: false, n1: '조회·주문 모두 바로 끝나요', n2: '빈칸 7개가 남아 여유 있어요' },
+  { cells: 'rrrrwweeee', q: 0, api: '추천 API 응답 10초 지연', apiErr: true, n1: '추천을 부른 요청이 칸을 붙잡고', n2: '10초 동안 아무 일도 못 해요' },
+  { cells: 'rrrrrrrrrr', q: 3, api: '추천 API 응답 10초 지연', apiErr: true, n1: '10칸 모두 추천 대기 중', n2: '추천과 상관없는 조회도 줄 서요' },
+  { cells: 'rrrrrrrrrr', q: 5, api: '추천 API 응답 10초 지연', apiErr: true, n1: '대기열까지 가득 → 새 연결 거절', n2: '서비스 전체 장애처럼 보여요', bad: true },
+  { cells: 'tttwwwwwee', q: 1, api: '10초 지연 · 우리가 1초에 끊음', apiErr: true, n1: '느린 호출이 1초 만에 칸을 반납', n2: '정상 10건: 10066ms → 1007ms' },
+  { cells: 'rrrwwwwbee', q: 0, api: '10초 지연 · 추천은 3칸까지만', apiErr: true, n1: '추천은 테두리 친 3칸만 사용', n2: '4번째 추천은 즉시 거절 → 폴백' },
+  { cells: 'wwwwwbbeee', q: 0, api: '서킷 OPEN · 추천 API 안 부름', apiErr: false, n1: '부르지 않고 바로 폴백(인기 상품)', n2: '스레드가 전혀 안 묶여요' },
+];
+const steps = [
+  { caption: '정상: 스레드 10칸 중 3칸만 일하고 있어요. 상품 조회도 주문도 금방 끝나서 칸이 바로 비어요.', show: ['s0'] },
+  { caption: '추천 API가 10초씩 늦게 답하기 시작해요. 추천을 부른 요청은 응답이 올 때까지 스레드 한 칸을 붙잡고 그냥 기다려요.', show: ['s1'] },
+  { caption: '10칸이 전부 추천 대기로 찼어요. 추천과 상관없는 상품 조회 요청도 빈칸이 없어 대기열에 줄 서요. 트랜잭션 안에서 불렀다면 DB 커넥션도 같이 묶여요.', show: ['s2'] },
+  { caption: '대기열까지 차면 서버가 새 연결을 거절해요. 망가진 건 추천 하나인데, 밖에서 보면 서비스 전체가 죽은 것처럼 보여요.', show: ['s3'] },
+  { caption: '대응① 타임아웃 1초: 느린 호출을 1초 만에 끊어 칸을 돌려받아요. 본문 실험에서 정상 작업 10건 완료 시간이 10066ms에서 1007ms로 줄었어요.', show: ['s4'] },
+  { caption: '대응② 벌크헤드: 추천 호출은 최대 3칸만 쓰게 칸막이를 쳐요. 나머지 7칸은 늘 다른 요청 몫이고, 4번째 추천 호출은 기다리지 않고 바로 폴백(인기 상품 목록)으로 가요.', show: ['s5', 'bh'] },
+  { caption: '대응③ 서킷 브레이커 OPEN: 실패가 쌓이면 추천 API를 아예 부르지 않고 곧바로 폴백을 돌려줘요. 기다리는 칸이 하나도 없어요.', show: ['s6'] },
+];
+const CW = 56, CH = 44;
+const cx = (i: number) => 10 + (i % 5) * 61;
+const cy = (i: number) => 30 + Math.floor(i / 5) * 50;
+const cellCls: Record<string, string> = { e: 'bad', w: 'chip', r: 'err', t: 'err', b: 'box' };
+const cellTxt: Record<string, [string, string]> = { e: ['빈칸', ''], w: ['처리', ''], r: ['대기', '10초'], t: ['대기', '≤1초'], b: ['폴백', ''] };
+---
+<Stepper title="느린 API 하나가 스레드 풀을 고갈시키는 과정" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 316" role="img" aria-label="스레드 풀 10칸이 10초 지연되는 추천 API 대기로 모두 차서 상관없는 요청까지 줄 서고 거절되는 과정. 타임아웃 1초, 벌크헤드 3칸, 서킷 OPEN 폴백으로 막는다.">
+    <text class="l" x="10" y="14" style="font-weight:700">요청 스레드 풀 (10칸)</text>
+    <text class="l" x="10" y="152" style="font-weight:700">대기열</text>
+    <rect class="frame" x="70" y="136" width="242" height="34" rx="6" />
+
+    {layers.map((ly, k) => (
+      <g data-id={`s${k}`} class="hide">
+        {[...ly.cells].map((c, i) => <>
+          <rect class={cellCls[c]} x={cx(i)} y={cy(i)} width={CW} height={CH} rx="6" />
+          {cellTxt[c][1]
+            ? <><text class={c === 'e' ? 'sub' : c === 'r' || c === 't' ? 'err-t' : ''} x={cx(i) + CW / 2} y={cy(i) + 15}>{cellTxt[c][0]}</text><text class="sub" x={cx(i) + CW / 2} y={cy(i) + 32}>{cellTxt[c][1]}</text></>
+            : <text class={c === 'e' ? 'sub' : ''} x={cx(i) + CW / 2} y={cy(i) + CH / 2}>{cellTxt[c][0]}</text>}
+        </>)}
+        {ly.q === 0 && <text class="sub" x="191" y="153">비어 있음</text>}
+        {Array.from({ length: ly.q }, (_, j) => <>
+          <rect class="box" x={74 + j * 47} y="140" width="44" height="26" rx="4" />
+          <text x={96 + j * 47} y="153" style="font-size:14px">조회</text>
+        </>)}
+        {ly.bad && <text class="err-t" x="191" y="184">가득 참 → 새 요청 거절</text>}
+        <rect class={ly.apiErr ? 'err' : 'box'} x="8" y="196" width="304" height="36" rx="8" />
+        <text class={ly.apiErr ? 'err-t' : ''} x="160" y="214">{ly.api}</text>
+        <text x="160" y="258">{ly.n1}</text>
+        <text class={ly.bad ? 'err-t' : k === 4 ? 'hi' : ''} x="160" y="284">{ly.n2}</text>
+      </g>
+    ))}
+    <rect data-id="bh" class="hl" x="5" y="25" width="188" height="54" rx="9" />
+  </svg>
+</Stepper>
