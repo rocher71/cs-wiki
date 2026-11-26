@@ -1,0 +1,50 @@
+---
+// 데코레이터: FileInputStream을 Buffered, Data가 겹겹이 감싸고, readInt() 호출은 안으로, 데이터는 밖으로 흐른다
+import Stepper from '../Stepper.astro';
+const steps = [
+  { caption: 'FileInputStream 하나만 있어요. 파일에서 바이트를 읽는 원본 객체예요.', show: ['file'] },
+  { caption: 'BufferedInputStream이 바깥을 감싸요. 기능은 같고, 버퍼에 모아 한 번에 읽는 능력이 더해져요.', show: ['file', 'buf'] },
+  { caption: 'DataInputStream이 한 겹 더 감싸 readInt() 같은 기능을 더해요. 바깥에서 보면 셋 다 같은 InputStream 타입이에요.', show: ['file', 'buf', 'data', 'same'] },
+  { caption: 'readInt()를 부르면 호출이 바깥에서 안쪽으로 전달되고, 바이트는 안쪽에서 바깥으로 올라오며 층마다 자기 일을 더해요.', show: ['file', 'buf', 'data', 'same', 'down', 'up'] },
+];
+---
+<Stepper title="데코레이터: 겹겹이 감싼 InputStream" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 344" role="img" aria-label="FileInputStream을 BufferedInputStream이, 그것을 DataInputStream이 감싸고, readInt 호출은 바깥에서 안쪽으로, 데이터는 안쪽에서 바깥으로 흐르는 그림">
+    <defs>
+      <marker id="dl-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+    </defs>
+
+    <g data-id="data" class="hide">
+      <rect class="box" x="40" y="30" width="240" height="258" rx="12" style="fill:var(--sl-color-gray-7, var(--sl-color-black))" />
+      <text x="160" y="50" style="font-weight:700">DataInputStream</text>
+      <text class="sub" x="160" y="72">+ readInt(): 바이트 → int</text>
+    </g>
+    <g data-id="buf" class="hide">
+      <rect class="box" x="54" y="90" width="212" height="186" rx="10" />
+      <text x="160" y="110" style="font-weight:700">BufferedInputStream</text>
+      <text class="sub" x="160" y="132">+ 버퍼에 모아 읽기</text>
+    </g>
+    <g data-id="file">
+      <rect class="chip" x="68" y="150" width="184" height="112" rx="8" />
+      <text x="160" y="180" style="font-weight:700">FileInputStream</text>
+      <text class="sub" x="160" y="204">파일에서 바이트 읽기</text>
+      <text class="sub" x="160" y="236">(원본)</text>
+    </g>
+
+    <g data-id="down" class="hide">
+      <text class="mono l hi" x="4" y="14">readInt()</text>
+      <polyline class="line" points="22,24 22,220 64,220" style="stroke:var(--sl-color-accent)" marker-end="url(#dl-arr)" />
+    </g>
+    <g data-id="up" class="hide">
+      <text class="mono hi" x="292" y="14" style="text-anchor:end">int 반환</text>
+      <polyline class="line" points="256,220 298,220 298,26" style="stroke:var(--sl-color-accent)" marker-end="url(#dl-arr)" />
+    </g>
+
+    <g data-id="same" class="hide">
+      <rect class="frame" x="40" y="302" width="240" height="34" rx="8" />
+      <text x="160" y="319">셋 다 InputStream 타입</text>
+    </g>
+  </svg>
+</Stepper>

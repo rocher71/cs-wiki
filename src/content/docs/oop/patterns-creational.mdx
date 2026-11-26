@@ -1,0 +1,491 @@
+---
+title: "생성 패턴: 싱글톤·팩토리·빌더"
+description: 생성 패턴은 "객체를 몇 개, 누가, 어떻게 만들까"를 정하는 레시피예요. 싱글톤은 하나만, 팩토리는 만드는 일을 맡겨서, 빌더는 값을 하나씩 채운 뒤 한 번에 만들어요.
+sidebar: { order: 7 }
+tags: [면접빈출, 서술형, 필기]
+---
+import { Aside } from '@astrojs/starlight/components';
+import LazySingletonRace from '~/components/viz/LazySingletonRace.astro';
+import DclVolatile from '~/components/viz/DclVolatile.astro';
+
+:::tip[한 줄 요약]
+싱글톤은 인스턴스를 하나만 만들어 공유하는 패턴이고, 멀티스레드에서는 이른 초기화·홀더 클래스·enum처럼 JVM의 클래스 초기화가 지켜 주는 방식으로 만들어야 안전해요. 팩토리는 "어떤 객체를 만들지"를 생성 메서드에 맡기는 것이고, 빌더는 매개변수가 많은 객체를 이름 붙은 메서드로 하나씩 채운 뒤 `build()`로 한 번에 만드는 패턴이에요.
+:::
+
+## 쉽게 이해하기
+
+**디자인 패턴**(design pattern, 자주 마주치는 설계 문제에 대한 검증된 해법에 이름을 붙인 것)은 **요리 레시피**예요. 상속·캡슐화 같은 객체지향 특성이 칼과 냄비라면, 패턴은 그 도구로 자주 만드는 요리의 순서를 적어 둔 거예요. 그중 **생성 패턴**은 "재료(객체)를 어떻게 준비할까"에 관한 레시피예요.
+
+- **싱글톤**은 회사에 **하나뿐인 법인 인감**이에요. 직원이 각자 도장을 새로 파면 안 되고, 다들 금고에 있는 같은 인감을 빌려 써요.
+- **팩토리**는 **주문 창구**예요. 손님은 "아메리카노 주세요"라고만 하고, 어떤 원두와 기계로 만드는지는 매장이 정해요.
+- **빌더**는 **샌드위치 주문표**예요. "빵은 호밀, 치즈 추가, 양파 빼고"를 항목별로 체크한 뒤 마지막에 "완성"을 누르면 한 번에 만들어져요.
+
+단, 실제로는 인감 하나를 여러 사람이 동시에 꺼내려는 상황(멀티스레드)을 따로 막아 줘야 해요. 아무 장치 없이 만든 싱글톤은 그 순간에 인감이 두 개 생길 수 있어요.
+
+## 그림으로 보기
+
+<LazySingletonRace />
+
+<DclVolatile />
+
+## 제대로 알기
+
+### 1. 생성 패턴이 뭔가요
+
+디자인 패턴 책의 고전인 GoF(Gang of Four, 네 명의 저자가 1994년에 쓴 『Design Patterns』)는 패턴 23개를 목적별로 셋으로 나눈 것으로 알려져 있어요.
+
+| 분류 | 질문 | 예 |
+|---|---|---|
+| 생성 | 객체를 어떻게 만들까 | 싱글톤, 팩토리 메서드, 추상 팩토리, 빌더, 프로토타입 |
+| 구조 | 객체를 어떻게 조합할까 | 어댑터, 프록시, 데코레이터 |
+| 행위 | 객체끼리 책임을 어떻게 나눌까 | 전략, 템플릿 메서드, 옵저버 |
+
+이 페이지는 면접에 가장 많이 나오는 싱글톤, 팩토리, 빌더를 다뤄요. 구조와 행위 패턴은 [구조 패턴](../patterns-structural/), [행위 패턴](../patterns-behavioral/)에서 봐요.
+
+### 2. 싱글톤: 기본 구조
+
+**싱글톤**(singleton)은 클래스의 인스턴스를 딱 하나만 만들어 계속 재사용하는 패턴이에요. 커넥션 풀, 스레드 풀, 설정 객체처럼 여러 개 있으면 자원이 낭비되거나 결과가 꼬이는 객체에 써요.
+
+재료는 세 가지예요.
+
+1. `private` 생성자: 바깥에서 `new`를 못 하게 막아요. 쓰면 컴파일 에러가 나요(javac 메시지: `Singleton() has private access in Singleton`).
+2. 객체 하나를 담아 둘 `static` 참조 변수
+3. 그 객체를 돌려주는 `static` 메서드 `getInstance()`
+
+`static`의 기본 의미와 클래스가 언제 초기화되는지는 [클래스, 객체, static](../class-object-static/)에서 다뤘어요.
+
+싱글톤 객체에는 **바꿀 수 있는 필드를 두지 않는 게 원칙**이에요. 모두가 같은 객체를 나눠 쓰니까, 한 곳에서 바꾼 값이 모든 사용자에게 퍼져요. 읽기 전용 값이나 다른 싱글톤을 가리키는 참조는 괜찮아요.
+
+### 3. 싱글톤: 책 예제의 함정
+
+입문서에 흔히 나오는 예제는 이런 모양이에요.
+
+```java
+public class Singleton {
+    private static Singleton instance;
+    private Singleton() { }
+
+    public static Singleton getInstance() {
+        if (instance == null) {          // ① 검사
+            instance = new Singleton();  // ② 생성
+        }
+        return instance;
+    }
+}
+```
+
+처음 부를 때 만드는 **지연 초기화**(lazy initialization, 필요해질 때까지 생성을 미루는 것)인데, **동기화가 없어서 스레드 안전하지 않아요.** 두 스레드가 거의 동시에 ①을 통과하면 둘 다 `null`을 보고 각자 ②를 실행해요. 그러면 객체가 두 개 생기고, 누군가는 다른 객체를 들고 일하게 돼요. 혼자 실행할 때는 절대 안 드러나고 트래픽이 몰릴 때만 가끔 나는 버그라 더 위험해요.
+
+### 4. 스레드 안전한 싱글톤 5가지
+
+| 방식 | 만드는 시점 | 스레드 안전 | 한 줄 평 |
+|---|---|---|---|
+| 이른 초기화 | 클래스 초기화 때 | O | 가장 단순. 대부분 이걸로 충분 |
+| 지연 + `synchronized` 메서드 | 첫 호출 | O | 만든 뒤에도 매번 락을 잡아 느려질 수 있음 |
+| DCL + `volatile` | 첫 호출 | O(volatile 필수) | 빠르지만 실수하기 쉬움 |
+| 홀더 클래스 | 첫 `getInstance()` | O | 지연 로딩 + 락 코드 없음 |
+| `enum` | enum 초기화 때 | O | 리플렉션·직렬화까지 막아 줌 |
+
+**① 이른 초기화**(eager initialization, 미리 만들어 두기)
+
+```java
+public class Singleton {
+    private static final Singleton INSTANCE = new Singleton();
+    private Singleton() { }
+    public static Singleton getInstance() { return INSTANCE; }
+}
+```
+
+`synchronized`가 없는데도 안전해요. static 필드 초기화는 클래스 초기화 때 실행되는데, JVM은 클래스마다 **초기화 락**을 두고 한 스레드만 초기화를 실행하게 해요. 다른 스레드는 끝날 때까지 기다렸다가 "이미 초기화됨"을 보고 지나가요. 안 쓰여도 만들어진다는 단점이 있지만, 클래스 초기화가 보통 그 클래스를 처음 쓸 때 일어나서 실제로 문제 되는 경우는 드물어요.
+
+**② 지연 초기화 + `synchronized`**
+
+`getInstance()` 전체에 `synchronized`를 붙이면 검사와 생성을 한 번에 한 스레드만 해요. 락을 푸는 동작은 다음에 같은 락을 잡는 동작보다 **먼저 일어난 것**(happens-before, 앞 동작의 결과가 뒤 동작에 반드시 보이는 순서 관계)으로 보장돼서, 다음 스레드는 완성된 객체를 봐요. 대신 객체를 다 만든 뒤에도 호출할 때마다 락을 잡아야 해요. 락 동작은 [동기화](../../java/synchronization/)에서 자세히 다뤄요.
+
+**③ DCL**(Double-Checked Locking, 락 밖에서 한 번, 락 안에서 한 번 더 검사)
+
+```java
+public class Singleton {
+    private static volatile Singleton instance;  // volatile 필수
+    private Singleton() { }
+
+    public static Singleton getInstance() {
+        if (instance == null) {                  // 1차: 락 없이
+            synchronized (Singleton.class) {
+                if (instance == null) {          // 2차: 락 안에서
+                    instance = new Singleton();
+                }
+            }
+        }
+        return instance;
+    }
+}
+```
+
+객체가 이미 있으면 락 없이 바로 돌려줘서 ②의 비용을 줄여요. 핵심은 `volatile`이에요. `new Singleton()`은 "메모리 할당 → 생성자 실행 → 참조 대입" 세 단계인데, 순서를 보장하는 장치가 없으면 컴파일러나 CPU가 "할당 → 대입 → 생성자" 순서로 바꿀 수 있어요. 그러면 다른 스레드가 1차 검사에서 `null`이 아닌 참조를 보고, **생성자가 덜 끝난 객체**를 받아 가요. 필드가 0이나 `null`로 보이는 거예요. `volatile` 필드에 쓰면 그 뒤에 그 필드를 읽는 스레드는 쓰기 전에 일어난 일(생성자 실행)까지 모두 보게 돼요. 이 보장은 Java 5에서 메모리 모델이 개정된 뒤부터 통하는 것으로 알려져 있어요.
+
+**④ 홀더 클래스**(Initialization-on-demand holder)
+
+```java
+public class Singleton {
+    private Singleton() { }
+    private static class Holder {
+        static final Singleton INSTANCE = new Singleton();
+    }
+    public static Singleton getInstance() { return Holder.INSTANCE; }
+}
+```
+
+안쪽 클래스 `Holder`는 바깥 `Singleton`이 초기화될 때 같이 초기화되지 않아요. `Holder.INSTANCE`를 처음 읽는 순간 초기화돼요. 그래서 지연 로딩이 되고, 한 번만 만드는 건 ①과 같은 클래스 초기화 락이 지켜 줘요. `synchronized`도 `volatile`도 필요 없어요.
+
+**⑤ enum**
+
+```java
+public enum Singleton {
+    INSTANCE;
+    public void doWork() { }
+}
+```
+
+자바 언어 명세는 enum에 대해 선언한 상수 말고 다른 인스턴스가 없다고 정해 둬요. `new`는 컴파일 에러, `clone`으로 복제 불가, **리플렉션**(reflection, 실행 중에 클래스 내부를 들여다보고 private 멤버까지 호출하는 기능)으로 생성 금지, **역직렬화**(deserialization, 저장해 둔 바이트를 다시 객체로 되살리는 것)해도 새 객체가 생기지 않아요. 『Effective Java』는 원소 하나짜리 enum을 싱글톤을 만드는 가장 좋은 방법으로 소개해요. 단, enum은 다른 클래스를 상속할 수 없어요(인터페이스 구현은 돼요).
+
+<Aside type="caution" title="private 생성자도 완벽한 자물쇠는 아니에요">
+일반 클래스 싱글톤(①~④)은 리플렉션의 `setAccessible(true)`로 private 생성자를 억지로 부를 수 있어요. `Serializable`이면 역직렬화할 때마다 새 객체가 생겨요. 막으려면 `readResolve()`에서 기존 인스턴스를 돌려주고, 생성자에서 두 번째 생성 시 예외를 던지는 방법이 흔히 쓰여요. enum은 언어 차원에서 이 구멍이 없어요.
+</Aside>
+
+### 5. 싱글톤의 단점
+
+- **테스트가 어려워요.** 코드 안에서 `Config.getInstance()`를 직접 부르면 가짜 객체로 바꿔 끼울 수 없어요. 싱글톤에 남은 상태가 다음 테스트로 넘어가서 실행 순서에 따라 결과가 달라지기도 해요.
+- **사실상 전역 변수예요.** 어디서든 꺼내 쓸 수 있으니 상태가 있으면 누가 바꿨는지 추적하기 어렵고, 여러 스레드가 바꾸면 동기화도 필요해요.
+- **구체 클래스에 묶여요.** 쓰는 쪽이 인터페이스가 아니라 `Singleton.getInstance()`라는 구체 클래스에 직접 의존해서 [DIP](../solid/)에 어긋나요. private 생성자라 상속으로 확장하기도 어려워요.
+- **"JVM에 딱 하나"도 아니에요.** 이 방식의 싱글톤은 정확히는 **클래스 로더당 하나**예요. 다른 클래스 로더가 같은 클래스를 읽으면 인스턴스가 따로 생겨요. 서버가 여러 대면 당연히 서버마다 하나씩이고요.
+
+### 6. 스프링 빈 싱글톤은 다른 이야기예요
+
+스프링에서 빈의 기본 **스코프**(scope, 빈이 몇 개, 언제까지 사는지 정하는 범위)는 singleton이에요. 이름은 같지만 GoF 싱글톤과 달라요.
+
+| 구분 | GoF 싱글톤 | 스프링 싱글톤 빈 |
+|---|---|---|
+| 몇 개 | 클래스 로더당 1개 | 컨테이너당, 빈 정의당 1개 |
+| 누가 하나로 유지하나 | 클래스 스스로(static 필드) | 스프링 컨테이너가 한 번 만들어 보관 |
+| 클래스 모양 | private 생성자 + `getInstance()` | 평범한 클래스(public 생성자 가능) |
+| 같은 클래스로 여러 개 | 불가 | 빈을 두 개 정의하면 2개 |
+| 테스트 | 가짜로 바꾸기 어려움 | 인터페이스로 주입받아 가짜로 바꾸기 쉬움 |
+
+스프링은 클래스를 평범하게 두고 컨테이너가 하나만 만들어 주입(DI)해 줘서, 5번의 테스트·DIP 단점을 대부분 덜어 내요.
+
+스코프는 singleton(기본)과 prototype(요청할 때마다 새로), 그리고 웹 전용 request, session, application, websocket까지 6개예요. 스프링 문서는 상태가 있는 빈은 prototype, 상태가 없는 빈은 singleton을 권해요.
+
+<Aside type="danger" title="싱글톤 빈은 스레드 안전하지 않아요">
+톰캣은 요청마다 다른 스레드로 처리하는데, 싱글톤 빈 하나를 모든 스레드가 같이 써요. 빈 필드에 사용자 ID나 금액 같은 요청 데이터를 저장하면 다른 요청이 덮어써요. 필드에는 다른 빈이나 바뀌지 않는 설정값만 두고, 요청 데이터는 지역 변수·파라미터·반환값으로 다뤄요. 스프링이 알아서 스레드 안전하게 만들어 주지 않아요.
+</Aside>
+
+### 7. 정적 팩토리 메서드 (GoF 패턴은 아니에요)
+
+**정적 팩토리 메서드**(static factory method)는 생성자 대신 객체를 돌려주는 `static` 메서드예요. 아래에 나올 GoF의 "팩토리 메서드 패턴"과 이름만 비슷한 다른 개념이에요. 『Effective Java』가 생성자보다 먼저 고려해 보라고 권하는 방법으로 유명해요.
+
+장점으로 흔히 꼽히는 것들이에요.
+1. **이름을 붙일 수 있어요.** `new Order(...)`보다 `Order.createPaid(...)`가 의도를 잘 드러내요.
+2. **매번 새로 만들 필요가 없어요.** 캐시한 객체나 싱글톤을 돌려줄 수 있어요.
+3. **하위 타입을 돌려줄 수 있어요.** 입력에 따라 다른 구현을 돌려주거나, 구현 클래스를 숨길 수 있어요. 예를 들어 `List.of(...)`(Java 9+)는 바꿀 수 없는 리스트를 돌려주는데 실제 구현 클래스는 감춰져 있어요.
+
+단점은 정적 팩토리만 두고 public 생성자를 없애면 상속할 수 없고, 문서에서 생성자처럼 눈에 띄지 않아 찾기 어렵다는 거예요.
+
+이름 관례도 알아 두면 좋아요.
+
+| 이름 | 뜻 | 예 |
+|---|---|---|
+| `from` | 인자 하나를 받아 변환 | `Date.from(instant)` |
+| `of` | 여러 인자를 모아서 | `List.of(a, b)`, `EnumSet.of(...)` |
+| `valueOf` | from/of의 자세한 버전 | `Integer.valueOf(10)`, `String.valueOf(x)` |
+| `getInstance` | 같은 객체일 수도 있음 | `Calendar.getInstance()` |
+| `newInstance`, `create` | 매번 새 객체 | |
+| `newType`, `getType` | 다른 클래스에 있는 팩토리 | `Files.newBufferedReader(path)` |
+
+<Aside type="caution" title="Integer끼리 == 비교 함정">
+`Integer.valueOf(int)`는 -128~127 범위를 **항상 캐시**해서 같은 객체를 돌려줘요. 오토박싱(`Integer a = 127;`)도 내부적으로 `valueOf`를 써요. 그래서 `Integer a = 127, b = 127; a == b`는 `true`지만, 128이면 `false`일 수 있어요. 값 비교는 `equals`나 `Objects.equals`를 써요. 참고로 `new Integer(int)`는 Java 9부터 deprecated예요.
+</Aside>
+
+### 8. 팩토리 메서드 패턴 (GoF)
+
+**팩토리 메서드 패턴**은 상위 클래스가 "객체를 만들어 돌려주는 메서드"의 틀만 정하고, **어떤 구체 클래스를 만들지는 하위 클래스가 오버라이딩으로 정하는** 패턴이에요. 한 문장으로 "오버라이드된 메서드가 객체를 반환하는 패턴"이에요.
+
+```java
+abstract class Animal {
+    abstract AnimalToy getToy();   // 팩토리 메서드: 무엇을 만들지는 자식이 결정
+}
+class Dog extends Animal {
+    AnimalToy getToy() { return new DogToy(); }
+}
+class Cat extends Animal {
+    AnimalToy getToy() { return new CatToy(); }
+}
+
+// 쓰는 쪽은 추상 타입만 알아요
+Animal pet = new Dog();
+AnimalToy toy = pet.getToy();      // DogToy인지 몰라도 됨
+```
+
+쓰는 쪽이 `new DogToy()`를 직접 쓰지 않으니, 새 동물과 장난감을 추가해도 기존 코드를 거의 안 고쳐요([OCP](../solid/)). 위쪽(`Animal`, `AnimalToy`)과 아래쪽(구체 클래스)을 나눠 보면 양쪽 다 추상 타입에 의존해서 DIP를 활용하는 구조이기도 해요. 단점은 제품이 늘 때마다 그걸 만드는 하위 클래스도 늘어난다는 거예요.
+
+자주 헷갈리는 셋을 정리하면 이래요.
+
+| 이름 | 정체 |
+|---|---|
+| 정적 팩토리 메서드 | 생성자 대신 쓰는 static 메서드. GoF 패턴 아님 |
+| 팩토리 메서드 패턴 | 상속 + 오버라이딩으로 하위 클래스가 만들 객체를 정함 |
+| 추상 팩토리 패턴 | 서로 관련된 제품 여러 개를 한 묶음으로 만드는 객체 |
+
+실무에서 그냥 "팩토리"라고 부르는 건 생성 로직만 한 클래스에 모아 둔 **단순 팩토리**인 경우가 많아요. 스프링의 `BeanFactory`도 이름 그대로 빈을 만드는 팩토리이고, `@Bean`이 붙은 메서드도 객체를 돌려주는 팩토리 메서드로 볼 수 있어요.
+
+### 9. 빌더 패턴
+
+필드가 많고 그중 일부만 선택적으로 넣는 객체를 만든다고 해 봐요. 기존 방법 두 가지는 각각 문제가 있어요.
+
+- **점층적 생성자**(telescoping constructor, 인자 개수별로 생성자를 여러 개 만드는 방식): `new Order(1000, 100, 5, true, null, ...)`처럼 같은 타입 인자가 줄줄이 이어져서 순서를 바꿔 넣어도 컴파일러가 못 잡아요.
+- **자바빈즈 방식**(기본 생성자 + setter): 읽기는 쉽지만 setter를 다 부르기 전까지 객체가 반쯤 완성된 상태로 노출되고, setter가 있으니 불변 객체를 만들 수 없어요.
+
+**빌더 패턴**(builder)은 필요한 값만 이름 붙은 메서드로 이어서(체이닝) 설정하고, 마지막 `build()`에서 한 번에 객체를 만들어요.
+
+```java
+public class User {
+    private final String name;   // final: 만든 뒤 못 바꿈
+    private final int age;
+    private User(Builder b) { this.name = b.name; this.age = b.age; }
+    public static Builder builder() { return new Builder(); }
+
+    public static class Builder {
+        private String name; private int age;
+        public Builder name(String v) { this.name = v; return this; } // 자기 자신 반환 → 체이닝
+        public Builder age(int v) { this.age = v; return this; }
+        public User build() {
+            if (name == null) throw new IllegalStateException("name 필수"); // 검증을 한 곳에서
+            return new User(this);
+        }
+    }
+}
+User u = User.builder().name("kim").age(20).build();
+```
+
+| 방법 | 가독성 | 불변 객체 | 검증 위치 | 단점 |
+|---|---|---|---|---|
+| 점층적 생성자 | 낮음(순서 실수) | 가능 | 생성자 | 인자 많으면 지옥 |
+| 자바빈즈(setter) | 높음 | 불가 | 흩어짐 | 중간 상태 노출 |
+| 빌더 | 높음 | 가능 | `build()` 한 곳 | 빌더 코드가 늘고 객체 하나 더 생성 |
+
+참고로 GoF가 말한 원래 빌더는 "복잡한 객체를 만드는 절차와 결과물의 표현을 분리"하는 패턴이고, 요즘 흔히 쓰는 체이닝 빌더는 『Effective Java』식 변형으로 알려져 있어요. JDK에도 `StringBuilder`, `HttpRequest.newBuilder()`(Java 11), `Stream.builder()`처럼 빌더가 많아요.
+
+### 10. Lombok `@Builder`
+
+실무에선 위 빌더 코드를 직접 쓰기보다 Lombok `@Builder`로 자동 생성하는 경우가 많아요. 내부 `Builder` 클래스, 필드별 체이닝 메서드, `build()`, 정적 `builder()` 메서드를 만들어 줘요.
+
+- `@Builder.Default`: 값을 안 넣었을 때 쓸 기본값
+- `@Singular`: 컬렉션에 원소를 하나씩 추가하는 메서드 생성(결과 컬렉션은 불변)
+- `toBuilder = true`: 기존 객체 값을 복사한 빌더를 만들어 일부만 바꾼 새 객체 생성
+
+<Aside type="caution" title="필드 초기값이 사라지는 함정">
+`private List<Item> items = new ArrayList<>();`처럼 필드에 초기값을 줘도, `@Builder.Default`를 안 붙이면 빌더로 만들 때 그 초기값이 무시돼 `null`이 될 수 있어요. 또 Lombok 빌더는 필수값을 강제하지 않아서, 필수값은 `build()` 검증이나 별도 생성 경로로 지켜야 해요.
+</Aside>
+
+## 면접 질문
+
+<details>
+<summary>Q. 싱글톤 패턴이 무엇이고 언제 쓰나요?</summary>
+
+**답변(30초)** 클래스의 인스턴스를 하나만 만들어 모두가 공유하게 하는 패턴이에요. private 생성자로 외부 생성을 막고, static 필드에 객체 하나를 두고, static `getInstance()`로 돌려줘요. 커넥션 풀이나 설정 객체처럼 여러 개면 자원이 낭비되거나 결과가 꼬이는 객체에 써요. 공유되기 때문에 바꿀 수 있는 상태는 두지 않는 게 원칙이에요.
+
+**꼬리질문**
+- Q. 싱글톤의 단점은? → 코드가 구체 클래스에 직접 의존해 테스트에서 가짜로 바꾸기 어렵고, 사실상 전역 상태가 돼요. private 생성자라 확장도 어려워요.
+- Q. 싱글톤은 JVM에 정말 하나인가요? → 정확히는 클래스 로더당 하나예요. 서버가 여러 대면 서버마다 하나예요.
+</details>
+
+<details>
+<summary>Q. 싱글톤을 스레드 안전하게 만드는 방법은?</summary>
+
+**답변(30초)** `if (instance == null)`로 만드는 기본 지연 초기화는 두 스레드가 동시에 검사를 통과하면 객체가 두 개 생겨요. 안전한 방법은 이른 초기화, `synchronized` 메서드, volatile을 붙인 DCL, 홀더 클래스, enum이 있어요. 저는 지연 로딩이 필요 없으면 이른 초기화, 필요하면 홀더 클래스를 쓰겠어요. 둘 다 JVM의 클래스 초기화 락이 한 번만 만들어 주는 걸 보장해서 락 코드가 필요 없어요.
+
+**꼬리질문**
+- Q. 이른 초기화는 synchronized가 없는데 왜 안전한가요? → JVM이 클래스마다 초기화 락을 두고 static 초기화를 한 스레드만 한 번 실행하게 해요.
+- Q. synchronized 메서드 방식의 단점은? → 객체를 다 만든 뒤에도 매 호출마다 락을 잡아서 경합이 생기면 느려질 수 있어요.
+</details>
+
+<details>
+<summary>Q. DCL에서 volatile은 왜 필요한가요?</summary>
+
+**답변(30초)** 생성자가 덜 끝난 객체를 다른 스레드가 가져가는 걸 막기 위해서예요. `new`는 메모리 할당, 생성자 실행, 참조 대입 순서인데, 보장 장치가 없으면 대입이 생성자보다 먼저 일어날 수 있어요. 그러면 락 없이 1차 검사를 하던 다른 스레드가 null이 아닌 참조를 보고 필드가 0인 객체를 써요. volatile 쓰기는 이후 읽기보다 먼저 일어난 것으로 보장돼서 완성된 객체만 보이게 돼요.
+
+**꼬리질문**
+- Q. 2차 검사는 왜 하나요? → 두 스레드가 1차 검사를 같이 통과해 락 앞에서 기다릴 수 있어서, 늦게 들어온 스레드가 또 만들지 않게 해요.
+- Q. DCL보다 나은 대안은? → 홀더 클래스나 enum이에요. 같은 효과를 락 코드 없이 얻어요.
+</details>
+
+<details>
+<summary>Q. 홀더 클래스 방식은 왜 지연 로딩이면서 스레드 안전한가요?</summary>
+
+**답변(30초)** 안쪽 static 클래스는 바깥 클래스가 초기화될 때 같이 초기화되지 않고, 그 안의 static 필드를 처음 읽을 때 초기화돼요. 그래서 `getInstance()`를 처음 부를 때 객체가 만들어져요. 그 초기화는 JVM의 클래스 초기화 락이 한 번만, 한 스레드만 실행하도록 보장하니 synchronized나 volatile 없이도 안전해요.
+
+**꼬리질문**
+- Q. 동시에 여러 스레드가 처음 호출하면? → 한 스레드가 초기화하는 동안 나머지는 기다렸다가 같은 인스턴스를 받아요.
+</details>
+
+<details>
+<summary>Q. enum 싱글톤의 장점은 무엇인가요?</summary>
+
+**답변(30초)** 언어 차원에서 인스턴스가 하나임을 보장해 줘요. enum은 `new`가 컴파일 에러이고, 리플렉션으로 만들 수 없고, 역직렬화해도 새 객체가 생기지 않아요. 일반 클래스 싱글톤은 private 생성자를 리플렉션으로 부르거나 역직렬화로 복제할 수 있는데, 이 구멍이 없어요. 상수 초기화도 클래스 초기화 때 일어나 스레드 안전해요.
+
+**꼬리질문**
+- Q. enum 싱글톤의 단점은? → 다른 클래스를 상속할 수 없어요. 인터페이스 구현은 돼요.
+- Q. 일반 클래스 싱글톤에서 역직렬화 복제는 어떻게 막나요? → `readResolve()`에서 기존 인스턴스를 돌려줘요.
+</details>
+
+<details>
+<summary>Q. 스프링 싱글톤 빈과 GoF 싱글톤은 무엇이 다른가요?</summary>
+
+**답변(30초)** 하나를 지키는 주체와 범위가 달라요. GoF 싱글톤은 클래스가 스스로 static 필드로 클래스 로더당 하나를 지켜요. 스프링 싱글톤은 컨테이너가 빈 정의당 하나를 만들어 보관하고 주입해 줘요. 그래서 클래스는 평범한 클래스여도 되고, 같은 클래스로 빈을 두 개 정의하면 두 개가 돼요. 인터페이스로 주입받으니 테스트에서 가짜로 바꾸기도 쉬워요.
+
+**꼬리질문**
+- Q. 스프링 빈 스코프에는 무엇이 있나요? → singleton(기본), prototype, 웹 전용 request, session, application, websocket이에요.
+- Q. 싱글톤 빈에 prototype 빈을 주입하면? → 주입은 싱글톤이 만들어질 때 한 번뿐이라 prototype도 사실상 하나만 쓰여요. 매번 새로 필요하면 `ObjectProvider` 같은 방법으로 그때그때 꺼내요.
+</details>
+
+<details>
+<summary>Q. 스프링 싱글톤 빈은 스레드 안전한가요?</summary>
+
+**답변(30초)** 아니요, 스프링이 자동으로 지켜 주지 않아요. 싱글톤 빈 하나를 모든 요청 스레드가 같이 쓰기 때문에, 필드에 요청별 데이터를 저장하면 다른 요청이 덮어써요. 그래서 빈은 무상태로 설계해요. 필드에는 다른 빈이나 바뀌지 않는 설정만 두고, 요청 데이터는 지역 변수나 파라미터로 넘겨요.
+
+**꼬리질문**
+- Q. 상태가 꼭 필요하면? → 스프링 문서는 상태 있는 빈은 prototype을 권해요. 요청 단위라면 request 스코프도 쓸 수 있어요.
+</details>
+
+<details>
+<summary>Q. 생성자 대신 정적 팩토리 메서드를 쓰는 이유는?</summary>
+
+**답변(30초)** 이름으로 의도를 드러낼 수 있고, 매번 새 객체를 만들지 않아도 되고, 하위 타입이나 숨겨진 구현을 돌려줄 수 있어서예요. 예를 들어 `Integer.valueOf`는 -128~127을 캐시해서 같은 객체를 돌려주고, `List.of`는 구현 클래스를 감춘 불변 리스트를 돌려줘요. 단점은 public 생성자가 없으면 상속이 안 되고, 문서에서 찾기 어렵다는 점이에요.
+
+**꼬리질문**
+- Q. `Integer a = 127, b = 127; a == b`는? 128이면? → 127은 캐시라 true, 128은 다른 객체라 false일 수 있어요. 값 비교는 equals로 해요.
+- Q. from, of, valueOf 차이는? → from은 인자 하나를 변환, of는 여러 인자를 모아서, valueOf는 그 둘의 자세한 버전이에요.
+</details>
+
+<details>
+<summary>Q. 팩토리 메서드 패턴이란? 정적 팩토리 메서드와 같은 건가요?</summary>
+
+**답변(30초)** 상위 클래스가 객체를 만드는 메서드의 틀만 정하고, 어떤 구체 클래스를 만들지는 하위 클래스가 오버라이딩으로 정하는 패턴이에요. 쓰는 쪽은 추상 타입만 알아서 새 제품을 추가해도 기존 코드를 거의 안 고쳐요. 정적 팩토리 메서드는 생성자 대신 쓰는 static 메서드일 뿐이라 이름만 비슷한 다른 개념이에요.
+
+**꼬리질문**
+- Q. 단점은? → 제품이 늘 때마다 그걸 만드는 하위 클래스도 늘어나요.
+- Q. 추상 팩토리와 차이는? → 추상 팩토리는 서로 관련된 제품 여러 개를 한 묶음으로 만드는 객체예요.
+</details>
+
+<details>
+<summary>Q. 빌더 패턴은 왜 쓰나요? 생성자나 setter와 비교해 주세요.</summary>
+
+**답변(30초)** 매개변수가 많고 선택 항목이 많을 때 읽기 쉽고 안전하게 객체를 만들려고 써요. 생성자는 같은 타입 인자가 이어지면 순서를 바꿔 넣어도 컴파일러가 못 잡고, setter는 중간 상태가 노출되고 불변 객체를 못 만들어요. 빌더는 이름 붙은 메서드로 값을 채우고 `build()`에서 검증 후 한 번에 만들어서, 가독성과 불변성을 같이 얻어요. 대신 코드가 늘고 객체가 하나 더 생겨요.
+
+**꼬리질문**
+- Q. Lombok `@Builder`의 주의점은? → 필드 초기값은 `@Builder.Default`가 없으면 무시되고, 필수값을 강제하지 않아서 따로 검증해야 해요.
+</details>
+
+## 서술형 연습
+
+<details>
+<summary>상황: 주문 API에서 트래픽이 몰릴 때만 가끔 A 사용자의 주문에 B 사용자 ID가 저장됩니다. 로컬에서는 재현되지 않습니다. 주문 서비스 빈에는 요청마다 값을 넣는 private Long currentUserId 필드가 있습니다.</summary>
+
+**상황 파악**
+"트래픽 몰릴 때만, 가끔, 로컬 재현 안 됨"은 동시성 버그의 전형적인 증상이에요. 스프링 서비스 빈은 기본이 싱글톤이라 모든 요청 스레드가 같은 객체를 써요. 그런데 그 객체의 필드에 요청별 값을 저장하고 있어요.
+
+**원인 후보**
+1. 스레드 A가 `currentUserId = A`를 넣고 주문을 저장하기 전에, 스레드 B가 같은 필드를 `B`로 덮어써요. A는 B의 ID로 주문을 저장해요.
+2. 스프링 싱글톤 빈이 스레드 안전하다고 오해한 설계 문제예요. 혼자 테스트할 땐 스레드가 하나라 절대 안 드러나요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. 필드를 없애고 사용자 ID를 파라미터·지역 변수로 전달 | 근본 해결. 빈이 무상태가 돼 락도 필요 없음 | 메서드 시그니처를 여러 군데 고쳐야 함 |
+| B. 빈 스코프를 prototype이나 request로 변경 | 필드 구조를 거의 그대로 둠 | 객체 생성 비용 증가. 싱글톤 빈에 주입되면 결국 하나만 쓰이는 함정 |
+| C. ThreadLocal에 사용자 ID 저장 | 깊은 호출에서도 파라미터 없이 접근 | 요청 끝에 정리하지 않으면 스레드 풀이 스레드를 재사용해 다음 요청에 값이 새어 나감 |
+
+**내가 고를 방법**
+A를 골라요. 싱글톤 빈은 무상태로 두는 게 원칙이고, 요청 데이터는 원래 요청 흐름(파라미터, 반환값)을 따라가야 해요. 동기화를 추가하는 방법도 있지만 모든 주문이 한 줄로 서게 돼 처리량이 떨어져요. 재발을 막으려고 코드 리뷰에서 "싱글톤 빈의 가변 필드"를 체크 항목에 넣고, 동시 요청을 보내는 테스트로 수정을 확인해요.
+
+**채점 포인트**: 싱글톤 스코프가 기본, 모든 요청 스레드가 같은 빈 공유, 스프링이 스레드 안전을 보장하지 않음, 무상태 설계, 재현이 어려운 이유, ThreadLocal 정리 누락 위험, 해결책 2개 이상의 트레이드오프.
+</details>
+
+<details>
+<summary>상황: 동료가 지연 로딩 싱글톤을 DCL로 구현했는데 instance 필드에 volatile이 없습니다. 코드 리뷰를 해 주세요.</summary>
+
+**상황 파악**
+동작은 대부분 정상이라 테스트로는 안 잡혀요. 하지만 여러 스레드가 처음 동시에 호출하는 순간 문제가 생길 수 있어요.
+
+**원인 후보**
+`new`는 할당, 생성자 실행, 참조 대입 순서인데 volatile이 없으면 대입이 생성자보다 먼저 보일 수 있어요. 그러면 락 없이 1차 검사를 하던 다른 스레드가 null이 아닌 참조를 받아, 필드가 아직 0이나 null인 객체를 써요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. 필드에 `volatile` 추가 | 최소 수정 | 여전히 구조가 복잡해 다음 사람이 또 실수할 수 있음 |
+| B. 홀더 클래스로 교체 | 지연 로딩 유지, 락·volatile 코드 없음 | 리플렉션·직렬화 복제는 못 막음 |
+| C. enum으로 교체 | 스레드 안전 + 리플렉션·직렬화까지 방어 | 다른 클래스를 상속할 수 없음, 지연 로딩은 enum 초기화 시점 기준 |
+| D. 직접 싱글톤을 버리고 스프링 빈으로 등록 | 테스트에서 가짜로 교체 가능, DIP 지킴 | 스프링 컨테이너 밖에서 쓰는 코드라면 적용 불가 |
+
+**내가 고를 방법**
+스프링 애플리케이션 안이라면 D를 제안해요. 싱글톤을 손으로 만들 이유가 거의 없고 테스트도 쉬워져요. 컨테이너 밖 유틸이라면 B를 권해요. 같은 지연 로딩을 더 단순한 코드로 얻어요. 당장 최소 수정만 가능하면 A로 막고, 왜 volatile이 필요한지 주석을 남겨요.
+
+**채점 포인트**: 명령어 재배치, 생성자가 덜 끝난 객체 노출, volatile의 happens-before 보장, 2차 검사의 이유, 홀더 클래스·enum 대안, 스프링 빈으로 대체.
+</details>
+
+<details>
+<summary>상황: 생성자 인자가 10개인 결제 DTO에서 금액과 수수료(둘 다 long)의 순서가 뒤바뀌어 저장되는 버그가 났습니다. 재발 방지책을 제시해 주세요.</summary>
+
+**상황 파악**
+같은 타입 인자가 이어지면 순서를 바꿔 넣어도 컴파일러가 잡지 못해요. 코드를 읽는 사람도 `new Payment(1000, 30, ...)`만 보고는 어느 게 금액인지 알 수 없어요.
+
+**원인 후보**
+1. 점층적 생성자에 의존한 생성 방식 자체의 한계
+2. 필수값과 선택값이 구분되지 않아 생성 지점마다 인자를 다 채워야 하는 구조
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. 빌더 패턴(Lombok `@Builder` 포함) | `.amount(1000).fee(30)`처럼 이름이 드러남, 불변 유지, `build()`에서 검증 | 필수값을 강제하지 않아 누락 위험, 필드 초기값 함정 |
+| B. 의미 있는 정적 팩토리 메서드 | `Payment.card(amount, fee)`처럼 용도별 이름, 필수값을 인자로 강제 | 경우의 수가 많으면 메서드가 늘어남 |
+| C. `Money`, `Fee` 같은 값 타입 도입 | 순서를 바꾸면 컴파일 에러로 잡힘 | 클래스가 늘고 기존 코드 변경 범위가 큼 |
+
+**내가 고를 방법**
+필수값(금액, 수수료)은 정적 팩토리나 생성자 인자로 강제하고, 선택값이 많으면 빌더를 써요. Lombok 빌더를 쓴다면 `build()` 단계 검증을 추가하고, 기본값이 있는 필드엔 `@Builder.Default`를 붙여요. 금액처럼 실수 비용이 큰 값은 장기적으로 C처럼 별도 타입으로 감싸는 걸 검토해요.
+
+**채점 포인트**: 점층적 생성자의 순서 실수, setter 방식의 불변성 상실, 빌더의 가독성·불변·검증, 정적 팩토리의 이름 있는 생성, Lombok 필수값 미강제와 `@Builder.Default`.
+</details>
+
+## 필기 포인트
+
+- GoF 분류: **생성**(싱글톤, 팩토리 메서드, 추상 팩토리, 빌더, 프로토타입) / **구조**(어댑터, 프록시, 데코레이터 등) / **행위**(전략, 템플릿 메서드, 옵저버 등).
+- 싱글톤 3요소: private 생성자, static 참조 변수, static `getInstance()`.
+- 동기화 없는 지연 초기화(`if (instance == null)`)는 스레드 안전하지 **않음**.
+- 이른 초기화·홀더 클래스·enum은 JVM 클래스 초기화 락 덕분에 스레드 안전.
+- DCL은 `volatile` 필수(Java 5 이후 보장).
+- 리플렉션·역직렬화로 생성을 막는 건 enum만 언어 차원에서 보장.
+- 스프링 싱글톤 = 컨테이너당·빈 정의당 1개. GoF 싱글톤 = 클래스 로더당 1개.
+- 정적 팩토리 메서드는 GoF 패턴이 **아님**. 팩토리 메서드 패턴은 상속 + 오버라이딩.
+- `Integer.valueOf`는 -128~127 캐시. 그 범위 밖 `==` 비교는 false일 수 있음.
+
+## 함께 보기
+
+- [클래스, 객체, static](../class-object-static/)
+- [SOLID 원칙](../solid/)
+- [구조 패턴](../patterns-structural/)
+- [동기화](../../java/synchronization/)
+
+## 출처
+
+- [Spring Framework Reference, Bean Scopes](https://docs.spring.io/spring-framework/reference/core/beans/factory-scopes.html)
+- [JLS SE 21, 12.4 Initialization of Classes and Interfaces](https://docs.oracle.com/javase/specs/jls/se21/html/jls-12.html#jls-12.4)
+- [JLS SE 21, 17장 Threads and Locks (메모리 모델, happens-before)](https://docs.oracle.com/javase/specs/jls/se21/html/jls-17.html)
+- [JLS SE 21, 8.9 Enum Classes](https://docs.oracle.com/javase/specs/jls/se21/html/jls-8.html#jls-8.9)
+- [Java SE 21 API, java.lang.Integer](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/lang/Integer.html)
+- [Project Lombok, @Builder](https://projectlombok.org/features/Builder)
+- 스프링 입문을 위한 자바 객체 지향의 원리와 이해 6장 "스프링이 사랑한 디자인 패턴" (싱글톤 예제의 스레드 안전성 문제는 JLS 기준으로 보완)
+- 참고 도서: GoF 『Design Patterns』, Joshua Bloch 『Effective Java』 3판 아이템 1~3

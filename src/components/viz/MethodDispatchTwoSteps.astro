@@ -1,0 +1,87 @@
+---
+// 메서드 호출은 두 번에 나눠 정해진다: 컴파일 때 선언 타입으로 시그니처 고정 → 실행 때 실제 객체 클래스에서 구현 찾기
+// 힙에는 Dog 객체 하나(안에 Animal 부분 + Dog 부분). 부모 객체를 따로 그리지 않는다(JLS 기준).
+import Stepper from '../Stepper.astro';
+const steps = [
+  { caption: 'Animal an = new Dog(); 변수 an의 선언 타입은 Animal이고, 가리키는 건 힙의 Dog 객체 하나예요. 그 객체 안에 Animal 부분과 Dog 부분이 같이 들어 있어요.', show: ['hl-obj'] },
+  { caption: '[컴파일] an.eat("hi")를 만나면 컴파일러는 선언 타입 Animal 클래스만 보고 eat이라는 이름의 후보를 모아요. Dog 쪽은 보지 않아요.', show: ['animcls', 'call', 'hl-anim'] },
+  { caption: '[컴파일] 인자 "hi"(String)에 맞는 시그니처를 하나 골라요. 딱 맞는 게 없으면 넓히기 → 박싱 → 가변인자 순으로 찾아요. eat(Object)로 정해져 바이트코드에 박혀요.', show: ['animcls', 'call', 'chip', 'hl-eat'] },
+  { caption: '[실행] JVM이 an이 실제로 가리키는 객체의 클래스를 확인해요. Dog예요.', show: ['animcls', 'call', 'chip', 'dogcls', 'rt-arr', 'hl-dog'] },
+  { caption: '[실행] Dog에 eat(Object) 재정의가 있는지 찾아요. eat(String)은 시그니처가 달라 재정의가 아니에요. 없으니 Animal로 올라가요. 반면 speak()는 Dog가 재정의해서 Dog 것이 실행돼요.', show: ['animcls', 'call', 'chip', 'dogcls', 'rt-arr', 'miss', 'up', 'res'] },
+  { caption: '비교: static 메서드(invokestatic)와 필드 접근은 컴파일 단계에서 끝나요. 실제 객체를 확인하는 실행 단계가 없어요.', show: ['animcls', 'call', 'chip', 'static'] },
+];
+const AX = 8, DX = 172, CW = 140; // Animal / Dog 클래스 상자 x, 폭
+const r1 = 162, r2 = 188, r3 = 214; // 클래스 상자 행 y
+---
+<Stepper title="누구의 메서드가 불릴까: 컴파일 한 번, 실행 한 번" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 390" role="img" aria-label="컴파일 시점에 시그니처를 고르고 실행 시점에 실제 객체에서 구현을 찾는 과정">
+    <defs>
+      <marker id="mdt-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+
+    <!-- 바탕: 선언 코드, 스택 변수, 힙의 Dog 객체 하나 -->
+    <text class="mono" x="160" y="16">Animal an = new Dog();</text>
+    <rect class="box" x="8" y="40" width="96" height="56" rx="6" />
+    <text x="56" y="58" style="font-weight:700">an</text>
+    <text class="sub" x="56" y="80">선언: Animal</text>
+    <line class="line" x1="104" y1="68" x2="146" y2="68" marker-end="url(#mdt-arr)" />
+    <rect class="box" x="148" y="32" width="164" height="72" rx="6" />
+    <text x="230" y="46" style="font-weight:700">Dog 객체 (1개)</text>
+    <line class="line" x1="156" y1="58" x2="304" y2="58" />
+    <text class="sub" x="230" y="70">Animal 부분</text>
+    <line class="line" x1="156" y1="82" x2="304" y2="82" stroke-dasharray="3 3" />
+    <text class="sub" x="230" y="93">Dog 부분</text>
+
+    <!-- Animal 클래스 (컴파일러가 보는 곳) -->
+    <g data-id="animcls">
+      <rect class="box" x={AX} y="120" width={CW} height="110" rx="6" />
+      <text x={AX + CW / 2} y="136" style="font-weight:700">Animal 클래스</text>
+      <text class="mono" x={AX + CW / 2} y={r1}>speak()</text>
+      <text class="mono" x={AX + CW / 2} y={r2}>eat(Object)</text>
+    </g>
+
+    <!-- Dog 클래스 (실행 때 찾는 곳) -->
+    <g data-id="dogcls">
+      <rect class="box" x={DX} y="120" width={CW} height="110" rx="6" />
+      <text x={DX + CW / 2} y="136" style="font-weight:700">Dog 클래스</text>
+      <text class="mono" x={DX + 10} y={r1} style="text-anchor:start">speak()</text>
+      <text class="sub" x={DX + CW - 8} y={r1} style="text-anchor:end">재정의</text>
+      <text class="mono" x={DX + 10} y={r2} style="text-anchor:start">eat(String)</text>
+    </g>
+    <line data-id="rt-arr" class="line hide" x1="236" y1="104" x2="236" y2="118" marker-end="url(#mdt-arr)" />
+    <g data-id="miss" class="hide">
+      <text class="err-t" x={DX + CW / 2} y={r3} style="font-size:14px">✗ eat(Object) 없음</text>
+    </g>
+    <line data-id="up" class="line hide" x1={DX + 2} y1={r3} x2={AX + CW + 2} y2={r2 + 4} marker-end="url(#mdt-arr)" />
+
+    <!-- 컴파일 결과 -->
+    <g data-id="call">
+      <text class="sub l" x="10" y="252">① 컴파일:</text>
+      <text class="mono l" x="92" y="252">an.eat("hi");</text>
+    </g>
+    <g data-id="chip">
+      <rect class="chip" x="8" y="266" width="304" height="32" rx="6" />
+      <text class="mono" x="160" y="283">invokevirtual Animal.eat(Object)</text>
+    </g>
+
+    <!-- 실행 결과 (5단계) / static·필드 비교 (6단계): 같은 자리에 번갈아 -->
+    <g data-id="res" class="hide">
+      <text class="sub l" x="10" y="322">② 실행 결과</text>
+      <text class="mono l" x="10" y="346">an.speak()  → <tspan class="hi">Dog</tspan>.speak</text>
+      <text class="mono l" x="10" y="370">an.eat("hi") → <tspan class="hi">Animal</tspan>.eat(Object)</text>
+    </g>
+    <g data-id="static" class="hide">
+      <text class="sub l" x="10" y="322">static·필드는 ①에서 끝 (②가 없음)</text>
+      <text class="mono l" x="10" y="346">invokestatic Animal.kind()</text>
+      <text class="sub l" x="10" y="370">an.name → Animal의 필드 (선언 타입 기준)</text>
+    </g>
+
+    <!-- 단계별 강조 테두리 -->
+    <rect data-id="hl-obj" class="hl" x="4" y="28" width="312" height="80" rx="8" />
+    <rect data-id="hl-anim" class="hl" x={AX - 4} y="116" width={CW + 8} height="118" rx="8" />
+    <rect data-id="hl-eat" class="hl" x={AX + 4} y={r2 - 13} width={CW - 8} height="26" rx="6" />
+    <rect data-id="hl-dog" class="hl" x={DX - 4} y="116" width={CW + 8} height="118" rx="8" />
+  </svg>
+</Stepper>

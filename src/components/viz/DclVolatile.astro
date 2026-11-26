@@ -1,0 +1,88 @@
+---
+// DCL에서 volatile이 없을 때 생기는 재배치 문제와 volatile 해결.
+// 행 = 시간 순서, 열 = 스레드 A | instance | 스레드 B. 시나리오 2개(p: volatile 없음, v: volatile)를 같은 격자에 겹친다.
+import Stepper from '../Stepper.astro';
+type Cell = [string, string?];                     // [글자, 'chip' | 'err' | 'hi']
+type Row = { a?: Cell; m?: Cell; b?: Cell };
+const AX = 64, MX = 160, BX = 256, CW = 116, CH = 30;
+const ROWY = [116, 152, 188, 224, 260, 296, 332];
+const bad: Row[] = [
+  { a: ['1차: null'], m: ['null'] },
+  { a: ['락 · 2차: null'], m: ['null'] },
+  { a: ['① 메모리 할당'], m: ['null'] },
+  { a: ['③ 참조 대입', 'err'], m: ['미완성', 'err'] },
+  { b: ['1차: null 아님'], m: ['미완성', 'err'] },
+  { b: ['필드 읽기 → 0', 'err'], m: ['미완성', 'err'] },
+  { a: ['② 생성자 실행'], m: ['완성'] },
+];
+const good: Row[] = [
+  { a: ['1차: null'], m: ['null'] },
+  { a: ['락 · 2차: null'], m: ['null'] },
+  { a: ['① 메모리 할당'], m: ['null'] },
+  { a: ['② 생성자 실행'], m: ['null'] },
+  { a: ['③ 참조 대입'], m: ['완성', 'hi'] },
+  { b: ['1차: null 아님'], m: ['완성'] },
+  { b: ['필드 읽기 → 정상'], m: ['완성'] },
+];
+const scen = [{ k: 'p', rows: bad }, { k: 'v', rows: good }];
+const upto = (k: string, n: number) => Array.from({ length: n }, (_, i) => `${k}${i}`);
+const steps = [
+  { caption: 'volatile 없는 DCL이에요. instance는 null이고, A가 먼저 getInstance()를 불러요.', show: ['m-p', 'init'] },
+  { caption: 'A가 락 없이 1차 검사(null)를 하고, 락을 잡은 뒤 2차 검사(여전히 null)를 해요.', show: ['m-p', 'init', ...upto('p', 2), 'hl0', 'hl1'] },
+  { caption: 'new는 원래 ① 메모리 할당 → ② 생성자 실행 → ③ 참조 대입이에요. volatile이 없으면 ①→③→②로 순서가 바뀔 수 있어요. A가 ① 할당을 해요.', show: ['m-p', 'init', ...upto('p', 3), 'hl2'] },
+  { caption: '③ 참조 대입이 ② 생성자보다 먼저 일어났어요. instance는 null이 아니지만 안은 아직 비어 있어요(미완성).', show: ['m-p', 'init', ...upto('p', 4), 'hl3'] },
+  { caption: '이때 B가 들어와요. 1차 검사는 락 없이 하니까 기다리지 않아요. null이 아니라서 그대로 반환받아요.', show: ['m-p', 'init', ...upto('p', 5), 'hl4'] },
+  { caption: 'B가 필드를 읽으니 생성자가 아직 안 채운 기본값(0이나 null)이 나와요.', show: ['m-p', 'init', ...upto('p', 6), 'hl5'] },
+  { caption: 'A의 생성자는 그 뒤에야 끝나요. B는 이미 덜 만든 객체를 써 버렸어요.', show: ['m-p', 'init', ...upto('p', 7), 'hl6', 'res-p'] },
+  { caption: 'instance를 volatile로 선언하면 volatile 쓰기(③ 대입) 앞의 일(② 생성자)이 뒤로 밀리지 않고, 그 쓰기는 이후 읽기보다 먼저임이 보장돼요. B는 완성된 객체만 봐요.', show: ['m-v', 'init', ...upto('v', 7), 'hl4', 'res-v'] },
+];
+const cx = (k: 'a' | 'b') => (k === 'a' ? AX : BX);
+---
+<Stepper title="DCL에 volatile이 필요한 이유" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 420" role="img" aria-label="volatile 없는 DCL에서 참조 대입이 생성자보다 먼저 일어나 다른 스레드가 미완성 객체를 읽는 과정과 volatile로 막는 모습">
+    <g data-id="m-p" class="hide">
+      <rect class="box" x="40" y="6" width="240" height="28" rx="14" />
+      <text x="160" y="20" style="font-weight:700">문제: volatile 없는 DCL</text>
+    </g>
+    <g data-id="m-v" class="hide">
+      <rect class="badge" x="40" y="6" width="240" height="28" rx="14" />
+      <text class="on-badge" x="160" y="20">해결: volatile instance</text>
+    </g>
+
+    <text x={AX} y="52" style="font-weight:700">스레드 A</text>
+    <text x={MX} y="52" style="font-weight:700">instance</text>
+    <text x={BX} y="52" style="font-weight:700">스레드 B</text>
+    <rect class="frame" x={MX - 30} y="64" width="60" height="286" rx="6" />
+    <g data-id="init"><text x={MX} y="80" class="sub">null</text></g>
+
+    {ROWY.map((y, i) => <rect data-id={`hl${i}`} class="hl" x="3" y={y - 17} width="314" height="34" rx="8" />)}
+
+    {scen.map((s) => s.rows.map((r, i) => {
+      const y = ROWY[i];
+      return (
+        <g data-id={`${s.k}${i}`} class="hide">
+          {(['a', 'b'] as const).map((k) => r[k] && (
+            <g>
+              <rect class={r[k]![1] ?? 'chip'} x={cx(k) - CW / 2} y={y - CH / 2} width={CW} height={CH} rx="6" />
+              <text class={r[k]![1] === 'err' ? 'err-t' : undefined} x={cx(k)} y={y} style="font-size:14px;font-weight:700">{r[k]![0]}</text>
+            </g>
+          ))}
+          {r.m && (r.m[1] === 'err'
+            ? <g><rect class="err" x={MX - 28} y={y - CH / 2} width="56" height={CH} rx="6" /><text class="err-t" x={MX} y={y} style="font-size:14px">{r.m[0]}</text></g>
+            : <text class={r.m[1]} x={MX} y={y} style="font-size:14px">{r.m[0]}</text>)}
+        </g>
+      );
+    }))}
+
+    <g data-id="res-p" class="hide">
+      <rect class="err" x="10" y="360" width="300" height="54" rx="8" />
+      <text class="err-t" x="160" y="378">B가 미완성 객체를 사용</text>
+      <text x="160" y="399" style="font-size:14px">③ 대입이 ② 생성자보다 먼저 보였어요</text>
+    </g>
+    <g data-id="res-v" class="hide">
+      <rect class="chip" x="10" y="360" width="300" height="54" rx="8" />
+      <text class="hi" x="160" y="378">B는 완성된 객체만 봄</text>
+      <text x="160" y="399" style="font-size:14px">volatile 쓰기 → 이후 읽기 (happens-before)</text>
+    </g>
+  </svg>
+</Stepper>

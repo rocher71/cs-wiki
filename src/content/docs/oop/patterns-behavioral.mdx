@@ -1,0 +1,416 @@
+---
+title: "행위 패턴: 전략·템플릿 메서드·옵저버"
+description: 템플릿 메서드는 상속으로, 전략은 객체 주입으로 바뀌는 부분을 갈아 끼우고, 옵저버는 한 객체의 변화를 여러 구독자에게 알려요.
+sidebar: { order: 9 }
+tags: [면접빈출, 서술형]
+---
+import { Aside } from '@astrojs/starlight/components';
+import TemplateVsStrategy from '~/components/viz/TemplateVsStrategy.astro';
+import SpringEventTiming from '~/components/viz/SpringEventTiming.astro';
+
+:::tip[한 줄 요약]
+템플릿 메서드와 전략은 둘 다 "안 바뀌는 흐름은 고정하고, 바뀌는 부분만 갈아 끼운다"는 패턴이에요. 템플릿 메서드는 **상속**(하위 클래스가 빈칸을 오버라이딩)으로, 전략은 **합성**(인터페이스 객체를 주입)으로 갈아 끼워요. 옵저버는 한 객체의 변화를 여러 구독자에게 알리는 패턴이고, 스프링 이벤트가 대표 예예요. 스프링 이벤트는 **기본이 동기**라는 점을 꼭 기억해요.
+:::
+
+## 쉽게 이해하기
+
+**템플릿 메서드**는 **빈칸 채우기 시험지**예요. 문제 순서와 지문은 이미 인쇄돼 있고, 학생은 빈칸만 채워요. 시험지 자체(흐름)를 바꿀 수는 없어요. 코드에서는 부모 클래스가 시험지, 자식 클래스가 빈칸을 채우는 학생이에요.
+
+**전략**은 **드라이버 손잡이와 비트**예요. 손잡이(컨텍스트)는 하나인데 십자, 일자, 육각 비트(전략)를 그때그때 끼워 써요. 손잡이는 지금 어떤 비트가 꽂혔는지 몰라도 "돌린다"만 하면 돼요.
+
+**옵저버**는 **유튜브 구독**이에요. 채널(주체)이 영상을 올리면 구독자(옵저버) 모두에게 알림이 가요. 채널은 구독자가 누군지 하나하나 신경 쓰지 않아요.
+
+단, 실제 스프링 이벤트는 유튜브 알림처럼 "올리고 끝"이 아니에요. 기본 설정에서는 발행한 쪽이 구독자들의 처리가 **다 끝날 때까지 기다려요**.
+
+## 그림으로 보기
+
+<TemplateVsStrategy />
+
+<SpringEventTiming />
+
+## 제대로 알기
+
+### 1. 왜 행위 패턴이 필요한가
+
+결제 서비스에 `if (카드) ... else if (카카오페이) ... else if (포인트) ...`가 쌓인다고 해 봐요. 새 결제 수단이 생길 때마다 이미 잘 돌던 코드를 열어 고쳐야 하고, 그러다 다른 분기를 건드려 장애가 나요. **행위 패턴**(behavioral pattern, 객체들이 일을 어떻게 나눠 맡고 주고받을지에 대한 패턴)은 이 "바뀌는 부분"을 따로 떼어 내는 방법이에요. 이 페이지의 세 패턴 모두 [OCP](../solid/)(확장에는 열고 수정에는 닫는다)를 지키는 도구예요.
+
+### 2. 템플릿 메서드: 상속으로 빈칸 채우기
+
+여러 클래스의 메서드가 **한두 줄만 다르고 나머지는 똑같을 때** 써요. 같은 부분은 부모 추상 클래스로 올리고, 다른 부분만 자식에게 맡겨요.
+
+구성 요소는 세 가지예요.
+
+| 이름 | 위치 | 역할 |
+|---|---|---|
+| 템플릿 메서드 | 부모 | 공통 흐름. 중간에 자식이 구현한 메서드를 불러요 |
+| 추상 메서드 | 부모에 선언, 자식이 구현 | 자식이 **반드시** 채워야 하는 빈칸 |
+| 훅(hook) 메서드 | 부모에 기본 구현 | 자식이 **원할 때만** 오버라이딩하는 선택 칸 |
+
+```java
+abstract class AbstractOrderProcessor {
+    // 흐름 순서를 자식이 못 바꾸게 final로 막는 경우가 많아요
+    public final void process(Order o) {
+        checkStock(o);       // 공통
+        pay(o);              // 자식이 반드시 구현
+        afterPay(o);         // 훅: 기본은 아무것도 안 함
+        save(o);             // 공통
+    }
+    protected abstract void pay(Order o);
+    protected void afterPay(Order o) { }
+    private void checkStock(Order o) { /* ... */ }
+    private void save(Order o) { /* ... */ }
+}
+
+class CardOrderProcessor extends AbstractOrderProcessor {
+    protected void pay(Order o) { /* 카드사 API 호출 */ }
+}
+```
+
+여기서 흐름의 주도권은 부모에게 있어요. 자식은 "불러 주면 실행될" 메서드만 만들어 두고, 언제 부를지는 부모가 정해요. 이걸 흔히 **할리우드 원칙**("우리가 연락할 테니 먼저 연락하지 마세요")이라고 불러요. 일종의 [제어 역전](../solid/)이에요.
+
+자바 표준 라이브러리에도 이 구조가 있어요. `AbstractList`는 `get`과 `size`만 구현하면 나머지 리스트 기능을 채워 주는 뼈대로 흔히 소개돼요. 서블릿의 `HttpServlet.service()`가 요청 방식에 따라 `doGet`, `doPost`를 부르는 것도 같은 모양이에요.
+
+### 3. 전략: 합성으로 부품 갈아 끼우기
+
+전략 패턴은 세 역할로 나뉘어요.
+
+- **전략**(strategy): 바뀌는 알고리즘을 담은 객체. 인터페이스로 정의해요.
+- **컨텍스트**(context): 전략을 **쓰는** 쪽. 어떤 구현이 들어왔는지 몰라요.
+- **클라이언트**: 전략을 골라 만들어서 컨텍스트에 **넣어 주는** 쪽. 스프링에서는 보통 컨테이너가 이 역할을 해요.
+
+```java
+interface DiscountPolicy { int discount(int price); }
+
+class CardDiscount implements DiscountPolicy {
+    public int discount(int price) { return price / 10; }   // 10%
+}
+class PointDiscount implements DiscountPolicy {
+    public int discount(int price) { return price / 20; }   // 5%
+}
+
+class OrderService {                          // 컨텍스트
+    private final DiscountPolicy policy;
+    OrderService(DiscountPolicy policy) { this.policy = policy; } // 주입받음
+    int pay(int price) { return price - policy.discount(price); }
+}
+// 클라이언트: new OrderService(new CardDiscount())
+```
+
+새 할인 정책이 생기면 구현 클래스를 하나 **추가**하면 돼요. `OrderService`는 고치지 않아요. 이게 OCP예요. `OrderService`가 구체 클래스가 아니라 인터페이스에만 기대니 [DIP](../solid/)도 지켜요.
+
+**가장 친숙한 전략: `Comparator`**
+
+`list.sort(...)`에 넘기는 `Comparator`가 바로 전략이에요. 정렬 알고리즘(컨텍스트)은 그대로이고, "무엇을 기준으로 비교할지"(전략)만 바꿔 끼워요. `Comparator`는 추상 메서드가 하나인 함수형 인터페이스라서 전략 클래스를 따로 만들 필요 없이 람다나 메서드 참조로 넘길 수 있어요.
+
+```java
+orders.sort(Comparator.comparing(Order::getPrice)        // 가격순
+                      .thenComparing(Order::getCreatedAt)); // 같으면 시간순
+```
+
+람다 문법은 [람다와 스트림](../../java/lambda-stream/)에서 자세히 다뤄요.
+
+**스프링에서 전략을 런타임에 고르기**
+
+같은 인터페이스의 구현을 여러 개 빈으로 등록하면, 스프링은 `Map<String, DiscountPolicy>`처럼 **빈 이름을 키로 한 Map**으로 한꺼번에 주입해 줄 수 있어요. 그러면 요청마다 결제 수단 이름으로 꺼내 쓸 수 있어요.
+
+```java
+@Service
+class PaymentService {
+    private final Map<String, DiscountPolicy> policies; // 키 = 빈 이름
+    PaymentService(Map<String, DiscountPolicy> policies) { this.policies = policies; }
+    int pay(String method, int price) {
+        return price - policies.get(method).discount(price);
+    }
+}
+```
+
+<Aside type="caution" title="전략 패턴이 if문을 없애 주지는 않아요">
+"어떤 전략을 쓸지" 고르는 부분은 어딘가에 남아요. 위 코드에서는 `policies.get(method)`가 그 역할이에요. 전략 패턴은 분기를 **한 곳으로 모으고**, 각 분기의 내용을 독립된 클래스로 빼 주는 거예요.
+</Aside>
+
+### 4. 템플릿 메서드 vs 전략
+
+둘은 목적이 같아요. 같은 문제를 상속으로 풀면 템플릿 메서드, 객체 주입으로 풀면 전략이에요.
+
+| 구분 | 템플릿 메서드 | 전략 |
+|---|---|---|
+| 수단 | 상속(`extends`) | 합성 + 인터페이스(주입) |
+| 바뀌는 부분 위치 | 자식 클래스의 오버라이딩 메서드 | 별도 전략 객체 |
+| 교체 시점 | 코드를 짤 때(어떤 자식 클래스를 쓸지) | 실행 중(다른 객체를 넣으면 됨) |
+| 결합도 | 부모-자식이 강하게 묶임. 부모를 고치면 자식에 영향 | 인터페이스로만 연결 |
+| 단점 | 하나뿐인 상속 기회를 써 버림, 조합이 늘면 클래스 폭발 | 클래스·객체 수 증가, 클라이언트가 어떤 전략이 있는지 알아야 함 |
+
+자바는 클래스를 하나만 상속할 수 있어서, 실무에서는 전략 쪽을 더 자주 써요. [상속보다 조합](../inheritance-composition/)을 선호하는 이유와 같아요.
+
+### 5. 템플릿 콜백: 스프링 `XxxTemplate`의 정체
+
+**템플릿 콜백**(template callback)은 전략 패턴의 변형이에요. 전략 객체를 미리 클래스로 만들어 두지 않고, **메서드를 부를 때 그 자리에서** 익명 클래스나 람다로 만들어 넘겨요. 이렇게 넘기는 코드 조각을 **콜백**(callback, 나중에 대신 불러 달라고 맡기는 코드)이라고 해요.
+
+스프링의 `JdbcTemplate`이 대표 예예요.
+
+```java
+List<Actor> actors = jdbcTemplate.query(
+    "select first_name, last_name from t_actor",
+    (rs, rowNum) -> new Actor(rs.getString("first_name"),  // RowMapper 콜백
+                              rs.getString("last_name")));
+```
+
+`JdbcTemplate`이 맡는 일과 내 코드가 맡는 일이 깔끔하게 나뉘어요.
+
+| JdbcTemplate(템플릿)이 하는 일 | 내 코드(콜백)가 하는 일 |
+|---|---|
+| 커넥션 얻기, 문장 만들고 실행하기 | SQL 문자열 넘기기 |
+| 결과 행마다 콜백 부르기 | 한 행을 객체로 바꾸기(`RowMapper`) |
+| 자원 닫기(커넥션 안 닫는 실수 방지) | |
+| JDBC 예외를 스프링 `DataAccessException` 계층으로 바꾸기 | |
+
+`TransactionTemplate.execute(status -> { ... })`도 같은 방식이에요. 트랜잭션 시작·커밋·롤백이라는 고정 흐름은 템플릿이 하고, 그 안에서 할 일만 콜백으로 넘겨요. 콜백 안에서 `status.setRollbackOnly()`를 부르면 롤백돼요. `JdbcTemplate`과 `TransactionTemplate`은 설정이 끝나면 스레드 안전해서 인스턴스 하나를 여러 곳이 같이 써도 돼요.
+
+<Aside type="note" title="이름은 Template인데 템플릿 메서드 패턴이 아니에요">
+`JdbcTemplate`을 쓸 때 우리는 아무것도 상속하지 않아요. 바뀌는 부분을 **메서드 인자(콜백)**로 넘길 뿐이에요. 그래서 GoF 템플릿 메서드가 아니라 **템플릿 콜백**이에요. `RestTemplate`도 같은 형태지만 Spring Framework 7부터 deprecated(앞으로 없앨 예정이니 쓰지 말라는 표시, 8.0에서 제거 예정)가 됐고, 새 코드에는 `RestClient`를 권장해요.
+</Aside>
+
+### 6. 옵저버: 변화를 구독자에게 알리기
+
+**옵저버**(observer)는 한 객체(**주체**, subject)의 변화를 여러 **구독자**(observer)에게 자동으로 알리는 1:N 관계예요. 주체는 구독자의 구체 타입을 모르고 인터페이스로만 알아서, 알리는 쪽과 처리하는 쪽이 떨어져요. 비슷한 말인 **발행-구독**(pub/sub)은 보통 둘 사이에 메시지 브로커 같은 중간자가 있다는 점이 달라요.
+
+주문이 끝나면 알림 발송, 포인트 적립, 통계 집계를 해야 한다고 해 봐요. `OrderService`가 셋을 직접 부르면 새 후속 작업이 생길 때마다 `OrderService`를 고쳐야 해요. 옵저버로 바꾸면 `OrderService`는 "주문 완료됐어요"라는 이벤트만 던지고, 후속 작업들은 각자 이벤트를 구독해요.
+
+**스프링 이벤트로 구현하기**
+
+```java
+record OrderCompletedEvent(Long orderId) { }   // 아무 객체나 이벤트가 될 수 있어요(4.2+)
+
+@Service
+class OrderService {
+    private final ApplicationEventPublisher publisher;
+    OrderService(ApplicationEventPublisher publisher) { this.publisher = publisher; }
+
+    @Transactional
+    public void complete(Long orderId) {
+        // ... 주문 상태 변경
+        publisher.publishEvent(new OrderCompletedEvent(orderId)); // 발행
+    }
+}
+
+@Component
+class NotificationListener {
+    @EventListener                       // 파라미터 타입으로 받을 이벤트를 정해요
+    public void on(OrderCompletedEvent e) { /* 알림 발송 */ }
+}
+```
+
+### 7. 스프링 이벤트의 함정: 기본은 동기
+
+많이 하는 오해가 "이벤트니까 비동기겠지"예요. 실제로는 반대예요.
+
+- `publishEvent()`는 **모든 리스너가 끝날 때까지 기다려요**. 리스너는 발행한 쪽과 **같은 스레드**에서 실행돼요.
+- 같은 스레드라서, 발행하는 쪽에 트랜잭션이 있으면 리스너도 **그 트랜잭션 안에서** 돌아요.
+- 그래서 알림 리스너가 느리면 주문 응답도 느려지고, 리스너가 예외를 던지면 발행한 쪽으로 전파돼 주문 트랜잭션까지 롤백될 수 있어요.
+
+이 문제를 푸는 도구가 두 가지 있어요.
+
+**`@TransactionalEventListener`: 트랜잭션 결과에 맞춰 실행**
+
+리스너 실행 시점을 트랜잭션 단계에 묶어요. `phase`로 정해요.
+
+| phase | 언제 실행되나 |
+|---|---|
+| `AFTER_COMMIT` (**기본값**) | 커밋이 성공한 뒤. 롤백되면 실행 안 됨 |
+| `AFTER_ROLLBACK` | 롤백된 뒤 |
+| `AFTER_COMPLETION` | 커밋이든 롤백이든 끝난 뒤 |
+| `BEFORE_COMMIT` | 커밋 직전 |
+
+`AFTER_COMMIT`을 쓰면 "결제가 롤백됐는데 완료 알림이 나가는" 사고를 막을 수 있어요.
+
+<Aside type="caution" title="@TransactionalEventListener에서 자주 밟는 지뢰">
+- **트랜잭션이 없으면 리스너가 아예 호출되지 않아요.** 에러도 없이 조용히 건너뛰어요. 트랜잭션 밖에서도 실행하려면 `fallbackExecution = true`를 줘요.
+- 비동기가 **아니에요.** 커밋 뒤에 실행될 뿐, 기본적으로는 여전히 같은 스레드예요.
+- `AFTER_COMMIT` 리스너 안에서 DB에 저장하면 반영이 안 될 수 있어요. 원래 트랜잭션은 이미 커밋돼 끝났기 때문이에요. 쓰기가 필요하면 리스너에 `@Transactional(propagation = REQUIRES_NEW)`로 새 트랜잭션을 여는 방법을 흔히 써요. 리스너가 실패해도 이미 커밋된 주문은 되돌아가지 않아요.
+</Aside>
+
+**`@Async`: 별도 스레드에서 실행**
+
+리스너에 `@Async`를 붙이면(설정에 `@EnableAsync` 필요) 다른 스레드에서 실행돼서, 주문 응답이 알림을 기다리지 않아요. 대신 알아 둘 점이 있어요.
+
+- 리스너 예외가 발행한 쪽으로 전파되지 않아요. 따로 처리해야 해요(`AsyncUncaughtExceptionHandler`).
+- 리스너가 값을 리턴해서 후속 이벤트를 발행하는 기능을 쓸 수 없어요.
+- `ThreadLocal`이나 로깅 컨텍스트가 기본으로 넘어가지 않아요.
+
+실무에서는 `@TransactionalEventListener` + `@Async`를 함께 써서 "커밋된 뒤에, 다른 스레드에서" 후속 작업을 돌리는 조합이 흔해요.
+
+그 밖에 `@EventListener(condition = "...")`로 조건부 실행, `@Order`로 리스너 순서를 정할 수 있어요.
+
+<Aside type="note" title="이벤트는 메모리 안에만 있어요">
+스프링 이벤트는 같은 서버 메모리 안에서만 전달돼요. 커밋은 됐는데 리스너가 돌기 전에 서버가 죽으면 그 알림은 사라져요. 반드시 처리돼야 하는 일이라면 이벤트를 DB 테이블에 같이 저장해 두고 따로 보내는 **아웃박스 패턴**이나 Kafka 같은 메시지 브로커를 함께 쓰는 게 일반적이에요.
+</Aside>
+
+### 8. 세 패턴 한눈에
+
+| 패턴 | 한 줄 정의 | 자바·스프링 예 |
+|---|---|---|
+| 템플릿 메서드 | 부모가 흐름을 정하고 자식이 빈칸을 오버라이딩 | `AbstractList`, `HttpServlet.service()` |
+| 전략 | 바뀌는 알고리즘을 인터페이스 객체로 주입 | `Comparator`, 할인 정책 빈 주입 |
+| 템플릿 콜백 | 전략을 호출 시점에 람다·익명 클래스로 넘김 | `JdbcTemplate`, `TransactionTemplate` |
+| 옵저버 | 주체의 변화를 여러 구독자에게 알림 | `ApplicationEventPublisher`, `@EventListener` |
+
+## 면접 질문
+
+<details>
+<summary>Q. 전략 패턴이 뭔가요? 예를 들어 주세요.</summary>
+
+**답변(30초)** 바뀌는 알고리즘을 인터페이스로 떼어 내고, 그 구현 객체를 바깥에서 주입받아 쓰는 패턴이에요. 쓰는 쪽(컨텍스트)은 인터페이스만 알아서 구현을 바꿔도 코드를 고치지 않아요. 대표 예가 `Comparator`예요. 정렬 알고리즘은 그대로이고 비교 기준만 갈아 끼워요. 실무에서는 결제 수단별 할인 정책을 인터페이스로 만들고 구현을 빈으로 등록해 주입받는 식으로 써요.
+
+**꼬리질문**
+- Q. 전략 패턴은 SOLID의 어떤 원칙과 관련 있나요? → 새 전략을 추가해도 컨텍스트를 안 고치니 OCP, 컨텍스트가 인터페이스에만 의존하니 DIP예요.
+- Q. 런타임에 전략을 고르려면? → 스프링에서 `Map<String, DiscountPolicy>`로 구현 빈들을 주입받고 키로 꺼내 써요. 선택하는 분기 자체는 어딘가에 남아요.
+- Q. 전략 클래스가 너무 많아지면? → 전략 인터페이스가 추상 메서드 하나라면 클래스 대신 람다로 넘길 수 있어요.
+</details>
+
+<details>
+<summary>Q. 템플릿 메서드 패턴과 전략 패턴의 차이는 뭔가요? 어느 쪽을 더 선호하나요?</summary>
+
+**답변(30초)** 둘 다 고정된 흐름에서 바뀌는 부분만 분리하는 패턴이고, 차이는 수단이에요. 템플릿 메서드는 상속을 써서 자식 클래스가 부모의 빈칸 메서드를 오버라이딩하고, 전략은 합성을 써서 인터페이스 객체를 주입받아요. 저는 보통 전략을 선호해요. 자바는 단일 상속이라 상속 기회를 아낄 수 있고, 부모-자식 결합이 없으며, 실행 중에 객체만 바꿔 끼울 수 있기 때문이에요.
+
+**꼬리질문**
+- Q. 그럼 템플릿 메서드는 언제 쓰나요? → 흐름 순서를 강하게 고정해야 하고 구현체들이 밀접한 한 가족일 때요. 템플릿 메서드를 `final`로 막아 순서를 못 바꾸게 하는 경우가 많아요.
+- Q. 할리우드 원칙이 뭔가요? → "우리가 부를 테니 먼저 부르지 마라". 부모가 흐름을 쥐고 자식 메서드를 호출하는 제어 역전을 말해요.
+</details>
+
+<details>
+<summary>Q. 훅 메서드가 뭔가요? 추상 메서드와 뭐가 다른가요?</summary>
+
+**답변(30초)** 훅 메서드는 템플릿 메서드 패턴에서 부모가 기본 구현을 넣어 두고, 자식이 필요할 때만 오버라이딩하는 메서드예요. 추상 메서드는 몸체가 없어서 자식이 반드시 구현해야 하지만, 훅은 그대로 두면 기본 동작(흔히 아무것도 안 함)이 실행돼요. 그래서 훅은 "선택적으로 끼어들 수 있는 지점"이에요.
+
+**꼬리질문**
+- Q. 예를 들면? → 주문 처리 흐름에서 `afterPay()`를 빈 메서드로 두고, 영수증을 보내야 하는 결제 수단만 오버라이딩하는 식이에요.
+</details>
+
+<details>
+<summary>Q. JdbcTemplate은 어떤 패턴인가요? 무슨 일을 해 주나요?</summary>
+
+**답변(30초)** 이름 때문에 템플릿 메서드로 오해하기 쉬운데, 정확히는 템플릿 콜백 패턴이에요. 상속하지 않고, 바뀌는 부분을 `RowMapper` 같은 콜백으로 메서드 인자에 넘겨요. 템플릿은 커넥션 획득, 문장 실행, 자원 해제, JDBC 예외를 스프링 `DataAccessException`으로 바꾸는 일을 맡고, 내 코드는 SQL과 행을 객체로 바꾸는 부분만 써요. 템플릿 콜백은 전략 패턴의 변형으로 볼 수 있어요.
+
+**꼬리질문**
+- Q. 비슷한 스프링 클래스는? → `TransactionTemplate`이 트랜잭션 시작·커밋·롤백을 맡고 할 일만 콜백으로 받아요. `RestTemplate`도 같은 형태지만 Spring 7부터 deprecated라 새 코드는 `RestClient`를 써요.
+- Q. JdbcTemplate을 여러 DAO가 공유해도 되나요? → 돼요. 설정 후에는 스레드 안전해요.
+</details>
+
+<details>
+<summary>Q. 옵저버 패턴이 뭔가요? 스프링에서는 어떻게 쓰나요?</summary>
+
+**답변(30초)** 한 객체의 상태 변화를 여러 구독자에게 자동으로 알리는 1:N 패턴이에요. 알리는 쪽은 구독자의 구체 타입을 몰라서 둘이 느슨하게 연결돼요. 스프링에서는 `ApplicationEventPublisher.publishEvent()`로 이벤트를 발행하고, `@EventListener`를 붙인 메서드가 파라미터 타입으로 이벤트를 받아요. 예를 들어 주문 완료 이벤트 하나에 알림·포인트·통계 리스너를 따로 붙이면 주문 서비스는 후속 작업을 몰라도 돼요.
+
+**꼬리질문**
+- Q. 이벤트 방식의 단점은? → 코드만 봐서는 누가 이벤트를 받는지 흐름을 따라가기 어렵고, 메모리 안 이벤트라 서버가 죽으면 유실될 수 있어요.
+- Q. 옵저버와 pub/sub의 차이는? → pub/sub은 보통 중간에 브로커가 있어서 발행자와 구독자가 서로를 전혀 몰라요.
+</details>
+
+<details>
+<summary>Q. 스프링 이벤트 리스너는 동기인가요, 비동기인가요?</summary>
+
+**답변(30초)** 기본은 동기예요. `publishEvent()`는 모든 리스너가 끝날 때까지 기다리고, 리스너는 발행자와 같은 스레드, 같은 트랜잭션 안에서 실행돼요. 그래서 리스너가 느리면 응답이 느려지고, 리스너 예외가 발행자 트랜잭션을 롤백시킬 수 있어요. 비동기로 돌리려면 `@EnableAsync`를 켜고 리스너에 `@Async`를 붙여요.
+
+**꼬리질문**
+- Q. `@Async` 리스너의 주의점은? → 예외가 발행자에게 전파되지 않아 따로 처리해야 하고, `ThreadLocal`·로깅 컨텍스트가 기본으로 안 넘어가요.
+- Q. `@TransactionalEventListener`는 비동기인가요? → 아니요. 커밋 후에 실행될 뿐 기본은 같은 스레드예요.
+</details>
+
+<details>
+<summary>Q. @EventListener와 @TransactionalEventListener의 차이는 뭔가요?</summary>
+
+**답변(30초)** `@EventListener`는 발행 즉시 실행되고, `@TransactionalEventListener`는 트랜잭션 단계에 맞춰 실행돼요. 기본 phase가 `AFTER_COMMIT`이라 커밋에 성공해야 실행되고, 롤백되면 실행되지 않아요. 그래서 "롤백된 주문에 완료 알림이 나가는" 문제를 막을 수 있어요. 주의할 점은 트랜잭션이 없으면 리스너가 아예 호출되지 않는다는 거예요. 필요하면 `fallbackExecution = true`를 줘요.
+
+**꼬리질문**
+- Q. AFTER_COMMIT 리스너에서 DB 저장이 안 되는 이유는? → 원래 트랜잭션이 이미 커밋돼 끝났기 때문이에요. 쓰기가 필요하면 `REQUIRES_NEW`로 새 트랜잭션을 여는 방법을 흔히 써요.
+- Q. phase 종류는? → `BEFORE_COMMIT`, `AFTER_COMMIT`(기본), `AFTER_ROLLBACK`, `AFTER_COMPLETION`이에요.
+</details>
+
+## 서술형 연습
+
+<details>
+<summary>상황: 결제 서비스에 결제 수단별 할인 로직이 if-else로 계속 늘어나고, 새 수단을 추가할 때마다 기존 분기를 건드려 장애가 납니다.</summary>
+
+**상황 파악**
+할인 계산이라는 "바뀌는 부분"이 결제 서비스 한 메서드 안에 섞여 있어요. 그래서 수단 하나를 추가하려면 이미 잘 돌던 메서드를 열어야 하고, 다른 분기를 실수로 건드릴 위험이 매번 생겨요. OCP를 어기고 있는 상태예요.
+
+**원인 후보**
+1. 할인 규칙이 클래스로 나뉘지 않고 분기문에 직접 들어 있음
+2. 수단별 규칙을 따로 테스트할 방법이 없어 회귀를 못 잡음
+3. 어떤 규칙을 쓸지 고르는 로직과 규칙 내용이 한데 섞여 있음
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. `DiscountPolicy` 인터페이스 + 수단별 구현 빈 + `Map<String, DiscountPolicy>` 주입 | 새 수단은 클래스 추가만, 결제 서비스 수정 없음. 규칙마다 단독 테스트 가능. 쿠폰 조회 같은 다른 빈도 주입받을 수 있음 | 클래스와 빈 수가 늘어남. 빈 이름과 결제 수단 키를 맞춰야 함 |
+| B. enum에 람다 필드로 규칙 담기(`CARD(p -> p / 10)`) | 한 파일에서 규칙을 한눈에 봄, 가벼움 | 외부 의존(DB·다른 서비스)을 주입하기 어려움. 규칙이 복잡해지면 enum이 비대해짐 |
+
+**내가 고를 방법**
+규칙이 단순 비율 계산뿐이면 B로 가볍게 시작해요. 하지만 결제 서비스는 보통 쿠폰·회원 등급처럼 외부 정보가 필요해지므로 A를 고르겠어요. 선택 분기는 `policies.get(method)` 한 곳으로 모이고, 없는 키는 명확한 예외로 처리해요. 새 수단 추가가 "기존 코드 수정"에서 "클래스 추가"로 바뀌어서 장애 위험이 줄어요.
+
+**채점 포인트**: 전략 패턴, OCP·DIP, 런타임 선택(컬렉션 주입), 전략 단독 테스트, 선택 로직은 한 곳에 남는다는 인식, 해결책 2개 이상의 트레이드오프.
+</details>
+
+<details>
+<summary>상황: 주문 완료 후 OrderService가 알림·포인트 적립·통계를 전부 직접 호출합니다. 알림 서버가 느리면 주문 응답이 느려지고, 알림이 실패하면 주문까지 롤백됩니다.</summary>
+
+**상황 파악**
+주문이라는 핵심 작업과 알림 같은 부가 작업이 한 메서드, 한 트랜잭션에 묶여 있어요. 그래서 부가 작업의 속도와 실패가 핵심 작업에 그대로 번져요. 후속 작업이 늘 때마다 `OrderService`를 고쳐야 하는 결합 문제도 있어요.
+
+**원인 후보**
+1. 부가 작업을 동기 직접 호출 → 응답 시간이 모든 호출의 합
+2. 같은 트랜잭션 안에서 실행 → 부가 작업 예외가 주문을 롤백
+3. `OrderService`가 모든 후속 서비스를 알고 있음 → 강결합
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. `@EventListener`로 이벤트만 분리 | 결합은 줄어듦 | **기본이 동기**라 느림·롤백 문제는 그대로 |
+| B. `@TransactionalEventListener(AFTER_COMMIT)` + `@Async` | 커밋된 주문에만 알림, 별도 스레드라 응답이 안 기다림, 알림 실패가 주문을 안 되돌림 | 흐름 추적이 어려움, 비동기 예외 처리 필요, 메모리 이벤트라 서버가 죽으면 유실 |
+| C. 아웃박스 테이블에 이벤트 저장 + 별도 발송(또는 Kafka) | 주문과 같은 트랜잭션에 이벤트를 저장해 유실이 없음, 재시도 가능 | 테이블·발송기·중복 처리까지 구현과 운영 부담이 큼 |
+
+**내가 고를 방법**
+기본은 B예요. 롤백된 주문에 알림이 나가지 않고, 응답 속도와 실패가 분리돼요. 리스너 예외는 `AsyncUncaughtExceptionHandler`나 리스너 안의 try-catch로 로그·재시도를 남겨요. 다만 포인트 적립처럼 **유실되면 돈 문제가 되는 작업**은 C로 보장하고, 통계처럼 조금 빠져도 되는 작업은 B로 둬요. A는 이벤트를 써도 동기라 이 문제를 못 푼다는 점을 꼭 짚어요.
+
+**채점 포인트**: 옵저버(스프링 이벤트), 기본 동기·같은 트랜잭션, AFTER_COMMIT을 쓰는 이유, 트랜잭션 없으면 리스너 미호출, `@Async` 예외 처리, 인메모리 이벤트 유실과 아웃박스 패턴, 작업 중요도에 따른 선택.
+</details>
+
+<details>
+<summary>상황: 배치 작업 10여 개가 "시작 로그 → 처리 → 종료 로그, 실패 시 알림" 흐름을 똑같이 복사해 쓰고 있습니다.</summary>
+
+**상황 파악**
+흐름(로그·알림)은 같고 "처리" 부분만 달라요. 복사본이 10개라 알림 형식 하나를 바꾸려면 10곳을 고쳐야 하고, 한 곳을 빠뜨리기 쉬워요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. 템플릿 메서드: `AbstractBatchJob.run()`(final) + 추상 `doProcess()` | 흐름이 한 곳에 고정, 구조가 익숙함 | 배치 클래스가 하나뿐인 상속을 써 버림, 부모를 고치면 모든 자식에 영향 |
+| B. 템플릿 콜백: `batchRunner.run("정산", () -> settle())` | 상속 없이 람다만 넘김, 다른 클래스 상속과 충돌 없음, 조합이 쉬움 | 흐름 중간에 여러 지점을 끼워야 하면 콜백 인자가 늘어 복잡해짐 |
+
+**내가 고를 방법**
+B를 골라요. 바뀌는 지점이 "처리" 하나뿐이라 콜백 하나로 충분하고, 배치 클래스가 상속 자리를 비워 둘 수 있어요. 스프링의 `JdbcTemplate`, `TransactionTemplate`과 같은 방식이라 팀원도 익숙해요. 끼어들 지점이 여러 개(전처리, 후처리, 실패 처리)로 늘어나면 A나 전략 인터페이스로 바꾸는 걸 검토해요.
+
+**채점 포인트**: 공통 흐름 고정과 바뀌는 부분 분리, 템플릿 메서드 vs 템플릿 콜백, 상속 결합도·단일 상속, 스프링 Template 클래스와의 연결.
+</details>
+
+## 함께 보기
+
+- [SOLID 원칙](../solid/)
+- [상속보다 조합](../inheritance-composition/)
+- [추상 클래스 vs 인터페이스](../abstract-interface/)
+- [구조 패턴: 프록시·데코레이터·어댑터](../patterns-structural/)
+- [람다와 스트림](../../java/lambda-stream/)
+
+## 출처
+
+- [Java SE 21 API, java.util.Comparator](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/Comparator.html)
+- [Spring Framework Reference, Using the JDBC Core Classes](https://docs.spring.io/spring-framework/reference/data-access/jdbc/core.html)
+- [Spring Framework Reference, Programmatic Transaction Management](https://docs.spring.io/spring-framework/reference/data-access/transaction/programmatic.html)
+- [Spring Framework Reference, REST Clients](https://docs.spring.io/spring-framework/reference/integration/rest-clients.html)
+- [Spring Framework Reference, Standard and Custom Events](https://docs.spring.io/spring-framework/reference/core/beans/context-introduction.html)
+- [Spring Framework Reference, Transaction-bound Events](https://docs.spring.io/spring-framework/reference/data-access/transaction/event.html)
+- 스프링 입문을 위한 자바 객체 지향의 원리와 이해 6장 "스프링이 사랑한 디자인 패턴"(템플릿 메서드, 전략, 템플릿 콜백)
+- GoF, Design Patterns(옵저버 정의, 할리우드 원칙)

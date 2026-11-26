@@ -1,0 +1,80 @@
+---
+// @Transactional 프록시: 바깥 호출은 프록시를 거쳐 트랜잭션 적용, 내부 this 호출은 프록시를 우회 → 별도 빈 분리로 해결
+import Stepper from '../Stepper.astro';
+const steps = [
+  { caption: '컨트롤러는 OrderService를 주입받았다고 생각하지만, 실제로 받은 건 프록시(껍데기)예요. 진짜 객체는 그 안에 있어요.', show: ['ctrl', 'call', 'injected', 'proxy', 'real', 'innerLine'] },
+  { caption: '컨트롤러가 placeOrder()를 부르면 프록시가 먼저 트랜잭션을 시작하고, 진짜 객체에 일을 넘긴 뒤 커밋(실패 시 롤백)하고 결과를 돌려줘요.', show: ['ctrl', 'call', 'callPlace', 'proxy', 'txOn', 'delegate', 'real', 'innerLine', 'hl-place'] },
+  { caption: '이번엔 outer()를 불러요. outer()에는 @Transactional이 없으니 프록시는 트랜잭션 없이 그대로 넘겨요.', show: ['ctrl', 'call', 'callOuter', 'proxy', 'txOff', 'delegate', 'real', 'innerLine', 'hl-outer'] },
+  { caption: '진짜 객체 안에서 this.inner()를 부르면 화살표가 프록시를 거치지 않고 객체 안에서 돌아요. 그래서 inner()의 @Transactional은 적용되지 않아요.', show: ['ctrl', 'call', 'callOuter', 'proxy', 'txOff', 'delegate', 'real', 'innerLine', 'self', 'selfNote', 'hl-self'] },
+  { caption: '해결: inner()를 별도 빈 InnerService로 옮겨요. outer()가 innerService.inner()를 부르면 InnerService의 프록시를 거치니 트랜잭션이 걸려요.', show: ['ctrl', 'call', 'callOuter', 'proxy', 'txOff', 'delegate', 'real', 'fix', 'innerSvc', 'hl-fix'] },
+];
+---
+<Stepper title="@Transactional 프록시와 self-invocation" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 460" role="img" aria-label="컨트롤러가 OrderService 프록시를 통해 호출하면 트랜잭션이 걸리지만, 진짜 객체 내부의 this.inner() 호출은 프록시를 거치지 않아 트랜잭션이 적용되지 않고, inner를 별도 빈으로 분리하면 해결되는 그림">
+    <defs>
+      <marker id="psi-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+      <marker id="psi-arr-r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-red)" />
+      </marker>
+    </defs>
+
+    <g data-id="ctrl">
+      <rect class="box" x="90" y="8" width="140" height="40" rx="8" />
+      <text x="160" y="28" style="font-weight:700">Controller</text>
+    </g>
+    <g data-id="call">
+      <line class="line" x1="160" y1="50" x2="160" y2="86" marker-end="url(#psi-arr)" />
+    </g>
+    <text data-id="injected" class="sub l hide" x="170" y="68">주입받은 건 프록시</text>
+    <text data-id="callPlace" class="mono l hide" x="170" y="68">placeOrder()</text>
+    <text data-id="callOuter" class="mono l hide" x="170" y="68">outer()</text>
+
+    <g data-id="proxy">
+      <rect class="chip" x="8" y="88" width="304" height="214" rx="10" />
+      <text x="160" y="106" style="font-weight:700">OrderService 프록시 (껍데기)</text>
+    </g>
+    <text data-id="txOn" class="sub hide" x="160" y="130">트랜잭션 시작 → 위임 → 커밋/롤백</text>
+    <text data-id="txOff" class="sub hide" x="160" y="130">트랜잭션 없음 → 그냥 넘김</text>
+    <g data-id="delegate" class="hide">
+      <line class="line" x1="160" y1="140" x2="160" y2="162" marker-end="url(#psi-arr)" />
+    </g>
+
+    <g data-id="real">
+      <rect class="box" x="20" y="164" width="280" height="126" rx="8" />
+      <text x="160" y="184" style="font-weight:700">진짜 OrderService</text>
+      <text class="mono l" x="56" y="212">@Transactional placeOrder()</text>
+      <text class="mono l" x="56" y="238">outer()</text>
+    </g>
+    <g data-id="innerLine" class="hide">
+      <text class="mono l" x="56" y="264">@Transactional inner()</text>
+    </g>
+
+    <g data-id="self" class="hide">
+      <path class="line" d="M52 238 C30 238 30 264 50 264" style="stroke:var(--sl-color-red)" marker-end="url(#psi-arr-r)" />
+      <text class="mono l err-t" x="126" y="238">this.inner()</text>
+      <line x1="54" y1="264" x2="174" y2="264" style="stroke:var(--sl-color-red);stroke-width:2" />
+      <text class="err-t" x="270" y="264">✕</text>
+    </g>
+    <text data-id="selfNote" class="err-t hide" x="160" y="322">프록시를 안 거침 → 트랜잭션 ✕</text>
+
+    <g data-id="fix" class="hide">
+      <line class="line" x1="160" y1="280" x2="160" y2="346" marker-end="url(#psi-arr)" />
+      <text class="mono l hi" x="56" y="264">└ innerService.inner()</text>
+      <text class="sub l" x="168" y="324">다른 빈 호출</text>
+    </g>
+    <g data-id="innerSvc" class="hide">
+      <rect class="chip" x="8" y="348" width="304" height="104" rx="10" />
+      <text x="160" y="366" style="font-weight:700">InnerService 프록시</text>
+      <text class="sub" x="160" y="388">트랜잭션 시작 → 위임 → 커밋/롤백</text>
+      <rect class="box" x="40" y="404" width="240" height="38" rx="8" />
+      <text class="mono" x="160" y="423">@Transactional inner()</text>
+    </g>
+
+    <rect data-id="hl-place" class="hl" x="14" y="118" width="292" height="108" rx="8" />
+    <rect data-id="hl-outer" class="hl" x="14" y="118" width="292" height="134" rx="8" />
+    <rect data-id="hl-self" class="hl" x="14" y="224" width="292" height="54" rx="8" />
+    <rect data-id="hl-fix" class="hl" x="4" y="344" width="312" height="112" rx="12" />
+  </svg>
+</Stepper>

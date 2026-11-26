@@ -1,0 +1,90 @@
+---
+// Counter a, b를 만들고 inc()를 부를 때 스태틱 / 스택 / 힙에 무엇이 생기나
+import Stepper from '../Stepper.astro';
+const OX = 168, OW = 136, OH = 64; // 힙 객체 x, 크기
+const yA = 146, yB = 262;          // 객체 ①, ② 위쪽 y
+const base = ['cls', 'varA', 'objA', 'varB', 'objB'];
+const steps = [
+  { caption: 'main이 시작되면 스택에 main 프레임이 생겨요. Counter 클래스는 아직 쓰인 적이 없어서 로딩 전이에요.', show: ['noload', 'hl-main'] },
+  { caption: '첫 new Counter() 직전에 Counter 클래스가 로딩·초기화돼요. 스태틱 영역에 total = 0 칸이 딱 하나 생겨요.', show: ['cls', 't0', 'hl-static'] },
+  { caption: '힙에 객체 ①이 생기고 자기 mine = 0을 가져요. main의 변수 a에는 객체 ①을 가리키는 참조가 담겨요.', show: ['cls', 't0', 'varA', 'objA', 'mA0', 'hl-objA'] },
+  { caption: '두 번째 new로 힙에 객체 ②가 따로 생겨요(mine = 0). total은 늘지 않고 여전히 한 칸이에요.', show: ['cls', 't0', ...base, 'mA0', 'mB0', 'hl-objB'] },
+  { caption: 'a.inc(): 스택에 inc 프레임(this = a)이 쌓여요. 객체 ①의 mine이 1, 공유하는 total이 1이 돼요.', show: [...base, 't1', 'mA1', 'mB0', 'incA', 'hl-mA', 'hl-total'] },
+  { caption: 'a.inc()가 끝나 그 프레임은 사라지고, b.inc()의 프레임(this = b)이 쌓여요. 객체 ②의 mine이 1, total은 2가 돼요.', show: [...base, 't2', 'mA1', 'mB1', 'incB', 'hl-mB', 'hl-total'] },
+  { caption: '결론: mine은 객체마다 따로라서 각자 1, total은 클래스에 하나라서 둘이 함께 올린 2예요.', show: [...base, 't2', 'mA1', 'mB1', 'hl-mA', 'hl-mB', 'hl-total'] },
+];
+---
+<Stepper title="static 필드는 하나, 인스턴스 필드는 객체마다" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 376" role="img" aria-label="Counter 객체 두 개를 만들고 inc를 호출할 때 스태틱 영역, 스택, 힙의 변화">
+    <defs>
+      <marker id="com-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+
+    <!-- 바탕: 세 영역 -->
+    <text x="160" y="14" style="font-weight:700">스태틱 영역 (클래스당 하나)</text>
+    <rect class="frame" x="4" y="26" width="312" height="62" rx="10" />
+    <text x="72" y="112" style="font-weight:700">스택</text>
+    <text x="234" y="112" style="font-weight:700">힙</text>
+    <rect class="frame" x="4" y="124" width="140" height="216" rx="10" />
+    <rect class="frame" x="152" y="124" width="164" height="216" rx="10" />
+
+    <!-- 스태틱: 로딩 전 / Counter 클래스 + total -->
+    <text data-id="noload" class="sub hide" x="160" y="57">Counter 아직 로딩 전</text>
+    <g data-id="cls" class="hide">
+      <rect class="box" x="14" y="36" width="140" height="42" rx="6" />
+      <text x="84" y="57">Counter 클래스</text>
+      <rect class="chip" x="166" y="36" width="140" height="42" rx="6" />
+    </g>
+    {[0, 1, 2].map((n) => (
+      <text data-id={`t${n}`} class="mono hide" x="236" y="57">total = {n}</text>
+    ))}
+
+    <!-- 스택: main 프레임(맨 아래), inc 프레임(그 위) -->
+    <rect class="box" x="12" y="230" width="124" height="102" rx="6" />
+    <text x="74" y="248" style="font-weight:700">main</text>
+    <g data-id="varA" class="hide">
+      <text class="mono" x="34" y="280">a</text>
+      <rect class="chip" x="52" y="268" width="72" height="24" rx="4" />
+      <text class="sub" x="88" y="280">참조</text>
+      <line class="line" x1="124" y1="280" x2={OX - 2} y2={yA + OH - 10} marker-end="url(#com-arr)" />
+    </g>
+    <g data-id="varB" class="hide">
+      <text class="mono" x="34" y="312">b</text>
+      <rect class="chip" x="52" y="300" width="72" height="24" rx="4" />
+      <text class="sub" x="88" y="312">참조</text>
+      <line class="line" x1="124" y1="312" x2={OX - 2} y2={yB + OH / 2} marker-end="url(#com-arr)" />
+    </g>
+    {[['incA', 'a', yA + 16], ['incB', 'b', yB + 12]].map(([id, v, ty]) => (
+      <g data-id={id} class="hide">
+        <rect class="box" x="12" y="136" width="124" height="76" rx="6" />
+        <text x="74" y="154" style="font-weight:700">inc()</text>
+        <text class="mono" x="74" y="188">this = {v}</text>
+        <line class="line" x1="136" y1="188" x2={OX - 2} y2={ty as number} marker-end="url(#com-arr)" />
+      </g>
+    ))}
+
+    <!-- 힙: 객체 ①, ② -->
+    {[['objA', yA, '①'], ['objB', yB, '②']].map(([id, y, n]) => (
+      <g data-id={id} class="hide">
+        <rect class="box" x={OX} y={y} width={OW} height={OH} rx="6" />
+        <text x={OX + OW / 2} y={(y as number) + 18}>Counter 객체 {n}</text>
+      </g>
+    ))}
+    {[['mA', yA], ['mB', yB]].map(([k, y]) => [0, 1].map((v) => (
+      <text data-id={`${k}${v}`} class="mono hide" x={OX + OW / 2} y={(y as number) + 44}>mine = {v}</text>
+    )))}
+
+    <text class="sub" x="160" y="360">※ 단순화한 그림. 실제 위치는 JVM 페이지 참고</text>
+
+    <!-- 강조 테두리 -->
+    <rect data-id="hl-main" class="hl" x="8" y="226" width="132" height="110" rx="8" />
+    <rect data-id="hl-static" class="hl" x="8" y="30" width="304" height="54" rx="8" />
+    <rect data-id="hl-total" class="hl" x="162" y="32" width="148" height="50" rx="8" />
+    <rect data-id="hl-objA" class="hl" x={OX - 4} y={yA - 4} width={OW + 8} height={OH + 8} rx="8" />
+    <rect data-id="hl-objB" class="hl" x={OX - 4} y={yB - 4} width={OW + 8} height={OH + 8} rx="8" />
+    <rect data-id="hl-mA" class="hl" x={OX + 8} y={yA + 30} width={OW - 16} height="28" rx="6" />
+    <rect data-id="hl-mB" class="hl" x={OX + 8} y={yB + 30} width={OW - 16} height="28" rx="6" />
+  </svg>
+</Stepper>

@@ -1,0 +1,62 @@
+---
+// 업캐스팅/다운캐스팅: 객체는 하나, 변수 타입은 "어떤 버튼이 달린 리모컨인가"를 정한다
+import Stepper from '../Stepper.astro';
+const steps = [
+  { caption: 'Dog 객체는 하나예요. Animal a와 Dog d 두 변수가 같은 객체를 가리켜요. 자식을 부모 타입 변수에 담는 업캐스팅은 자동이에요.', show: ['aref', 'dref'] },
+  { caption: 'a는 Animal 리모컨이에요. Animal에 선언된 speak 버튼만 있고 fetch 버튼이 없어요. a.speak()를 누르면 실제 객체가 Dog라 Dog.speak가 실행되고, a.fetch()는 컴파일 에러예요.', show: ['aref', 'aremote', 'hl-a'] },
+  { caption: '(Dog) a로 다운캐스팅하면 Dog 리모컨이 돼요. 실행 중 검사에서 실제 객체가 Dog라 통과하고, 이제 fetch를 쓸 수 있어요.', show: ['aref', 'aremote', 'dremote'] },
+  { caption: '(Dog) new Animal()은 컴파일은 통과하지만, 실행 중 실제 객체가 Dog가 아니라서 ClassCastException이 나요. 그래서 instanceof로 먼저 확인해요.', show: ['cce'] },
+];
+const btn = (x: number, y: number, w = 128) => ({ x, y, width: w, height: 30, rx: 15 });
+---
+<Stepper title="업캐스팅과 다운캐스팅: 객체 하나, 리모컨 둘" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 380" role="img" aria-label="Dog 객체 하나를 Animal 변수와 Dog 변수가 가리키고, 변수 타입에 따라 쓸 수 있는 메서드가 다르다">
+    <defs>
+      <marker id="udc-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+
+    <!-- 바탕: 변수 두 개, Dog 객체 하나 -->
+    <rect class="box" x="8" y="14" width="104" height="40" rx="6" />
+    <text class="mono" x="60" y="34">Animal a</text>
+    <rect class="box" x="8" y="66" width="104" height="40" rx="6" />
+    <text class="mono" x="60" y="86">Dog d</text>
+    <rect class="box" x="164" y="26" width="152" height="68" rx="6" />
+    <text x="240" y="46" style="font-weight:700">Dog 객체</text>
+    <text class="sub mono" x="240" y="72">speak() fetch()</text>
+    <line data-id="aref" class="line" x1="112" y1="34" x2="162" y2="52" marker-end="url(#udc-arr)" />
+    <line data-id="dref" class="line" x1="112" y1="86" x2="162" y2="70" marker-end="url(#udc-arr)" />
+
+    <!-- Animal 리모컨 (a) -->
+    <g data-id="aremote">
+      <rect class="box" x="8" y="126" width="148" height="124" rx="10" />
+      <text x="82" y="144" style="font-weight:700">Animal 리모컨</text>
+      <text class="sub mono" x="82" y="164">a.</text>
+      <rect class="chip" {...btn(18, 176)} /><text class="mono" x="82" y="191">speak()</text>
+      <rect class="bad" {...btn(18, 212)} /><text class="sub" x="82" y="227">fetch 버튼 없음</text>
+    </g>
+
+    <!-- Dog 리모컨 ((Dog) a) -->
+    <g data-id="dremote" class="hide">
+      <rect class="box" x="164" y="126" width="148" height="124" rx="10" />
+      <text x="238" y="144" style="font-weight:700">Dog 리모컨</text>
+      <text class="sub mono" x="238" y="164">((Dog) a).</text>
+      <rect class="chip" {...btn(174, 176)} /><text class="mono" x="238" y="191">speak()</text>
+      <rect class="chip" {...btn(174, 212)} /><text class="mono" x="238" y="227">fetch() ✓</text>
+    </g>
+
+    <!-- 잘못된 다운캐스팅 -->
+    <g data-id="cce" class="hide">
+      <text class="mono l" x="8" y="278">Dog x = (Dog) new Animal();</text>
+      <rect class="box" x="8" y="296" width="124" height="44" rx="6" />
+      <text x="70" y="318" style="font-weight:700">Animal 객체</text>
+      <line class="line" x1="132" y1="318" x2="146" y2="318" marker-end="url(#udc-arr)" />
+      <rect class="err" x="148" y="296" width="164" height="44" rx="6" />
+      <text class="err-t" x="230" y="318" style="font-size:14px">ClassCastException</text>
+      <text class="sub l" x="8" y="362">실제 객체가 Dog가 아님 → 실행 중 실패</text>
+    </g>
+
+    <rect data-id="hl-a" class="hl" x="4" y="10" width="112" height="48" rx="8" />
+  </svg>
+</Stepper>

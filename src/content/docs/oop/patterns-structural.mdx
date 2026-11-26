@@ -1,0 +1,425 @@
+---
+title: "구조 패턴: 프록시·데코레이터·어댑터"
+description: 세 패턴 모두 다른 객체를 감싸서 호출을 넘기는 같은 뼈대를 써요. 어댑터는 모양을 바꾸고, 프록시는 접근을 통제하고, 데코레이터는 기능을 덧붙여요.
+sidebar: { order: 8 }
+tags: [면접빈출, 서술형, 필기]
+---
+import { Aside } from '@astrojs/starlight/components';
+import ProxySelfInvocation from '~/components/viz/ProxySelfInvocation.astro';
+import DecoratorLayers from '~/components/viz/DecoratorLayers.astro';
+
+:::tip[한 줄 요약]
+프록시·데코레이터·어댑터는 모두 다른 객체를 필드로 들고 호출을 넘기는(위임) 구조라 코드 모양이 거의 같고, **감싸는 의도**로 구분해요. 어댑터는 맞지 않는 인터페이스를 **변환**하고, 프록시는 같은 인터페이스로 실제 객체에 대한 **접근을 제어**하고, 데코레이터는 같은 인터페이스로 **기능을 덧붙여요**. 스프링 AOP와 `@Transactional`이 프록시로 동작해서, 같은 클래스 안에서 부르는 메서드에는 적용되지 않아요.
+:::
+
+## 쉽게 이해하기
+
+해외여행에 가면 **돼지코 어댑터**를 챙겨요. 충전기도 콘센트도 그대로인데, 중간에 끼운 어댑터가 모양만 맞춰 줘요. 이게 **어댑터**예요.
+
+연예인에게 연락하려면 **매니저**를 거쳐야 해요. 매니저는 연예인과 같은 창구 역할을 하면서 "지금은 안 됩니다", "일정 확인 후 연결해 드릴게요"처럼 만날지 말지, 언제 만날지를 정해요. 이게 **프록시**(대리인)예요.
+
+선물을 살 때 **포장지, 리본, 카드**를 차례로 덧씌울 수 있어요. 겹겹이 싸도 여전히 "선물"이고, 한 겹마다 뭔가가 더해져요. 이게 **데코레이터**(장식자)예요.
+
+단, 실제 코드에서는 세 패턴의 생김새가 거의 같아요. "감싼 객체를 필드로 들고 호출을 넘긴다"는 뼈대는 같고, **왜 감쌌는지**만 달라요.
+
+## 그림으로 보기
+
+<ProxySelfInvocation />
+
+<DecoratorLayers />
+
+## 제대로 알기
+
+### 1. 세 패턴의 공통 뼈대: 감싸고 넘기기
+
+자바에서 패턴을 만드는 재료는 상속(`extends`), 인터페이스(`implements`), **합성**(다른 객체를 필드로 가지는 것) 세 가지뿐이에요. 재료가 적으니 여러 패턴이 비슷해 보이는 게 당연해요.
+
+이 페이지의 세 패턴은 모두 합성을 써요. 다른 객체를 필드로 들고, 들어온 호출을 그 객체에 넘겨요. 이렇게 일을 남에게 넘기는 걸 **위임**(delegation)이라고 해요. 상속 대신 합성을 쓰는 이유는 [상속보다 조합](../inheritance-composition/)에서 다뤄요.
+
+### 2. 어댑터: 모양을 바꿔 끼운다
+
+**어댑터**(Adapter)는 클라이언트가 기대하는 인터페이스와 맞지 않는 기존 클래스를 **변환기**로 감싸서, 기존 코드를 고치지 않고 함께 쓰게 하는 패턴이에요. 핵심은 어댑터가 감싼 객체와 **다른** 인터페이스를 밖에 보여 준다는 점이에요.
+
+예를 들어 결제사 A는 `pay(card, amount)`, 결제사 B는 `requestPayment(req)`처럼 메서드 모양이 달라요. 우리 쪽 인터페이스를 하나 정하고, 결제사마다 어댑터를 만들어 맞춰요.
+
+```java
+interface PaymentGateway { void pay(String card, long amount); } // 우리가 원하는 모양
+
+class BPayAdapter implements PaymentGateway {
+    private final BPayClient client;                 // 감싼 외부 SDK
+    BPayAdapter(BPayClient client) { this.client = client; } // 생성자 주입
+    public void pay(String card, long amount) {
+        client.requestPayment(new BPayRequest(card, amount)); // 모양 변환 후 위임
+    }
+}
+```
+
+새 결제사가 생기면 어댑터만 하나 추가하면 되고, 서비스 코드는 `PaymentGateway`만 알면 돼요. 기존 코드를 고치지 않고 확장하니 [OCP](../solid/)를 따르는 구조예요.
+
+자바에서는 이렇게 필드로 감싸는 **객체 어댑터**를 주로 써요. 상속으로 만드는 클래스 어댑터도 있지만 자바는 클래스를 하나만 상속할 수 있어서 덜 써요.
+
+**실제 예**
+
+| 예 | 무엇을 무엇으로 바꾸나 |
+|---|---|
+| 스프링 MVC `HandlerAdapter` | 모양이 제각각인 컨트롤러를 `DispatcherServlet`이 부를 수 있는 한 가지 모양으로 |
+| `Arrays.asList(...)` | 배열을 `List` 인터페이스로 |
+| `InputStreamReader` | 바이트 스트림(`InputStream`)을 문자 스트림(`Reader`)으로 |
+
+`HandlerAdapter`는 `supports(handler)`와 `handle(request, response, handler)` 두 메서드가 핵심이에요. **DispatcherServlet**(스프링 MVC에서 모든 요청을 처음 받는 관문)은 등록된 어댑터 중 `supports()`가 true인 것을 골라 `handle()`만 불러요. 그래서 `@RequestMapping` 메서드든, 옛날 `Controller` 인터페이스든, 함수형 라우터든 DispatcherServlet 코드는 그대로예요. 각각 `RequestMappingHandlerAdapter`, `SimpleControllerHandlerAdapter`, `HandlerFunctionAdapter`가 맞춰 줘요.
+
+<Aside type="caution" title="Arrays.asList는 ArrayList가 아니에요">
+`Arrays.asList`가 돌려주는 건 원본 배열을 감싼 **고정 크기** 리스트예요. `set`으로 바꾸면 원본 배열도 바뀌고, `add`·`remove`는 `UnsupportedOperationException`이 나요. 마음대로 늘리고 줄일 리스트가 필요하면 `new ArrayList<>(Arrays.asList(...))`로 복사해요.
+</Aside>
+
+### 3. 프록시: 대신 받아서 통제한다
+
+**프록시**(Proxy, 대리인)는 실제 객체와 **같은 인터페이스**를 가진 대리 객체를 앞에 두고, 실제 객체에 대한 **접근을 제어**하는 패턴이에요. 클라이언트는 같은 인터페이스로 부르니 상대가 진짜인지 대리인지 몰라요.
+
+프록시의 요점은 네 가지예요.
+1. 실제 객체와 같은 인터페이스를 구현해요.
+2. 실제 객체를 필드로 가져요(합성).
+3. 실제 객체의 같은 메서드를 불러 결과를 돌려줘요(위임).
+4. 그 호출 앞뒤에 다른 일을 끼워 넣을 수 있어요.
+
+```java
+class LoggingProxy implements OrderService {
+    private final OrderService target;                     // 진짜 객체
+    LoggingProxy(OrderService target) { this.target = target; } // 생성자 주입
+    public void placeOrder(long id) {
+        System.out.println("시작: " + id);   // 앞에 끼운 일
+        target.placeOrder(id);               // 진짜 객체에 위임
+        System.out.println("끝: " + id);     // 뒤에 끼운 일
+    }
+}
+// OrderService s = new LoggingProxy(new OrderServiceImpl());
+```
+
+프록시는 "호출할지 말지, 언제 할지"를 정할 수 있다는 게 데코레이터와 다른 점이에요. 대표 용도예요.
+
+| 종류 | 하는 일 | 예 |
+|---|---|---|
+| 가상 프록시 | 진짜 객체를 실제로 쓸 때까지 만들기를 미룸(지연 로딩) | JPA 지연 로딩 엔티티 |
+| 보호 프록시 | 권한이 없으면 진짜 객체를 안 부름 | 권한 검사 |
+| 원격 프록시 | 다른 서버에 있는 객체를 내 것처럼 부르게 함 | 원격 호출 |
+| 부가 처리 | 앞뒤로 공통 작업 수행 | 로깅, 캐싱, 트랜잭션 |
+
+<Aside type="note" title="책 예제와 다르게 쓴 이유">
+일부 입문서 예제는 프록시나 데코레이터 메서드 안에서 `new Service()`로 진짜 객체를 직접 만들어요. 그러면 특정 구현에 묶여서 다른 구현을 감쌀 수 없어요. 실무에서는 위 코드처럼 **생성자로 주입**받는 게 보통이에요.
+</Aside>
+
+### 4. 데코레이터: 겹겹이 기능을 더한다
+
+**데코레이터**(Decorator, 장식자)는 원본과 **같은 인터페이스**를 구현한 장식자가 원본을 감싸서 **기능을 덧붙이는** 패턴이에요. 장식자를 여러 겹 겹칠 수 있다는 게 핵심이에요.
+
+왜 필요할까요? "버퍼 있는 파일 읽기", "버퍼 + 압축 해제", "버퍼 + 압축 해제 + 숫자 읽기"를 전부 하위 클래스로 만들면 조합마다 클래스가 폭발해요. 데코레이터는 기능 하나당 클래스 하나만 만들고, 필요한 만큼 겹쳐 써요.
+
+자바 `java.io`가 대표 예예요.
+
+```java
+InputStream in = new DataInputStream(          // readInt() 같은 기능 추가
+                   new BufferedInputStream(     // 버퍼링 추가
+                     new FileInputStream("a.bin"))); // 원본: 파일에서 읽기
+```
+
+- `FilterInputStream`은 다른 `InputStream`을 생성자로 받아 필드(`in`)에 보관하고, 기본으로 모든 요청을 그 스트림에 넘겨요. 장식자들의 공통 부모예요.
+- `BufferedInputStream`은 내부 버퍼를 두고 감싼 스트림에서 여러 바이트를 한 번에 채워 와요. 그래서 1바이트씩 읽을 때보다 실제 파일 읽기 횟수가 줄어요. `mark`/`reset`도 지원해요.
+- 그 밖에 `DataInputStream`, `PushbackInputStream`, `GZIPInputStream`, `CipherInputStream` 등이 `FilterInputStream`의 자손이에요.
+- 몇 겹을 감싸도 바깥에서 보면 모두 `InputStream`이에요.
+
+| 데코레이터 역할 | java.io에서 |
+|---|---|
+| 공통 인터페이스(Component) | `InputStream` |
+| 원본(ConcreteComponent) | `FileInputStream` |
+| 장식자 부모(Decorator) | `FilterInputStream` |
+| 실제 장식자(ConcreteDecorator) | `BufferedInputStream`, `DataInputStream` |
+
+### 5. 셋을 한눈에 비교
+
+| 구분 | 어댑터 | 프록시 | 데코레이터 |
+|---|---|---|---|
+| 의도 | 인터페이스 **변환** | 접근 **제어** | 기능 **추가** |
+| 감싼 객체와 인터페이스 | **다름** | **같음** | **같음** |
+| 진짜 객체 호출 | 변환해서 호출 | 안 부를 수도, 나중에 부를 수도 있음 | 항상 부르고 그 위에 더함 |
+| 여러 겹 겹치기 | 드묾 | 가능하지만 목적은 아님 | 겹치기가 핵심 |
+| 예 | `HandlerAdapter`, `Arrays.asList` | 스프링 AOP, `@Transactional`, JPA 지연 로딩 | `BufferedInputStream`, `Collections.synchronizedList` |
+
+프록시와 데코레이터는 **코드 구조가 사실상 같아서 코드만 보고는 구분이 안 돼요.** 어떤 책은 "프록시는 반환값을 건드리지 않고, 데코레이터는 반환값에 장식을 더한다"로 나누지만, GoF(디자인 패턴을 처음 정리한 네 저자)의 정의는 "접근 제어 vs 기능 추가"예요. 스프링 AOP 프록시는 이름은 프록시지만 로깅·트랜잭션 같은 기능을 더하니 데코레이터 성격도 있어요. 면접에서는 "구조는 같고 의도가 다르다"로 답하면 안전해요.
+
+### 6. 동적 프록시: JDK 동적 프록시와 CGLIB
+
+프록시를 손으로 쓰면 메서드마다 위임 코드를 반복해야 해요. 메서드가 50개면 50번이에요. 그래서 실행 중에 프록시 클래스를 자동으로 만들어 주는 **동적 프록시**를 써요.
+
+**JDK 동적 프록시**는 `java.lang.reflect.Proxy`가 실행 중에 **지정한 인터페이스들을 구현하는** 클래스를 만들어요. 프록시의 어떤 메서드를 부르든 `InvocationHandler.invoke(proxy, method, args)` 하나로 모이고, 여기서 앞뒤 작업을 한 번만 쓰면 돼요. 만들어진 클래스는 `java.lang.reflect.Proxy`를 상속한 `final` 클래스라서, 넘길 수 있는 건 **인터페이스뿐**이에요.
+
+**CGLIB**(실행 중에 클래스를 만들어 주는 오픈소스 라이브러리, 스프링 `spring-core`에 포함)은 대상 클래스를 **상속한 하위 클래스**를 만들어서 메서드를 오버라이드해요. 인터페이스가 없어도 돼요.
+
+| | JDK 동적 프록시 | CGLIB |
+|---|---|---|
+| 만드는 방식 | 인터페이스를 **구현**한 클래스 | 대상 클래스를 **상속**한 하위 클래스 |
+| 조건 | 인터페이스 필요 | 인터페이스 불필요, 단 `final` 클래스는 불가 |
+| 가로챌 수 없는 메서드 | 인터페이스에 없는 메서드 | `final`·`private` 메서드 |
+| 주입 받을 타입 | 인터페이스 타입만(구체 클래스 타입으로 받으면 실패) | 구체 클래스 타입도 가능 |
+| 위치 | JDK 내장 | `spring-core`에 포함 |
+
+**스프링은 무엇을 쓰나요?** 두 층을 구분해야 해요.
+- **Spring Framework 기본 규칙**: 대상이 인터페이스를 하나라도 구현하면 JDK 동적 프록시, 없으면 CGLIB이에요.
+- **Spring Boot 기본값**: `spring.aop.proxy-target-class`의 기본값이 `true`라서, 인터페이스가 있어도 **CGLIB 프록시**가 기본이에요.
+
+직접 CGLIB을 강제하려면 `@EnableAspectJAutoProxy(proxyTargetClass = true)`나 `@EnableTransactionManagement(proxyTargetClass = true)`를 써요.
+
+<Aside type="caution" title="CGLIB이면 final 클래스도 된다? 아니에요">
+일부 책은 "고칠 수 없는 final 클래스에 AOP를 걸 때 CGLIB을 쓴다"는 식으로 설명하지만, 스프링 공식 문서 기준으로 **final 클래스는 상속이 안 돼서 CGLIB으로도 프록시를 만들 수 없어요.** final·private 메서드도 오버라이드가 안 돼서 가로챌 수 없어요. 또 "스프링 AOP는 인터페이스 기반"이라는 설명도 옛 기준이에요. 인터페이스가 없으면 CGLIB이 쓰이고, Boot는 기본이 CGLIB이에요.
+</Aside>
+
+### 7. 스프링 AOP와 @Transactional은 프록시예요
+
+**AOP**(Aspect-Oriented Programming, 관점 지향 프로그래밍)는 로깅·보안·트랜잭션처럼 여러 곳에 반복되는 **횡단 관심사**(여러 기능에 가로로 걸쳐 있는 공통 작업)를 핵심 로직에서 떼어 내는 방법이에요. DI가 "객체를 넣어 주는 것"이라면 AOP는 "코드를 끼워 넣어 주는 것"이에요.
+
+스프링은 이걸 **프록시로** 해요. `@Transactional`이 붙은 빈을 만들 때 진짜 객체 대신 그걸 감싼 프록시를 빈으로 등록해요. 그러면 흐름이 이렇게 돼요.
+
+1. 컨트롤러가 `OrderService`를 주입받는데, 실제로 받은 건 프록시예요.
+2. `orderService.placeOrder()`를 부르면 프록시가 먼저 받아서 트랜잭션을 시작해요.
+3. 프록시가 진짜 객체의 `placeOrder()`를 불러요.
+4. 정상으로 끝나면 커밋, 런타임 예외가 나면 롤백해요.
+5. 결과를 돌려줘요. 컨트롤러도 진짜 객체도 프록시가 있는 줄 몰라요.
+
+### 8. 자기 호출(self-invocation) 함정
+
+**자기 호출**은 객체가 자기 메서드를 `this.inner()`처럼(혹은 `this` 없이 `inner()`로) 부르는 거예요. 프록시는 **바깥 껍데기**일 뿐이라서, 호출이 진짜 객체 안에 들어간 뒤 `this`로 부르면 프록시를 거치지 않아요. `this`는 프록시가 아니라 진짜 객체를 가리키니까요.
+
+```java
+@Service
+class OrderService {
+    public void outer() {          // @Transactional 없음
+        inner();                   // this.inner() → 프록시를 안 거침!
+    }
+    @Transactional
+    public void inner() { /* 트랜잭션이 안 열림 */ }
+}
+```
+
+스프링 문서도 proxy 모드에서는 **프록시를 통해 들어온 외부 호출만** 가로챈다고 해요. 그래서 `inner()`에 `@Transactional(propagation = REQUIRES_NEW)`(전파 속성: 이미 트랜잭션이 있을 때 어떻게 할지 정하는 옵션. REQUIRES_NEW는 "바깥과 별개로 새 트랜잭션을 연다")를 붙여도 `outer()`에서 부르면 새 트랜잭션이 안 열려요. `outer()`에 트랜잭션이 있으면 그 안에서, 없으면 트랜잭션 없이 실행돼요. 이건 스프링 버그가 아니라 프록시 방식의 구조적 한계예요.
+
+순수 JDK 동적 프록시로 같은 상황을 흉내 내 보면, `outer()`에는 앞뒤 로그가 찍히는데 그 안에서 부른 `inner()`에는 아무것도 안 찍혀요.
+
+```
+[TX begin] outer
+outer
+inner          ← inner에 대한 [TX begin]이 없음
+[TX end] outer
+```
+
+**해결책** (스프링 문서가 권하는 순서)
+
+| 방법 | 설명 | 주의 |
+|---|---|---|
+| ① 다른 빈으로 분리 | `inner()`를 `InnerService`로 옮기고 주입받아 호출 | 문서가 가장 덜 침습적인 최선으로 꼽음. 책임도 나뉨 |
+| ② 자기 자신 주입 | 자기 빈(프록시)을 주입받아 그 참조로 호출 | 구조가 어색하고 읽기 어려움 |
+| ③ `AopContext.currentProxy()` | 현재 프록시를 꺼내 호출 | 문서가 강하게 비권장. 코드가 스프링 AOP에 묶이고 `exposeProxy=true` 필요 |
+| ④ AspectJ 위빙 | 바이트코드에 직접 코드를 넣어서 프록시 자체가 없음 | `mode = AdviceMode.ASPECTJ`, `spring-aspects` 의존성과 빌드 설정 필요 |
+
+### 9. @Transactional이 안 먹는 경우 모음
+
+- **같은 클래스 안에서 호출**: 자기 호출이라 프록시를 안 거쳐요.
+- **private 메서드**: 어떤 프록시로도 가로챌 수 없어요.
+- **final 메서드(CGLIB)**: 하위 클래스가 오버라이드할 수 없어요. 코틀린은 클래스와 메서드가 기본 final이라 `kotlin-spring`(all-open) 플러그인을 써요.
+- **public이 아닌 메서드**: 인터페이스 기반 프록시에서는 반드시 public이고 인터페이스에 선언돼 있어야 해요. Spring 6.0부터 클래스 기반(CGLIB) 프록시는 protected·package-private 메서드도 기본으로 적용돼요. 5.3까지는 public만이 기본이었어요.
+- **`@PostConstruct` 같은 초기화 코드 안**: 프록시가 완전히 준비되기 전이라 기대면 안 돼요.
+- **AspectJ 모드에서 인터페이스에 붙인 경우**: 무시돼요. 그래서 스프링 팀은 `@Transactional`을 인터페이스가 아니라 **구체 클래스(메서드)**에 붙이라고 권해요.
+
+## 면접 질문
+
+<details>
+<summary>Q. 프록시 패턴이 무엇이고 언제 쓰나요?</summary>
+
+**답변(30초)** 실제 객체와 같은 인터페이스를 가진 대리 객체를 앞에 두고, 실제 객체에 대한 접근을 제어하는 패턴이에요. 대리 객체는 실제 객체를 필드로 들고 호출을 넘기면서, 그 앞뒤에 다른 일을 끼우거나 아예 호출하지 않을 수도 있어요. 지연 로딩, 권한 검사, 캐싱, 로깅·트랜잭션 같은 부가 처리에 써요. 스프링 AOP와 `@Transactional`이 대표 예예요.
+
+**꼬리질문**
+- Q. 클라이언트는 프록시인 걸 아나요? → 몰라요. 같은 인터페이스로 부르니 진짜인지 대리인지 구분하지 않아도 돼요.
+- Q. JPA 지연 로딩도 프록시인가요? → 네. 실제로 쓸 때까지 데이터를 안 불러오는 가상 프록시 용도예요.
+</details>
+
+<details>
+<summary>Q. 프록시 패턴과 데코레이터 패턴의 차이는?</summary>
+
+**답변(30초)** 구조는 사실상 같고 의도가 달라요. 둘 다 같은 인터페이스를 구현하고 대상 객체를 감싸서 위임해요. 프록시는 접근을 제어하는 게 목적이라 호출할지, 언제 할지를 정할 수 있어요. 데코레이터는 기능을 덧붙이는 게 목적이라 항상 원본을 부르고 그 위에 무언가를 더하며, 여러 겹 겹쳐 쓰는 게 핵심이에요.
+
+**꼬리질문**
+- Q. 스프링 AOP 프록시는 데코레이터 아닌가요? → 로깅·트랜잭션을 더하니 데코레이터 성격도 있어요. 그래서 코드보다 의도로 구분한다고 답하는 게 안전해요.
+- Q. 어댑터와는 뭐가 다르죠? → 어댑터는 감싼 객체와 다른 인터페이스를 밖에 보여 줘요. 프록시·데코레이터는 같은 인터페이스예요.
+</details>
+
+<details>
+<summary>Q. 어댑터 패턴이란? 스프링에서 어디에 쓰이나요?</summary>
+
+**답변(30초)** 클라이언트가 원하는 인터페이스와 맞지 않는 기존 클래스를 변환기로 감싸서, 기존 코드를 고치지 않고 함께 쓰게 하는 패턴이에요. 스프링 MVC의 `HandlerAdapter`가 대표 예예요. DispatcherServlet은 컨트롤러 모양이 제각각이어도 `supports()`로 맞는 어댑터를 골라 `handle()`만 불러요. 그래서 새 핸들러 종류가 생겨도 DispatcherServlet은 고치지 않아요.
+
+**꼬리질문**
+- Q. 자바 표준 라이브러리 예는? → `Arrays.asList`(배열을 `List`로), `InputStreamReader`(바이트 스트림을 문자 스트림으로)가 있어요.
+- Q. 객체 어댑터와 클래스 어댑터 차이는? → 객체 어댑터는 합성, 클래스 어댑터는 상속으로 만들어요. 자바는 단일 상속이라 객체 어댑터를 주로 써요.
+</details>
+
+<details>
+<summary>Q. 자바 표준 라이브러리에서 데코레이터 패턴의 예를 들어 보세요.</summary>
+
+**답변(30초)** `java.io` 스트림이 대표 예예요. `new DataInputStream(new BufferedInputStream(new FileInputStream("a.bin")))`처럼 겹쳐 쓰는데, 바깥에서 보면 모두 `InputStream`이에요. `FilterInputStream`이 감싼 스트림을 필드로 들고 호출을 넘기는 장식자의 부모이고, `BufferedInputStream`은 버퍼링을, `DataInputStream`은 `readInt` 같은 기능을 더해요. 기능 조합마다 하위 클래스를 만들지 않아도 돼요.
+
+**꼬리질문**
+- Q. BufferedInputStream은 왜 빠른가요? → 감싼 스트림에서 여러 바이트를 한 번에 버퍼로 채워서, 1바이트씩 읽을 때보다 실제 읽기 횟수가 줄어요.
+</details>
+
+<details>
+<summary>Q. JDK 동적 프록시와 CGLIB의 차이는? 스프링은 무엇을 쓰나요?</summary>
+
+**답변(30초)** JDK 동적 프록시는 인터페이스를 구현한 프록시 클래스를 만들고, CGLIB은 대상 클래스를 상속한 하위 클래스를 만들어요. 그래서 JDK 방식은 인터페이스가 꼭 필요하고, CGLIB은 인터페이스가 없어도 되지만 final 클래스나 final·private 메서드는 못 가로채요. Spring Framework는 인터페이스가 있으면 JDK, 없으면 CGLIB을 써요. Spring Boot는 `spring.aop.proxy-target-class` 기본값이 true라서 인터페이스가 있어도 CGLIB이 기본이에요.
+
+**꼬리질문**
+- Q. Boot는 왜 CGLIB을 기본으로 할까요? → JDK 프록시는 인터페이스만 구현해서 구체 클래스 타입으로 주입받으면 실패해요. CGLIB이면 인터페이스가 있든 없든, 어떤 타입으로 주입받든 일관되게 동작해요.
+- Q. CGLIB으로 final 클래스를 프록시할 수 있나요? → 없어요. 상속이 안 되니까요.
+</details>
+
+<details>
+<summary>Q. 같은 클래스 안에서 @Transactional 메서드를 호출하면 어떻게 되나요?</summary>
+
+**답변(30초)** 트랜잭션이 적용되지 않아요. 스프링은 프록시로 트랜잭션을 거는데, 프록시는 바깥에서 들어온 호출만 가로채요. 같은 객체 안에서 `this.inner()`로 부르면 `this`는 프록시가 아니라 진짜 객체라서 프록시를 건너뛰어요. 가장 좋은 해결은 그 메서드를 다른 빈으로 분리해 프록시를 거치게 하는 거예요. 자기 자신 주입이나 AspectJ 위빙도 있지만 부작용이 더 커요.
+
+**꼬리질문**
+- Q. inner에 REQUIRES_NEW를 붙이면 새 트랜잭션이 열리나요? → 안 열려요. 전파 속성도 프록시를 거쳐야 적용돼요. outer의 트랜잭션 안에서, 없으면 트랜잭션 없이 실행돼요.
+- Q. private 메서드에 @Transactional을 붙이면요? → 어떤 프록시도 private 메서드를 가로챌 수 없어서 무효예요.
+- Q. AopContext.currentProxy()는요? → 되긴 하지만 스프링 문서가 강하게 비권장해요. 코드가 스프링 AOP에 묶이고 `exposeProxy` 설정도 필요해요.
+</details>
+
+<details>
+<summary>Q. @Transactional이 동작하지 않는 경우를 말해 보세요.</summary>
+
+**답변(30초)** 핵심은 "프록시를 거치지 않거나, 프록시가 가로챌 수 없으면 안 된다"예요. 같은 클래스 안의 내부 호출, private 메서드, CGLIB 프록시에서의 final 메서드가 대표적이에요. 인터페이스 기반 프록시에서는 public이 아닌 메서드도 안 되고, `@PostConstruct` 같은 초기화 코드에서도 기대면 안 돼요. 그래서 구체 클래스의 public 메서드에 붙이고 외부 빈에서 부르는 게 안전해요.
+
+**꼬리질문**
+- Q. protected 메서드는요? → Spring 6.0부터 클래스 기반 프록시에서는 기본으로 적용돼요. 인터페이스 기반 프록시에서는 안 돼요.
+- Q. 인터페이스에 붙이면요? → 프록시 모드에선 동작하지만 AspectJ 모드에선 무시돼요. 그래서 구체 클래스에 붙이라고 권해요.
+</details>
+
+## 서술형 연습
+
+<details>
+<summary>상황: 주문 서비스의 placeOrder()(트랜잭션 없음)가 같은 클래스의 @Transactional saveOrderAndPayment()를 호출합니다. 결제 저장 중 예외가 났는데 주문은 DB에 그대로 남았습니다.</summary>
+
+**상황 파악**
+`@Transactional`이 붙어 있는데 롤백이 안 됐어요. 트랜잭션이 아예 열리지 않았다는 뜻이고, 호출 경로가 의심돼요.
+
+**원인 후보**
+1. **자기 호출**: `placeOrder()`가 같은 객체의 `saveOrderAndPayment()`를 `this`로 불러서 프록시를 건너뛰었어요. 가장 유력해요.
+2. 메서드가 private이거나 final이어서 프록시가 가로채지 못했을 수 있어요.
+3. 체크 예외가 나서 롤백 규칙에 안 걸렸을 수도 있어요. 하지만 트랜잭션 자체가 없었다면 1번이 먼저예요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. `saveOrderAndPayment()`를 별도 빈으로 분리 | 프록시를 확실히 거침, 책임도 나뉨, 스프링 문서 권장 | 클래스가 하나 늘어남 |
+| B. `placeOrder()` 자체에 `@Transactional` | 수정이 가장 작음 | 트랜잭션 범위가 넓어져 외부 호출 등까지 묶일 수 있음 |
+| C. 자기 자신 주입 후 그 참조로 호출 | 클래스 구조 유지 | 어색하고 읽는 사람이 의도를 놓치기 쉬움 |
+| D. AspectJ 모드 | 자기 호출 문제 자체가 사라짐 | 빌드·위빙 설정이 복잡해짐 |
+
+**내가 고를 방법**
+A를 골라요. 원인이 프록시 우회라서, 호출이 프록시를 거치게 만드는 게 근본 해결이에요. 주문 저장과 결제 저장이라는 책임도 자연스럽게 나뉘어요. 트랜잭션 경계를 넓혀도 괜찮은 단순한 흐름이라면 B도 빠른 선택이에요. 재발 방지를 위해 롤백 시나리오 테스트를 추가해요.
+
+**채점 포인트**: 프록시 기반 AOP, self-invocation, `this`는 진짜 객체, 외부 호출만 가로챔, 빈 분리(1순위), 해결책 2개 이상의 트레이드오프.
+</details>
+
+<details>
+<summary>상황: 실패 이력을 남기려고 같은 클래스의 saveFailLog()에 REQUIRES_NEW를 붙였는데, 바깥 트랜잭션이 롤백되면 로그도 함께 사라집니다.</summary>
+
+**상황 파악**
+REQUIRES_NEW는 바깥과 별개의 새 트랜잭션을 열어서, 바깥이 롤백돼도 로그는 남기려는 의도예요. 그런데 로그가 같이 사라졌으니 새 트랜잭션이 안 열린 거예요.
+
+**원인 후보**
+1. 같은 클래스 안 호출이라 프록시를 안 거쳐서 전파 속성이 무시됐어요. 그래서 바깥 트랜잭션 안에서 실행됐어요.
+2. 메서드가 private이거나 final일 수 있어요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. `FailLogService` 빈으로 분리해 주입 | 프록시를 거쳐 REQUIRES_NEW가 적용됨, 로그 책임이 분리됨 | 클래스 추가 |
+| B. 자기 자신 주입 | 코드 이동 없음 | 구조가 어색함 |
+| C. 로그를 이벤트로 발행하고 트랜잭션 완료 후 별도로 저장 | 핵심 트랜잭션과 완전히 분리 | 구성이 복잡해지고 저장 실패 처리를 따로 고민해야 함 |
+
+**내가 고를 방법**
+A를 골라요. 전파 속성도 프록시가 읽어서 적용하는 것이라, 프록시를 거치게 하는 게 핵심이에요. 로그 저장은 여러 서비스가 함께 쓸 수 있으니 별도 빈이 재사용에도 좋아요.
+
+**채점 포인트**: 전파 속성도 프록시를 거쳐야 적용, self-invocation, REQUIRES_NEW 의도, 빈 분리.
+</details>
+
+<details>
+<summary>상황: PG사 A는 pay(card, amount), PG사 B는 requestPayment(PaymentReq)로 API 모양이 다릅니다. 앞으로 PG사가 더 늘어날 수 있습니다.</summary>
+
+**상황 파악**
+서비스 코드가 PG사 SDK를 직접 부르면, PG사를 바꾸거나 추가할 때마다 서비스 코드를 고쳐야 해요. 외부 의존을 우리 코드에서 떼어 내는 게 핵심이에요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. 서비스에서 if/else로 PG사별 분기 | 당장 빠름 | PG사가 늘 때마다 서비스 수정, 테스트 어려움 |
+| B. 우리 `PaymentGateway` 인터페이스 + PG사별 어댑터 | 서비스는 인터페이스만 앎, 새 PG는 어댑터만 추가(OCP), 테스트 대역 쉬움 | 클래스 수 증가, 공통 인터페이스가 PG사 고유 기능을 다 못 담을 수 있음 |
+| C. B + 공통 흐름(로깅·재시도)을 데코레이터나 추상 클래스로 | 공통 처리를 한 곳에 | 구조가 더 복잡해짐 |
+
+**내가 고를 방법**
+B를 기본으로 해요. 서비스는 `PaymentGateway`에만 의존하고, 각 어댑터가 SDK 모양을 우리 모양으로 바꿔요. PG사 고유 기능은 억지로 공통 인터페이스에 넣지 않고 그 어댑터 안에서만 처리해요. 공통 처리가 커지면 C로 확장해요.
+
+**채점 포인트**: 어댑터, 인터페이스 변환, 외부 의존 격리, OCP·DIP, 공통 인터페이스의 한계.
+</details>
+
+<details>
+<summary>상황: 환율 API 클라이언트에 캐싱·재시도·로깅을 붙여야 합니다. 데코레이터로 직접 겹칠까요, 스프링 AOP 애너테이션으로 할까요?</summary>
+
+**상황 파악**
+같은 인터페이스를 유지한 채 기능 세 개를 덧붙이는 문제예요. 어떻게 붙이느냐와 **어떤 순서로 붙이느냐**가 둘 다 중요해요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. 데코레이터로 직접 겹치기 `Caching(Retry(Logging(real)))` | 순서가 코드에 그대로 보임, 스프링 없이 단위 테스트 쉬움 | 조립 코드를 직접 써야 함 |
+| B. 스프링 AOP 애너테이션 | 코드가 깔끔, 여러 곳에 재사용 쉬움 | 프록시라서 자기 호출 시 무효, 적용 순서가 코드에 안 보이고 디버깅 어려움 |
+
+순서가 의미를 바꿔요. 캐시가 재시도 **바깥**이면 캐시에 있을 때 재시도까지 안 가요. 재시도가 캐시 바깥이면 캐시 조회까지 다시 시도해서 낭비예요.
+
+**내가 고를 방법**
+한 클라이언트에만 붙이는 거라면 A를 골라요. 순서가 명확하고 테스트하기 쉬워요. 여러 클라이언트에 같은 정책을 반복해야 하면 B를 쓰되, 같은 클래스 안 호출이 없는지와 적용 순서를 꼭 확인해요.
+
+**채점 포인트**: 같은 인터페이스, 여러 겹 겹치기, 겹치는 순서의 의미, AOP는 프록시라 self-invocation 주의, 해결책 2개 이상의 트레이드오프.
+</details>
+
+## 필기 포인트
+
+- 어댑터는 감싼 객체와 **다른** 인터페이스, 프록시·데코레이터는 **같은** 인터페이스.
+- 프록시 vs 데코레이터: 구조는 같고 의도(접근 제어 vs 기능 추가)가 다름.
+- `java.io`의 `BufferedInputStream`, `DataInputStream`은 데코레이터. 공통 부모는 `FilterInputStream`.
+- `Arrays.asList`는 고정 크기 리스트. `add`/`remove` 시 `UnsupportedOperationException`.
+- JDK 동적 프록시는 **인터페이스만** 가능, `java.lang.reflect.Proxy`를 상속한 final 클래스.
+- CGLIB은 **상속** 방식. final 클래스, final·private 메서드 불가.
+- Spring Boot는 `spring.aop.proxy-target-class=true`가 기본이라 CGLIB이 기본.
+- 같은 클래스 내부 호출에는 `@Transactional`이 적용되지 않음(전파 속성 포함).
+
+## 함께 보기
+
+- [생성 패턴: 싱글톤·팩토리·빌더](../patterns-creational/)
+- [행위 패턴](../patterns-behavioral/)
+- [상속보다 조합](../inheritance-composition/)
+- [SOLID 원칙](../solid/)
+
+## 출처
+
+- [JDK 21 API, java.lang.reflect.Proxy](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/lang/reflect/Proxy.html)
+- [JDK 21 API, java.util.Arrays#asList](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/Arrays.html#asList(T...))
+- [JDK 21 API, java.io.FilterInputStream](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/io/FilterInputStream.html)
+- [JDK 21 API, java.io.BufferedInputStream](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/io/BufferedInputStream.html)
+- [Spring Framework Javadoc, HandlerAdapter](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/web/servlet/HandlerAdapter.html)
+- [Spring Framework Reference, Proxying Mechanisms](https://docs.spring.io/spring-framework/reference/core/aop/proxying.html)
+- [Spring Framework Reference, Using @Transactional](https://docs.spring.io/spring-framework/reference/data-access/transaction/declarative/annotations.html)
+- [Spring Boot Reference, Common Application Properties](https://docs.spring.io/spring-boot/appendix/application-properties/index.html)
+- 스프링 입문을 위한 자바 객체 지향의 원리와 이해 6장 "스프링이 사랑한 디자인 패턴", 7장 AOP 절 (CGLIB·인터페이스 기반 서술은 공식 문서 기준으로 바로잡음)
+- GoF, Design Patterns (1994) Adapter·Proxy·Decorator

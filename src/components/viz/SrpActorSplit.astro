@@ -1,0 +1,59 @@
+---
+// SRP: 세 팀(액터)의 변경 요청이 한 클래스로 몰림 → 클래스를 나눠 팀마다 하나씩
+import Stepper from '../Stepper.astro';
+const steps = [
+  { caption: 'OrderService 한 클래스 안에 결제·저장·알림 코드가 섞여 있어요. 결제팀, DB팀, 마케팅팀이 모두 이 클래스에 "바꿔 주세요"를 보내요.', show: ['actors', 'before', 'req'] },
+  { caption: '마케팅팀이 알림 문구만 바꿨는데, 같은 클래스라서 결제 코드까지 다시 테스트하고 배포해야 해요.', show: ['actors', 'before', 'req', 'ripple'] },
+  { caption: '책임별로 쪼개요. PaymentGateway(결제), OrderRepository(저장), Notifier(알림), 그리고 OrderService는 셋을 순서대로 부르는 조율만 맡아요.', show: ['actors', 'after'] },
+  { caption: '이제 각 팀의 요청은 자기 담당 클래스 하나로만 가요. 클래스마다 바뀔 이유가 하나뿐이에요.', show: ['actors', 'after', 'req', 'sum'] },
+];
+---
+<Stepper title="SRP: 변경 이유별로 클래스 나누기" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 300" role="img" aria-label="결제팀, DB팀, 마케팅팀의 변경 요청이 하나의 OrderService에 몰렸다가, 클래스를 나눈 뒤 각자 한 클래스로만 향하는 그림">
+    <defs>
+      <marker id="srp-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+
+    <g data-id="actors">
+      <rect class="chip" x="8" y="69" width="92" height="40" rx="8" /><text x="54" y="89">결제팀</text>
+      <rect class="chip" x="8" y="133" width="92" height="40" rx="8" /><text x="54" y="153">DB팀</text>
+      <rect class="chip" x="8" y="197" width="92" height="40" rx="8" /><text x="54" y="217">마케팅팀</text>
+    </g>
+
+    <g data-id="req">
+      <line class="line" x1="102" y1="89" x2="148" y2="89" marker-end="url(#srp-arr)" />
+      <line class="line" x1="102" y1="153" x2="148" y2="153" marker-end="url(#srp-arr)" />
+      <line class="line" x1="102" y1="217" x2="148" y2="217" marker-end="url(#srp-arr)" />
+    </g>
+
+    <g data-id="before" class="hide">
+      <rect class="box" x="150" y="14" width="162" height="236" rx="8" />
+      <text x="231" y="36" style="font-weight:700">OrderService</text>
+      <rect class="bad" x="160" y="64" width="142" height="50" rx="4" /><text class="sub" x="231" y="89">결제 코드</text>
+      <rect class="bad" x="160" y="128" width="142" height="50" rx="4" /><text class="sub" x="231" y="153">저장 코드</text>
+      <rect class="bad" x="160" y="192" width="142" height="50" rx="4" /><text class="sub" x="231" y="217">알림 코드</text>
+    </g>
+
+    <g data-id="ripple" class="hide">
+      <rect class="hl" x="157" y="189" width="148" height="56" rx="6" />
+      <rect class="err" x="160" y="64" width="142" height="50" rx="4" />
+      <text class="err-t" x="231" y="89">결제도 재배포!</text>
+      <text class="err-t" x="160" y="276">알림만 바꿨는데 결제까지 흔들림</text>
+    </g>
+
+    <g data-id="after" class="hide">
+      <rect class="box" x="150" y="14" width="162" height="40" rx="8" />
+      <text x="231" y="34" style="font-weight:700">OrderService</text>
+      <text class="sub" x="54" y="34">조율 담당 →</text>
+      <rect class="box" x="150" y="69" width="162" height="40" rx="8" /><text x="231" y="89">PaymentGateway</text>
+      <rect class="box" x="150" y="133" width="162" height="40" rx="8" /><text x="231" y="153">OrderRepository</text>
+      <rect class="box" x="150" y="197" width="162" height="40" rx="8" /><text x="231" y="217">Notifier</text>
+    </g>
+
+    <g data-id="sum" class="hide">
+      <text x="160" y="276" style="font-weight:700">팀 1개 → 클래스 1개 = 변경 이유 1개</text>
+    </g>
+  </svg>
+</Stepper>

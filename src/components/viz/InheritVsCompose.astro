@@ -1,0 +1,86 @@
+---
+// 상속(self-use로 하위 add가 다시 불려 6) vs 조합(inner 안에서 끝나 3)
+import Stepper from '../Stepper.astro';
+const I = ['i-box', 'i-call', 'i-fwd', 'i-down', 'i-boom'];
+const C = ['c-box', 'c-call', 'c-fwd', 'c-down'];
+const steps = [
+  { caption: '상속: s.addAll(a, b, c)을 부르면 재정의한 하위 addAll이 먼저 addCount에 3을 더해요.', show: ['i-box', 'i-call', 'i-c3', 'hl-i1'] },
+  { caption: 'super.addAll로 상위에 올라가요. 물려받은 상위 addAll은 원소마다 add(e)를 하나씩 불러요.', show: ['i-box', 'i-call', 'i-fwd', 'i-down', 'i-c3', 'hl-i2'] },
+  { caption: '실제 객체가 하위 클래스라서, 동적 바인딩으로 재정의된 하위 add로 되돌아와요(부메랑).', show: [...I, 'i-c3', 'hl-i3'] },
+  { caption: '하위 add가 1씩 3번 더 세서 addCount = 6. 기대값 3의 두 배인 버그예요.', show: [...I, 'i-c6'] },
+  { caption: '조합: 래퍼의 w.addAll(a, b, c)도 먼저 addCount에 3을 더해요.', show: [...I, 'i-c6', 'c-box', 'c-call', 'c-c3', 'hl-c1'] },
+  { caption: 'inner.addAll로 일을 넘겨요. inner는 그냥 HashSet이라, 안에서 부르는 add(e)는 inner 자신의 add예요.', show: [...I, 'i-c6', ...C, 'c-c3', 'hl-c2'] },
+  { caption: '래퍼로 되돌아오는 화살표가 없어요(한 방향). 결과 addCount = 3, 정확해요.', show: [...I, 'i-c6', ...C, 'c-stay', 'c-ok'] },
+];
+---
+<Stepper title="상속 vs 조합: addAll 한 번에 몇 번 셀까?" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 456" role="img" aria-label="상속은 상위 addAll이 하위 add를 다시 불러 6을 세고, 조합은 inner 안에서 끝나 3을 세는 과정">
+    <defs>
+      <marker id="ivc-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+
+    <!-- 상속: s.addAll(a, b, c) -->
+    <text class="l" x="8" y="12" style="font-weight:700">상속: s.addAll(a, b, c)</text>
+    <g data-id="i-box">
+      <rect class="box" x="8" y="40" width="144" height="108" rx="8" />
+      <text x="80" y="56" style="font-weight:700">하위 클래스</text>
+      <rect class="chip" x="16" y="70" width="128" height="26" rx="5" />
+      <text class="mono" x="80" y="83">addAll() +3</text>
+      <rect class="chip" x="16" y="112" width="128" height="26" rx="5" />
+      <text class="mono" x="80" y="125">add() +1</text>
+      <rect class="box" x="168" y="40" width="144" height="108" rx="8" />
+      <text x="240" y="56" style="font-weight:700">상위 HashSet</text>
+      <rect class="bad" x="176" y="70" width="128" height="26" rx="5" />
+      <text class="mono" x="240" y="83">addAll()</text>
+      <rect class="bad" x="176" y="112" width="128" height="26" rx="5" />
+      <text class="mono" x="240" y="125">add(e) ×3</text>
+    </g>
+    <line data-id="i-call" class="line" x1="28" y1="22" x2="28" y2="68" marker-end="url(#ivc-arr)" />
+    <line data-id="i-fwd" class="line" x1="144" y1="83" x2="174" y2="83" marker-end="url(#ivc-arr)" />
+    <line data-id="i-down" class="line" x1="240" y1="96" x2="240" y2="110" marker-end="url(#ivc-arr)" />
+
+    <g data-id="i-boom">
+      <path class="line" d="M240 138 C240 186, 80 186, 80 142" stroke-dasharray="5 4" marker-end="url(#ivc-arr)" />
+      <text class="sub" x="160" y="192">동적 바인딩: 하위 add로 되돌아옴</text>
+    </g>
+    <text data-id="i-c3" class="l hide" x="8" y="214" style="font-weight:700">addCount = 3</text>
+    <text data-id="i-c6" class="l hide" x="8" y="214"><tspan class="err-t">addCount = 6</tspan> (두 번 셈, 버그)</text>
+
+    <line class="line" x1="0" y1="228" x2="320" y2="228" stroke-dasharray="2 4" />
+
+    <!-- 조합: w.addAll(a, b, c) -->
+    <text class="l" x="8" y="244" style="font-weight:700">조합: w.addAll(a, b, c)</text>
+    <g data-id="c-box">
+      <rect class="box" x="8" y="272" width="144" height="108" rx="8" />
+      <text x="80" y="288" style="font-weight:700">래퍼 클래스</text>
+      <rect class="chip" x="16" y="302" width="128" height="26" rx="5" />
+      <text class="mono" x="80" y="315">addAll() +3</text>
+      <rect class="chip" x="16" y="344" width="128" height="26" rx="5" />
+      <text class="mono" x="80" y="357">add() +1</text>
+      <rect class="box" x="168" y="272" width="144" height="108" rx="8" />
+      <text x="240" y="288" style="font-weight:700">inner HashSet</text>
+      <rect class="bad" x="176" y="302" width="128" height="26" rx="5" />
+      <text class="mono" x="240" y="315">addAll()</text>
+      <rect class="bad" x="176" y="344" width="128" height="26" rx="5" />
+      <text class="mono" x="240" y="357">add(e) ×3</text>
+    </g>
+    <line data-id="c-call" class="line" x1="28" y1="254" x2="28" y2="300" marker-end="url(#ivc-arr)" />
+    <line data-id="c-fwd" class="line" x1="144" y1="315" x2="174" y2="315" marker-end="url(#ivc-arr)" />
+    <line data-id="c-down" class="line" x1="240" y1="328" x2="240" y2="342" marker-end="url(#ivc-arr)" />
+
+    <g data-id="c-stay">
+      <text class="sub" x="240" y="396">inner의 add에서 끝</text>
+      <text class="sub" x="160" y="420">래퍼로 안 돌아옴 (한 방향)</text>
+    </g>
+    <text data-id="c-c3" class="l hide" x="8" y="446" style="font-weight:700">addCount = 3</text>
+    <text data-id="c-ok" class="l hide" x="8" y="446"><tspan class="hi">addCount = 3</tspan> (정확)</text>
+
+    <rect data-id="hl-i1" class="hl" x="12" y="66" width="136" height="34" rx="7" />
+    <rect data-id="hl-i2" class="hl" x="164" y="36" width="152" height="116" rx="10" />
+    <rect data-id="hl-i3" class="hl" x="12" y="108" width="136" height="34" rx="7" />
+    <rect data-id="hl-c1" class="hl" x="12" y="298" width="136" height="34" rx="7" />
+    <rect data-id="hl-c2" class="hl" x="164" y="268" width="152" height="116" rx="10" />
+  </svg>
+</Stepper>

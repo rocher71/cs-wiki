@@ -1,0 +1,77 @@
+---
+// 같은 주문 처리 레일을 템플릿 메서드(상속으로 빈칸 채움)와 전략(슬롯에 블록 주입)으로 채우는 비교
+import Stepper from '../Stepper.astro';
+const rail = ['r1', 'r4', 'a1', 'a2', 'a3'];
+const steps = [
+  { caption: '주문 처리 흐름은 늘 같아요. 재고 확인 → 결제 → 결제 후 처리 → 주문 저장. 결제 방식처럼 바뀌는 칸(점선)만 다르게 채우면 돼요.', show: [...rail, 'slot2', 'slot3', 'h1', 'hl-slots'] },
+  { caption: '템플릿 메서드: 부모의 process()가 흐름 전체를 쥐고, 자식 CardOrderProcessor가 extends로 [결제] 칸(pay)을 채워요. [결제 후 처리]는 훅이라 안 고치면 기본값(빈 동작) 그대로예요.', show: [...rail, 'h2', 't-pay', 't-hook', 't-child', 't-hooknote', 'hl-child'] },
+  { caption: '전략: OrderService가 흐름을 갖고, 결제 칸의 할인 계산은 DiscountPolicy 슬롯에 맡겨요. 스프링이 카드 10% 구현을 골라 생성자로 넣어 줘요(합성).', show: [...rail, 'h3', 's-pay', 's-after', 's-socket', 'pal', 's-card', 'inj-card', 'hl-card'] },
+  { caption: '전략 교체: 블록만 포인트 5%로 바꿔 끼우면 끝이에요. OrderService 코드는 한 줄도 안 바뀌고, 다른 객체를 넣으면 실행 중에도 바뀌어요.', show: [...rail, 'h3', 's-pay', 's-after', 's-socket', 'pal', 's-point', 'inj-point', 'hl-point', 's-note'] },
+];
+---
+<Stepper title="템플릿 메서드 vs 전략: 빈칸을 채우는 두 방법" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 322" role="img" aria-label="재고 확인, 결제, 결제 후 처리, 주문 저장으로 이어지는 주문 흐름에서, 템플릿 메서드는 자식 클래스가 결제 칸을 상속으로 채우고, 전략은 OrderService 옆 DiscountPolicy 슬롯에 카드 10% 또는 포인트 5% 블록을 주입해 바꿔 끼우는 그림">
+    <defs>
+      <marker id="tvs-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+
+    <text data-id="h1" class="sub l hide" x="8" y="22">주문 처리 흐름</text>
+    <text data-id="h2" class="mono l hide" x="8" y="22">AbstractOrderProcessor.process()</text>
+    <text data-id="h3" class="mono l hide" x="8" y="22">OrderService (컨텍스트)</text>
+
+    <!-- 공통 레일 -->
+    <g data-id="r1"><rect class="box" x="8" y="44" width="144" height="40" rx="8" /><text x="80" y="64">재고 확인</text></g>
+    <g data-id="r4"><rect class="box" x="8" y="224" width="144" height="40" rx="8" /><text x="80" y="244">주문 저장</text></g>
+    <line data-id="a1" class="line" x1="80" y1="85" x2="80" y2="102" marker-end="url(#tvs-arr)" />
+    <line data-id="a2" class="line" x1="80" y1="145" x2="80" y2="162" marker-end="url(#tvs-arr)" />
+    <line data-id="a3" class="line" x1="80" y1="205" x2="80" y2="222" marker-end="url(#tvs-arr)" />
+
+    <!-- 1단계: 빈칸 -->
+    <g data-id="slot2" class="hide"><rect class="frame" x="8" y="104" width="144" height="40" rx="8" /><text x="80" y="124">[결제]</text></g>
+    <g data-id="slot3" class="hide"><rect class="frame" x="8" y="164" width="144" height="40" rx="8" /><text x="80" y="184">[결제 후 처리]</text></g>
+
+    <!-- 템플릿 메서드 -->
+    <g data-id="t-pay" class="hide"><rect class="chip" x="8" y="104" width="144" height="40" rx="8" /><text x="80" y="124">결제 (자식 구현)</text></g>
+    <g data-id="t-hook" class="hide"><rect class="bad" x="8" y="164" width="144" height="40" rx="8" /><text class="sub" x="80" y="184">결제 후 처리</text></g>
+    <text data-id="t-hooknote" class="sub l hide" x="160" y="184">← 훅: 기본값 그대로</text>
+    <g data-id="t-child" class="hide">
+      <text class="mono" x="246" y="84">extends · pay()</text>
+      <rect class="box" x="180" y="96" width="132" height="56" rx="8" />
+      <text x="246" y="114">CardOrder</text>
+      <text x="246" y="134">Processor</text>
+      <line class="line" x1="178" y1="124" x2="156" y2="124" marker-end="url(#tvs-arr)" />
+    </g>
+
+    <!-- 전략 -->
+    <g data-id="s-pay" class="hide"><rect class="chip" x="8" y="104" width="144" height="40" rx="8" /><text x="80" y="124">결제 (정책 사용)</text></g>
+    <g data-id="s-after" class="hide"><rect class="box" x="8" y="164" width="144" height="40" rx="8" /><text x="80" y="184">결제 후 처리</text></g>
+    <g data-id="s-socket" class="hide">
+      <text class="mono" x="246" y="84">DiscountPolicy</text>
+      <rect class="frame" x="180" y="100" width="132" height="48" rx="8" />
+      <line class="line" x1="154" y1="124" x2="176" y2="124" marker-end="url(#tvs-arr)" />
+    </g>
+    <g data-id="s-card" class="hide"><rect class="chip" x="184" y="104" width="124" height="40" rx="6" /><text x="246" y="124">카드 10%</text></g>
+    <g data-id="s-point" class="hide"><rect class="chip" x="184" y="104" width="124" height="40" rx="6" /><text x="246" y="124">포인트 5%</text></g>
+    <g data-id="pal" class="hide">
+      <rect class="box" x="196" y="184" width="116" height="32" rx="6" /><text x="254" y="200">카드 10%</text>
+      <rect class="box" x="196" y="222" width="116" height="32" rx="6" /><text x="254" y="238">포인트 5%</text>
+      <rect class="box" x="196" y="260" width="116" height="32" rx="6" /><text x="254" y="276">할인 없음</text>
+    </g>
+    <g data-id="inj-card" class="hide">
+      <polyline class="line" points="194,200 186,200 186,152" marker-end="url(#tvs-arr)" />
+      <text class="sub l" x="196" y="166">스프링이 주입</text>
+    </g>
+    <g data-id="inj-point" class="hide">
+      <polyline class="line" points="194,238 186,238 186,152" marker-end="url(#tvs-arr)" />
+      <text class="sub l" x="196" y="166">블록만 교체</text>
+    </g>
+    <text data-id="s-note" class="hi hide" x="160" y="308">OrderService 코드 변경 0줄</text>
+
+    <rect data-id="hl-slots" class="hl" x="4" y="100" width="152" height="108" rx="10" />
+    <rect data-id="hl-child" class="hl" x="176" y="92" width="140" height="64" rx="10" />
+    <rect data-id="hl-card" class="hl" x="192" y="180" width="124" height="40" rx="8" />
+    <rect data-id="hl-point" class="hl" x="192" y="218" width="124" height="40" rx="8" />
+  </svg>
+</Stepper>

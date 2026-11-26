@@ -1,0 +1,335 @@
+---
+title: 추상 클래스 vs 인터페이스
+description: 추상 클래스는 상태와 공통 구현을 물려주는 '미완성 부모'이고, 인터페이스는 여러 개를 동시에 붙일 수 있는 '할 수 있다는 약속'이에요.
+sidebar: { order: 4 }
+tags: [면접빈출, 서술형, 필기]
+---
+import { Aside } from '@astrojs/starlight/components';
+import AbstractVsInterface from '~/components/viz/AbstractVsInterface.astro';
+import DefaultMethodResolution from '~/components/viz/DefaultMethodResolution.astro';
+
+:::tip[한 줄 요약]
+추상 클래스는 필드(상태)와 생성자, 공통 구현을 물려줄 수 있지만 하나만 상속할 수 있어요. 인터페이스는 상태 없이 "무엇을 할 수 있는가"라는 계약을 정하고, 여러 개를 동시에 구현할 수 있어요. Java 8부터 인터페이스도 default 메서드로 구현을 가질 수 있지만, 상태와 생성자는 여전히 없어요.
+:::
+
+## 쉽게 이해하기
+
+**추상 클래스**는 **반쯤 지어 둔 건물 골조**예요. 기둥, 배관, 전기(필드와 공통 메서드)는 이미 깔려 있고, 방 인테리어 몇 군데(추상 메서드)만 비어 있어요. 이 골조 위에는 건물을 하나만 올릴 수 있어요. 자식 클래스는 부모를 하나만 고를 수 있으니까요.
+
+**인터페이스**는 **자격증**이에요. "운전할 수 있음", "수영할 수 있음"처럼 무엇을 할 수 있는지만 적혀 있고, 어떻게 하는지는 자격증을 딴 사람이 정해요. 한 사람이 자격증을 여러 개 가질 수 있듯이, 한 클래스는 인터페이스를 여러 개 구현할 수 있어요.
+
+그래서 흔히 상속은 "**~의 한 종류다**(is a kind of)", 인터페이스는 "**~할 수 있다**(is able to)"로 구분해요. 자바 표준 인터페이스 이름이 `Comparable`, `Runnable`, `Serializable`처럼 `-able`로 끝나는 게 많은 이유예요.
+
+단, 실제로는 Java 8부터 자격증(인터페이스)에도 "기본 요령"(default 메서드)을 적어 둘 수 있게 됐어요. 그래도 자격증에는 개인 소지품(인스턴스 필드)을 넣을 칸이 없다는 점은 그대로예요.
+
+## 그림으로 보기
+
+<AbstractVsInterface />
+
+<DefaultMethodResolution />
+
+## 제대로 알기
+
+### 1. 추상 클래스: 미완성 부모
+
+**추상 메서드**(abstract method, 이름과 매개변수만 있고 몸체가 없는 메서드)는 "자식이 꼭 채워야 할 빈칸"이에요. **추상 클래스**(abstract class)는 `abstract`로 선언한 클래스예요.
+
+- 추상 메서드가 하나라도 있으면 클래스도 반드시 `abstract`여야 해요.
+- 반대로 추상 클래스에 추상 메서드가 **없어도** 돼요. "이건 직접 만들지 말고 상속해서 써라"는 뜻으로만 쓰기도 해요.
+- `new`로 직접 만들 수 없어요(`cannot be instantiated` 컴파일 에러). 상속해서 써야 해요.
+- **생성자는 있어요.** 직접 `new`는 못 해도, 자식 객체를 만들 때 `super(...)`로 불려서 부모 필드를 초기화해요. 익명 클래스(`new Animal("코코") { ... }`처럼 그 자리에서 몸체를 채운 이름 없는 자식)로 만들 때도 생성자가 실행돼요.
+- 일반 필드(객체마다 다른 상태)를 가질 수 있고, `public`, `protected`, `private`, 패키지 접근 메서드를 모두 쓸 수 있어요.
+- 자식이 추상 메서드를 다 채우지 않으면 그 자식도 `abstract`여야 해요. 일반 클래스가 하나라도 빼먹으면 컴파일 에러예요.
+
+```java
+abstract class Animal {
+    protected final String name;           // 상태(필드)를 가질 수 있음
+    Animal(String name) { this.name = name; } // 생성자도 가능
+    void breathe() { System.out.println(name + " 숨쉬기"); } // 공통 구현
+    abstract String sound();                // 자식이 채울 빈칸
+}
+
+class Dog extends Animal {
+    Dog(String name) { super(name); }       // 부모 생성자 호출
+    String sound() { return "멍"; }
+}
+// new Animal("x");  // 컴파일 에러: Animal is abstract
+```
+
+<Aside type="caution" title="같이 못 쓰는 조합">
+`abstract final` 클래스, `private abstract` 메서드, `static abstract` 메서드는 모두 컴파일 에러(`illegal combination of modifiers`)예요. abstract는 "자식이 채워라"인데, final(상속 금지)·private(자식이 못 봄)·static(오버라이드 대상 아님)은 자식이 채울 수 없게 만들어서 서로 모순이에요.
+</Aside>
+
+### 2. 인터페이스: 할 수 있다는 약속
+
+**인터페이스**(interface)는 클래스가 지켜야 할 메서드 목록, 즉 **계약**이에요. 클래스는 `implements`로 그 계약을 따르겠다고 선언해요.
+
+- **필드는 자동으로 `public static final`**(모두가 공유하는 바꿀 수 없는 상수)이에요. 그래서 선언할 때 값을 꼭 넣어야 하고(`int V;`는 에러), 다시 대입할 수 없어요.
+- 메서드에 `private`, `default`, `static`이 안 붙어 있으면 자동으로 `public abstract`예요.
+- 메서드 접근 제어자는 `public` 아니면 `private`(Java 9+)뿐이에요. `protected`, 패키지 접근, `final`, `synchronized`, `native`는 못 써요.
+- 생성자가 없고 직접 `new`로 만들 수 없어요.
+- 클래스는 `extends`를 하나만 쓸 수 있지만 `implements`는 여러 개 쓸 수 있어요. 인터페이스끼리는 `extends`로 여러 개를 상속할 수 있어요.
+
+<Aside type="caution" title="구현 메서드에 public을 빼먹으면 에러">
+인터페이스 안에서는 접근 제어자를 안 써도 `public`이에요. 그런데 그걸 구현하는 **클래스 쪽**에서 안 쓰면 패키지 접근이 돼서, 접근 범위를 좁힌 셈이라 `cannot implement` 에러가 나요. 구현 메서드에는 꼭 `public`을 붙여요.
+</Aside>
+
+```java
+interface Swimmable {
+    int MAX_DEPTH = 10;      // 자동으로 public static final
+    void swim();             // 자동으로 public abstract
+}
+interface Flyable { void fly(); }
+
+class Duck implements Swimmable, Flyable {  // 여러 개 구현 가능
+    public void swim() { }   // public 필수
+    public void fly() { }
+}
+```
+
+### 3. Java 8 이후 바뀐 점: default, static, private 메서드
+
+옛날 책(Java 6 기준)에는 "인터페이스는 추상 메서드와 상수만 가진다"고 나와요. **지금은 틀린 설명**이에요.
+
+| 버전 | 추가된 것 | 왜 생겼나 |
+|---|---|---|
+| Java 8 | `default` 메서드 | 이미 배포한 인터페이스에 메서드를 추가해도 기존 구현 클래스가 깨지지 않게 |
+| Java 8 | `static` 메서드 | 관련 도우미 메서드를 인터페이스 곁에 두려고(예: `Comparator.comparing`) |
+| Java 9 | `private` / `private static` 메서드 | default·static 메서드끼리 공통 코드를 나눠 쓰려고(구현 클래스에는 안 보임) |
+
+**default 메서드**(몸체가 있는 인터페이스 메서드, 자동으로 public)가 핵심이에요. 이미 수많은 클래스가 구현한 인터페이스에 추상 메서드를 하나 추가하면, 그 클래스들이 전부 컴파일 에러가 나요. default로 추가하면 기존 코드를 안 고쳐도 돼요. Java 8에서 람다(이름 없는 함수를 값처럼 넘기는 문법)와 함께 `Comparator.reversed()`, `thenComparing()` 같은 메서드가 이렇게 추가됐어요.
+
+default와 static 메서드의 세부 규칙이에요.
+
+- 인터페이스 **static 메서드는 상속되지 않아요.** `구현클래스.s()`나 `참조변수.s()`로는 못 부르고, 반드시 `인터페이스명.s()`로 불러요.
+- 하위 인터페이스는 물려받은 default를 그대로 두거나, 다시 abstract로 선언해 구현을 강제하거나, 새 default로 바꿀 수 있어요.
+- default로 `equals`, `hashCode`, `toString`을 정의하면 컴파일 에러예요. 모든 클래스는 `Object`의 구현을 이미 물려받아서 default가 쓰일 일이 없기 때문이에요.
+- default 메서드에는 `final`을 붙일 수 없어요.
+
+```java
+interface Greeter {
+    String name();                                   // 추상 메서드
+    default String hello() { return wrap("안녕, " + name()); }
+    static Greeter of(String n) { return () -> n; }  // Greeter.of("코코")로만 호출
+    private String wrap(String s) { return "[" + s + "]"; } // Java 9+, 내부용
+}
+```
+
+### 4. default 충돌 규칙(다이아몬드 문제)
+
+**다이아몬드 문제**는 두 부모가 같은 이름의 메서드를 가지고 있을 때 자식이 어느 쪽을 써야 할지 모호해지는 문제예요. 사람과 물고기를 둘 다 상속한 인어에게 "수영해!"라고 하면, 사람처럼 팔을 저을지 물고기처럼 꼬리를 칠지 정할 수 없는 상황이에요.
+
+자바는 이 모호함 때문에 **클래스 다중 상속을 막고**, 구현이 없는 인터페이스로만 다중 "타입" 상속을 허용했어요. Java 8 default로 인터페이스에도 구현이 생기면서 같은 문제가 일부 돌아왔는데, 다음 세 규칙으로 풀어요.
+
+1. **클래스 우선**: 부모 클래스에서 물려받은 메서드가 인터페이스 default보다 이겨요. 부모 클래스에 abstract로만 선언돼 있어도 default가 대신 채워 주지 않고, 자식이 직접 구현해야 해요.
+2. **더 구체적인 인터페이스 우선**: B가 A를 상속하고 둘 다 같은 default를 가지면 B 것이 선택돼요.
+3. **그래도 모호하면 컴파일 에러**: 서로 관계없는 A, C가 같은 default를 가지면 `types A and C are incompatible` 에러예요. 클래스가 직접 오버라이드해야 하고, 특정 쪽을 쓰고 싶으면 `A.super.hi()`로 불러요.
+
+```java
+interface A { default String hi() { return "A"; } }
+interface C { default String hi() { return "C"; } }
+
+class Both implements A, C {
+    public String hi() { return A.super.hi() + C.super.hi(); } // 직접 골라 합성
+}
+```
+
+`implements A, C`의 **순서는 상관없어요.** 먼저 쓴 쪽이 이기는 게 아니라 무조건 에러예요. 또 반환형만 다른 같은 이름 메서드(`int f()`와 `long f()`)를 가진 두 인터페이스는 한 클래스가 동시에 구현할 수 없어요.
+
+### 5. 함수형 인터페이스와 람다
+
+**함수형 인터페이스**(functional interface)는 추상 메서드가 **딱 하나**인 인터페이스예요. 람다는 이 하나뿐인 빈칸을 채우는 짧은 문법이에요.
+
+- default, static, private 메서드는 개수에 안 세요. `equals`처럼 `Object`에 이미 있는 메서드를 abstract로 다시 적은 것도 안 세요.
+- `@FunctionalInterface`는 **선택**이에요. 붙이면 추상 메서드가 2개가 됐을 때 컴파일 에러로 실수를 잡아줘요.
+- 람다는 **인터페이스에만** 대입할 수 있어요. 추상 메서드가 하나뿐인 추상 클래스라도 람다는 안 돼요(`is not a functional interface`).
+- default 덕분에 `Function.andThen`, `Comparator.reversed`처럼 조합용 메서드를 함수형 인터페이스에 넣을 수 있어요.
+
+자세한 람다 문법은 [람다와 스트림](../../java/lambda-stream/)에서 다뤄요.
+
+### 6. 한눈에 비교
+
+| 구분 | 추상 클래스 | 인터페이스 |
+|---|---|---|
+| 상속 개수 | `extends` 1개 | `implements` 여러 개 |
+| 인스턴스 필드(상태) | 가능 | 불가(상수 `public static final`만) |
+| 생성자 | 있음(자식이 `super`로 호출) | 없음 |
+| 구현 있는 메서드 | 자유롭게 | default, static, private(9+)만 |
+| 메서드 접근 제어자 | public, protected, private, 패키지 | public, private(9+) |
+| 람다 대입 | 불가 | 추상 메서드 1개면 가능 |
+| 관계의 뜻 | ~의 한 종류(is a kind of) | ~할 수 있다(is able to) |
+
+### 7. 언제 무엇을 쓰나
+
+**추상 클래스**가 맞는 경우예요.
+- 밀접하게 관련된 클래스들끼리 코드를 나눠 쓸 때
+- 공통 필드·메서드가 많거나 `protected`, `private`가 필요할 때
+- 객체 상태(인스턴스 필드)를 함께 다뤄야 할 때
+
+**인터페이스**가 맞는 경우예요.
+- 서로 관계없는 클래스들이 같은 능력을 가질 때(예: `Comparable`, `Cloneable`)
+- 누가 구현하든 "무엇을 하는지"만 정하고 싶을 때
+- 여러 타입을 동시에 가져야 할 때
+
+한 가지 기준이 더 있어요. 부모 클래스는 물려줄 게 **많을수록** 쓸모 있고([LSP](../solid/)와 연결), 인터페이스는 강제할 메서드가 **적을수록** 좋아요([ISP](../solid/)와 연결).
+
+실무에서는 둘을 **같이** 쓰는 경우가 많아요. 인터페이스로 계약을 정하고, 추상 클래스로 뼈대 구현(skeletal implementation)을 제공해요. JDK의 `List`와 `AbstractList`, `Map`과 `AbstractMap`이 이 패턴이에요. 구현하는 쪽은 뼈대를 상속해 빈칸만 채우면 되고, 이미 다른 클래스를 상속한 경우엔 인터페이스만 직접 구현하면 돼요.
+
+## 면접 질문
+
+<details>
+<summary>Q. 추상 클래스와 인터페이스의 차이를 설명해 주세요.</summary>
+
+**답변(30초)** 가장 큰 차이는 상태와 다중 상속이에요. 추상 클래스는 인스턴스 필드와 생성자를 가질 수 있어서 공통 상태와 구현을 물려주지만, 하나만 상속할 수 있어요. 인터페이스는 상수만 가질 수 있고 생성자가 없는 대신 여러 개를 구현할 수 있어요. 그래서 추상 클래스는 "~의 한 종류"인 밀접한 클래스들의 공통 뼈대에, 인터페이스는 관계없는 클래스들이 가질 "~할 수 있다"는 능력의 계약에 써요.
+
+**꼬리질문**
+- Q. 인터페이스 필드는 어떤 특징이 있나요? → 자동으로 `public static final`이라 선언할 때 초기값이 필수이고 재할당할 수 없어요. 단, 참조만 고정이라 `List` 상수의 내용물은 바뀔 수 있어요.
+- Q. 인터페이스 메서드에 protected를 쓸 수 있나요? → 없어요. public 아니면 Java 9부터 private만 돼요.
+- Q. 둘을 같이 쓰는 예는? → `List` 인터페이스와 `AbstractList` 추상 클래스처럼 계약은 인터페이스, 공통 구현은 추상 클래스로 나눠요.
+</details>
+
+<details>
+<summary>Q. Java 8부터 인터페이스에 default 메서드가 생겼는데, 그럼 추상 클래스는 왜 필요한가요?</summary>
+
+**답변(30초)** default가 생겨도 인터페이스는 여전히 상태와 생성자를 가질 수 없어요. 그래서 객체마다 다른 필드를 두고 생성자로 초기화해야 하거나, 자식에게만 보이는 protected 메서드가 필요하면 추상 클래스를 써야 해요. 또 default로는 `equals`, `toString` 같은 Object 메서드를 재정의할 수 없어요. default는 상태 없는 행위를 덧붙이는 도구이지 추상 클래스를 대신하는 건 아니에요.
+
+**꼬리질문**
+- Q. 추상 클래스에 생성자가 있나요? 왜요? → 있어요. 직접 new는 못 하지만 자식 객체를 만들 때 `super(...)`로 불려서 부모 필드를 초기화해요.
+- Q. 추상 메서드가 없는 추상 클래스도 되나요? → 돼요. 직접 생성은 막고 상속만 허용하고 싶을 때 써요.
+</details>
+
+<details>
+<summary>Q. default 메서드는 왜 도입됐나요?</summary>
+
+**답변(30초)** 이미 배포된 인터페이스에 기능을 추가하기 위해서예요. 인터페이스에 추상 메서드를 하나 추가하면 그걸 구현한 모든 클래스가 컴파일 에러가 나요. default 메서드는 몸체를 가지고 있어서 기존 구현 클래스를 고치지 않고도 새 메서드를 쓸 수 있게 해 줘요. Java 8에서 람다를 받는 `Comparator.reversed()`, `thenComparing()` 같은 메서드가 이렇게 추가됐어요.
+
+**꼬리질문**
+- Q. default 메서드의 단점은? → 구현 클래스가 모르는 사이에 기본 동작이 적용될 수 있고, 여러 인터페이스의 default가 충돌할 수 있어요.
+- Q. default에 final을 붙일 수 있나요? → 없어요. 컴파일 에러예요.
+- Q. Java 9의 private 인터페이스 메서드는 왜 필요한가요? → default·static 메서드끼리 겹치는 코드를 구현 클래스에 노출하지 않고 나눠 쓰려고요.
+</details>
+
+<details>
+<summary>Q. 두 인터페이스가 같은 이름의 default 메서드를 가지면 어떻게 되나요?</summary>
+
+**답변(30초)** 둘이 서로 관계없는 인터페이스라면 컴파일 에러가 나요. 구현 클래스가 그 메서드를 직접 오버라이드해야 하고, 특정 인터페이스의 구현을 쓰고 싶으면 `A.super.hi()`처럼 불러요. 다만 부모 클래스에 같은 메서드가 있으면 클래스가 우선이고, 한 인터페이스가 다른 쪽을 상속했다면 더 구체적인 하위 인터페이스 것이 선택돼요.
+
+**꼬리질문**
+- Q. implements에 먼저 쓴 인터페이스가 이기나요? → 아니요, 순서와 관계없이 에러예요.
+- Q. 자바는 왜 클래스 다중 상속을 막았나요? → 두 부모가 같은 메서드를 가지면 어느 쪽을 쓸지 모호해지는 다이아몬드 문제 때문이에요. 대신 인터페이스로 타입만 여러 개 물려받게 했어요.
+</details>
+
+<details>
+<summary>Q. 함수형 인터페이스란 무엇인가요?</summary>
+
+**답변(30초)** 추상 메서드가 딱 하나인 인터페이스예요. 람다는 그 하나뿐인 메서드를 구현하는 짧은 문법이라, 함수형 인터페이스 타입에만 대입할 수 있어요. default, static, private 메서드는 개수에 안 들어가서 얼마든지 있어도 돼요. `@FunctionalInterface`는 선택이지만, 붙이면 추상 메서드가 늘어났을 때 컴파일 에러로 알려줘요.
+
+**꼬리질문**
+- Q. 추상 메서드가 하나인 추상 클래스에도 람다를 쓸 수 있나요? → 없어요. 람다는 인터페이스에만 대입돼요.
+- Q. `@FunctionalInterface`가 없으면 람다를 못 쓰나요? → 써요. 조건만 맞으면 돼요.
+</details>
+
+<details>
+<summary>Q. 인터페이스 static 메서드를 구현 클래스 이름으로 호출할 수 있나요?</summary>
+
+**답변(30초)** 없어요. 인터페이스 static 메서드는 상속되지 않아서 구현 클래스 이름이나 인터페이스 타입 참조 변수로 부르면 컴파일 에러예요. 반드시 `Comparator.comparing()`처럼 인터페이스 이름으로 불러요.
+
+**꼬리질문**
+- Q. 인터페이스 static 메서드는 왜 있나요? → 그 인터페이스와 관련된 도우미 메서드를 별도 유틸 클래스 없이 인터페이스 곁에 두려고요.
+</details>
+
+## 서술형 연습
+
+<details>
+<summary>상황: 카드, 계좌이체, 포인트 세 가지 결제 수단을 연동합니다. 공통 로깅·검증·재시도 흐름이 있고, 결제사마다 API 호출 방식은 다릅니다. 어떻게 설계할까요?</summary>
+
+**상황 파악**
+두 가지가 섞여 있어요. "결제할 수 있다"는 **계약**은 모든 수단이 같고, 로깅·검증·재시도라는 **공통 흐름**도 같아요. 다른 건 실제 결제사 API를 부르는 부분뿐이에요. 계약과 공통 구현을 어디에 둘지가 핵심이에요.
+
+**고려할 점**
+1. 공통 흐름을 수단마다 복사하면 중복이 생기고, 재시도 정책을 바꿀 때 세 군데를 고쳐야 해요.
+2. 어떤 구현체는 이미 다른 클래스(예: 결제사 SDK의 기본 클래스)를 상속하고 있을 수 있어요. 자바는 클래스를 하나만 상속할 수 있어요.
+3. 서비스 코드가 구체 클래스에 묶이면 테스트에서 가짜 결제로 바꾸기 어려워요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. `PaymentGateway` 인터페이스만 | 어떤 클래스든 구현 가능, 테스트 대역 만들기 쉬움 | 로깅·검증·재시도를 구현체마다 반복 |
+| B. `AbstractPaymentGateway` 추상 클래스만 | 공통 흐름을 한 곳에(템플릿 메서드), 자식은 API 호출만 구현 | 이미 다른 클래스를 상속한 구현체는 못 들어옴, 서비스가 추상 클래스에 묶임 |
+| C. 인터페이스 + 추상 클래스 뼈대 | 계약은 인터페이스, 공통 흐름은 추상 클래스. 뼈대를 못 쓰는 구현체는 인터페이스만 직접 구현 | 타입이 하나 늘어 구조가 조금 복잡해짐 |
+
+**내가 고를 방법**
+C를 골라요. 서비스는 `PaymentGateway` 인터페이스에만 의존해서 스프링이 구현체를 주입하고, 테스트에선 가짜 구현으로 바꿀 수 있어요. 대부분의 결제 수단은 `AbstractPaymentGateway`를 상속해 API 호출 부분만 채우고, 공통 흐름은 한 곳에서 관리해요. 다른 클래스를 상속해야 하는 구현체만 예외적으로 인터페이스를 직접 구현해요. JDK의 `List`와 `AbstractList`도 같은 구조예요.
+
+**채점 포인트**: 인터페이스=계약, 추상 클래스=공통 상태·구현, 단일 상속 제약, 골격 구현(skeletal implementation) 패턴, 템플릿 메서드, 인터페이스 의존으로 DI·테스트 대역 용이, 해결책 2개 이상의 트레이드오프.
+</details>
+
+<details>
+<summary>상황: 여러 팀이 구현한 공용 인터페이스에 새 메서드를 추가해야 합니다. 그냥 추가하면 다른 팀 빌드가 깨집니다.</summary>
+
+**상황 파악**
+인터페이스에 추상 메서드를 추가하면, 그걸 구현한 모든 클래스가 새 메서드를 구현할 때까지 컴파일 에러가 나요. 내 쪽 변경 하나로 여러 팀 배포가 동시에 막히는 상황이에요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. 추상 메서드로 추가하고 모든 팀이 한 번에 구현 | 모든 구현체가 의도한 동작을 갖는 게 컴파일러로 보장됨 | 팀 간 일정 맞추기 어렵고, 그동안 빌드가 깨짐 |
+| B. default 메서드로 추가(기본 동작 제공) | 기존 구현체를 고치지 않아도 빌드 유지, 팀별로 천천히 오버라이드 | 구현체가 모르는 사이 기본 동작이 적용될 위험 |
+| C. default로 추가하되 몸체는 `UnsupportedOperationException` | 빌드는 유지하면서, 아직 구현 안 한 쪽을 호출하면 바로 드러남 | 에러가 컴파일이 아니라 실행 중에 나서 테스트로 잡아야 함 |
+
+**내가 고를 방법**
+합리적인 기본 동작이 있으면 B, 없으면 C로 추가해서 빌드를 지키고 점진적으로 옮겨요. 각 팀에 오버라이드를 안내하고, 모든 구현체가 옮겨진 뒤 필요하면 abstract로 바꿔 구현을 강제해요. 처음부터 A로 가면 정확하지만 조율 비용이 너무 커요.
+
+**채점 포인트**: 추상 메서드 추가 시 기존 구현체 컴파일 실패, default 메서드의 도입 목적(하위 호환), 기본 동작이 조용히 적용되는 위험, 점진적 마이그레이션 계획.
+</details>
+
+<details>
+<summary>상황: 서드파티 라이브러리 두 개의 인터페이스를 한 클래스가 구현했더니, 같은 이름의 default 메서드 때문에 빌드가 실패합니다.</summary>
+
+**상황 파악**
+서로 관계없는 두 인터페이스가 같은 시그니처의 default를 가지면 자바는 어느 쪽을 쓸지 정하지 않고 컴파일 에러를 내요. implements 순서를 바꿔도 해결되지 않아요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. 클래스에서 오버라이드하고 `A.super.m()`으로 한쪽 선택 | 코드 몇 줄로 해결, 의도가 명확함 | 다른 쪽 라이브러리가 기대하는 동작은 빠짐 |
+| B. 오버라이드 안에서 `A.super.m()`과 `B.super.m()`을 모두 호출해 합성 | 두 라이브러리 동작을 모두 살림 | 두 동작이 서로 간섭하지 않는지 확인해야 함 |
+| C. 한 인터페이스는 별도 어댑터 클래스가 구현하게 분리 | 충돌 자체가 사라지고 책임이 나뉨 | 클래스가 늘고 위임 코드가 생김 |
+
+**내가 고를 방법**
+두 동작이 모두 필요하면 B, 하나만 의미 있으면 A를 써요. 앞으로도 두 라이브러리가 계속 부딪칠 것 같으면 C로 분리해서 한 클래스가 너무 많은 계약을 떠안지 않게 해요.
+
+**채점 포인트**: 다이아몬드 문제, 충돌 시 컴파일 에러(순서 무관), 직접 오버라이드, `인터페이스명.super.메서드()` 문법, 클래스 우선·구체 인터페이스 우선 규칙.
+</details>
+
+## 필기 포인트
+
+- 인터페이스 필드는 `public static final`, 선언 시 초기화 **필수**.
+- 인터페이스 메서드에 `protected`, `final`, `synchronized`, `native` **불가**. default에도 `final` 불가.
+- `abstract`와 `final`/`private`/`static`은 함께 못 씀.
+- 추상 클래스는 `new` 불가. 하지만 생성자는 있고, 익명 클래스로는 만들 수 있음.
+- 추상 메서드가 없는 추상 클래스도 가능.
+- 클래스 `extends`는 1개, 인터페이스끼리 `extends`는 여러 개 가능.
+- 인터페이스를 구현하는 메서드에 `public`을 빼면 컴파일 에러.
+- 인터페이스 static 메서드는 상속 안 됨. `인터페이스명.메서드()`로만 호출.
+- default로 `equals`/`hashCode`/`toString` 정의 불가.
+- "인터페이스에는 구현이 없다"는 Java 8 이전 설명. 지금은 default·static·private(9+) 메서드에 몸체가 있음.
+
+## 함께 보기
+
+- [상속보다 조합](../inheritance-composition/)
+- [오버로딩과 오버라이딩](../overloading-overriding/)
+- [SOLID 원칙](../solid/)
+- [람다와 스트림](../../java/lambda-stream/)
+
+## 출처
+
+- [Oracle Java Tutorials, Abstract Methods and Classes](https://docs.oracle.com/javase/tutorial/java/IandI/abstract.html)
+- [Oracle Java Tutorials, Overriding and Hiding Methods](https://docs.oracle.com/javase/tutorial/java/IandI/override.html)
+- [Oracle Java Tutorials, Default Methods](https://docs.oracle.com/javase/tutorial/java/IandI/defaultmethods.html)
+- [Java Language Specification SE 21, 9장 Interfaces](https://docs.oracle.com/javase/specs/jls/se21/html/jls-9.html)
+- [Java SE 9 Language Updates](https://docs.oracle.com/javase/9/language/toc.htm)
+- 스프링 입문을 위한 자바 객체 지향의 원리와 이해 3장 "상속", 4장 "abstract / interface 키워드" (Java 6 기준 서술은 최신 기준으로 바로잡음)

@@ -1,0 +1,61 @@
+---
+// 지연 초기화 싱글톤(락 없음) 경쟁 조건. 행 = 시간 순서, 열 = 스레드 A | instance | 스레드 B.
+// CountIncrementRace와 같은 격자 스타일.
+import Stepper from '../Stepper.astro';
+type Cell = [string, string?];                     // [글자, 'chip' | 'err' | 'bad' | 'hi']
+type Row = { a?: Cell; m?: Cell; b?: Cell };
+const AX = 64, MX = 160, BX = 256, CW = 116, CH = 30;
+const ROWY = [120, 160, 200, 240, 280];
+const rows: Row[] = [
+  { a: ['null? → 예'], m: ['null'] },
+  { a: ['(멈춤)', 'bad'], b: ['null? → 예'], m: ['null'] },
+  { a: ['(멈춤)', 'bad'], b: ['new → #1'], m: ['#1', 'hi'] },
+  { a: ['new → #2'], m: ['#2', 'err'] },
+  { a: ['내 객체 #2', 'err'], b: ['내 객체 #1', 'err'], m: ['#2'] },
+];
+const steps = [
+  { caption: 'instance는 아직 null이에요. 스레드 A와 B가 거의 동시에 getInstance()를 불러요.', show: ['init'] },
+  { caption: 'A가 instance == null을 확인해요. 결과는 true라서 객체를 만들러 가요.', show: ['init', 'r0', 'hl0'] },
+  { caption: 'A가 new를 하기 직전에 CPU를 빼앗겨요. 그 사이 B도 null을 확인하는데, 아직 아무도 안 만들었으니 B도 true예요.', show: ['init', 'r0', 'r1', 'hl1'] },
+  { caption: 'B가 new Singleton()으로 객체 #1을 만들어 instance에 넣어요.', show: ['init', 'r0', 'r1', 'r2', 'hl2'] },
+  { caption: 'A가 다시 실행돼요. A는 이미 null을 확인했으니 검사 없이 객체 #2를 만들어 instance를 덮어써요.', show: ['init', 'r0', 'r1', 'r2', 'r3', 'hl3'] },
+  { caption: '객체가 2개 생겼어요. A는 #2, B는 #1을 들고 있어서 "하나만"이라는 약속이 깨졌어요.', show: ['init', 'r0', 'r1', 'r2', 'r3', 'r4', 'hl4', 'res'] },
+];
+const cx = (k: 'a' | 'b') => (k === 'a' ? AX : BX);
+const tcls = (c?: string) => (c === 'err' ? 'err-t' : c === 'bad' ? 'sub' : undefined);
+---
+<Stepper title="락 없는 지연 초기화: 객체가 2개" steps={steps}>
+  <svg class="viz" viewBox="0 34 320 356" role="img" aria-label="두 스레드가 instance == null 검사를 둘 다 통과해 싱글톤 객체를 두 번 만드는 과정">
+    <text x={AX} y="54" style="font-weight:700">스레드 A</text>
+    <text x={MX} y="54" style="font-weight:700">instance</text>
+    <text x={BX} y="54" style="font-weight:700">스레드 B</text>
+    <text class="sub" x={MX} y="70">(static)</text>
+    <rect class="frame" x={MX - 30} y="84" width="60" height="216" rx="6" />
+    <g data-id="init"><text x={MX} y="94" class="sub">null</text></g>
+
+    {ROWY.map((y, i) => <rect data-id={`hl${i}`} class="hl" x="3" y={y - 18} width="314" height="36" rx="8" />)}
+
+    {rows.map((r, i) => {
+      const y = ROWY[i];
+      return (
+        <g data-id={`r${i}`} class="hide">
+          {(['a', 'b'] as const).map((k) => r[k] && (
+            <g>
+              <rect class={r[k]![1] ?? 'chip'} x={cx(k) - CW / 2} y={y - CH / 2} width={CW} height={CH} rx="6" />
+              <text class={tcls(r[k]![1])} x={cx(k)} y={y} style="font-size:14px;font-weight:700">{r[k]![0]}</text>
+            </g>
+          ))}
+          {r.m && (r.m[1] === 'err'
+            ? <g><rect class="err" x={MX - 26} y={y - CH / 2} width="52" height={CH} rx="6" /><text class="err-t" x={MX} y={y}>{r.m[0]}</text></g>
+            : <text class={r.m[1]} x={MX} y={y}>{r.m[0]}</text>)}
+        </g>
+      );
+    })}
+
+    <g data-id="res" class="hide">
+      <rect class="err" x="10" y="318" width="300" height="60" rx="8" />
+      <text class="err-t" x="160" y="337">객체 2개 생성 · 싱글톤 깨짐</text>
+      <text x="160" y="360" style="font-size:14px">#1을 쓰던 쪽 상태는 #2와 따로 놀아요</text>
+    </g>
+  </svg>
+</Stepper>
