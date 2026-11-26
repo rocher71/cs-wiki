@@ -1,0 +1,87 @@
+---
+// 혼잡 윈도우: 위는 cwnd·rwnd가 어디서 오는지, 아래는 RTT마다 cwnd 꺾은선(slow start → CA → 3중복 ACK → timeout).
+import Stepper from '../Stepper.astro';
+const X0 = 56, DX = 18, Y0 = 440, DY = 17;
+const px = (t: number) => X0 + t * DX;
+const py = (v: number) => Y0 - v * DY;
+const pts = (a: [number, number][]) => a.map(([t, v]) => `${px(t)},${py(v)}`).join(' ');
+// ponytail: fast recovery의 일시적 cwnd 부풀림(ssthresh+3)은 생략하고 '절반에서 다시 선형'만 그림
+const ss1 = pts([[0, 1], [1, 2], [2, 4], [3, 8]]);
+const ca1 = pts([[3, 8], [4, 9], [5, 10], [6, 11], [7, 12]]);
+const ca2 = pts([[7, 6], [8, 7], [9, 8], [10, 9]]);
+const ss2 = pts([[10, 1], [11, 2], [12, 4], [13, 5]]);
+const th = (v: number, t0: number, t1: number) => ({ x1: px(t0), x2: px(t1), y: py(v) });
+const th1 = th(8, 0, 7), th2 = th(6, 7, 10), th3 = th(4, 10, 13);
+const steps = [
+  { caption: 'Slow start: 처음엔 cwnd=1에서 시작해 RTT마다 두 배(1 → 2 → 4 → 8)로 늘려요. 이름과 달리 빠르게 커져요. 그림은 1부터 그렸지만 실제 초기값은 2~4, Linux는 10 세그먼트예요.', show: ['ss1'] },
+  { caption: 'cwnd가 ssthresh(점선, 여기선 8)에 닿으면 혼잡 회피(congestion avoidance)로 바꿔 RTT마다 1씩만 늘려요.', show: ['ss1', 'th1', 'ca1'] },
+  { caption: '중복 ACK 3개가 오면 패킷 하나만 빠진 걸로 보고 바로 재전송(fast retransmit)해요. ssthresh를 절반(6)으로, cwnd도 절반 근처로 내리고 다시 1씩 늘려요(fast recovery).', show: ['ss1', 'th1', 'ca1', 'dup', 'th2', 'ca2'] },
+  { caption: 'timeout이면 ACK가 아예 안 온 심각한 상황이에요. ssthresh는 절반, cwnd는 1로 떨어뜨리고 slow start부터 다시 해요. 정리: 3중복 ACK는 절반, timeout은 1.', show: ['ss1', 'th1', 'ca1', 'dup', 'th2', 'ca2', 'to', 'th3', 'ss2'] },
+];
+const grow = 'fill:none;stroke:var(--sl-color-accent);stroke-width:3;stroke-linejoin:round';
+const drop = 'fill:none;stroke:var(--sl-color-red);stroke-width:2.6;stroke-dasharray:4 3';
+const thS = 'stroke:var(--sl-color-gray-2);stroke-width:1.6;stroke-dasharray:6 4';
+---
+<Stepper title="TCP 혼잡 윈도우(cwnd)의 변화" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 486" role="img" aria-label="송신량은 min(cwnd, rwnd)이고, cwnd는 slow start로 지수 증가, ssthresh 뒤 선형 증가, 3중복 ACK에 절반, timeout에 1로 떨어지는 그래프">
+    <defs>
+      <marker id="cwg-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-2)" />
+      </marker>
+    </defs>
+    <!-- 위: 송신자 → 라우터 → 수신자 -->
+    <rect class="chip" x="6" y="8" width="78" height="34" rx="8" />
+    <text x="45" y="25" style="font-weight:700">송신자</text>
+    <line class="line" x1="84" y1="25" x2="122" y2="25" marker-end="url(#cwg-g)" />
+    <circle class="box" cx="138" cy="25" r="14" /><text x="138" y="25" style="font-size:14px">R</text>
+    <line class="line" x1="152" y1="25" x2="170" y2="25" marker-end="url(#cwg-g)" />
+    <circle class="box" cx="186" cy="25" r="14" /><text x="186" y="25" style="font-size:14px">R</text>
+    <line class="line" x1="200" y1="25" x2="232" y2="25" marker-end="url(#cwg-g)" />
+    <rect class="box" x="236" y="8" width="78" height="34" rx="8" />
+    <text x="275" y="25" style="font-weight:700">수신자</text>
+    <text class="sub" x="162" y="54">R = 라우터(길이 막히는 곳)</text>
+    <text class="l" x="10" y="80"><tspan class="hi">cwnd</tspan> 네트워크가 감당할 양</text>
+    <text class="sub l" x="10" y="100">송신자가 스스로 추정</text>
+    <text class="l" x="10" y="126"><tspan class="hi">rwnd</tspan> 수신 버퍼 남은 양</text>
+    <text class="sub l" x="10" y="146">수신자가 알려 줌</text>
+    <rect class="chip" x="10" y="160" width="300" height="32" rx="8" />
+    <text x="160" y="176" style="font-weight:700">보낼 수 있는 양 = min(cwnd, rwnd)</text>
+
+    <!-- 아래: 그래프 축 -->
+    <line class="line" x1={X0} y1={Y0} x2={px(13) + 10} y2={Y0} />
+    <line class="line" x1={X0} y1={Y0} x2={X0} y2={py(13)} />
+    <text class="sub l" x="8" y={py(13) - 6}>cwnd(세그먼트)</text>
+    {[0, 4, 8, 12].map((v) => (
+      <g>
+        <line class="line" x1={X0 - 4} y1={py(v)} x2={X0} y2={py(v)} />
+        <text class="sub" x={X0 - 16} y={py(v)}>{v}</text>
+      </g>
+    ))}
+    {[0, 2, 4, 6, 8, 10, 12].map((t) => (
+      <g>
+        <line class="line" x1={px(t)} y1={Y0} x2={px(t)} y2={Y0 + 4} />
+        <text class="sub" x={px(t)} y={Y0 + 16}>{t}</text>
+      </g>
+    ))}
+    <text class="sub" x="176" y={Y0 + 38}>RTT(왕복 횟수) →</text>
+
+    <!-- ssthresh -->
+    <g data-id="th1"><line x1={th1.x1} y1={th1.y} x2={th1.x2} y2={th1.y} style={thS} /><text class="sub" x={px(5)} y={th1.y + 16}>ssthresh 8</text></g>
+    <g data-id="th2"><line x1={th2.x1} y1={th2.y} x2={th2.x2} y2={th2.y} style={thS} /></g>
+    <g data-id="th3"><line x1={th3.x1} y1={th3.y} x2={th3.x2} y2={th3.y} style={thS} /></g>
+
+    <!-- cwnd 꺾은선 -->
+    <g data-id="ss1"><polyline points={ss1} style={grow} /><text class="hi" x={px(1) + 6} y={py(5)}>×2</text></g>
+    <g data-id="ca1"><polyline points={ca1} style={grow} /><text class="hi" x={px(5) - 6} y={py(12)}>+1</text></g>
+    <g data-id="dup">
+      <line x1={px(7)} y1={py(12)} x2={px(7)} y2={py(6)} style={drop} />
+      <text class="err-t" x={px(7) + 6} y={py(13.6)} style="font-size:14px">3중복 ACK: 절반</text>
+    </g>
+    <g data-id="ca2"><polyline points={ca2} style={grow} /></g>
+    <g data-id="to">
+      <line x1={px(10)} y1={py(9)} x2={px(10)} y2={py(1)} style={drop} />
+      <text class="err-t" x={px(10) + 10} y={py(10.4)} style="font-size:14px">timeout: 1</text>
+    </g>
+    <g data-id="ss2"><polyline points={ss2} style={grow} /></g>
+  </svg>
+</Stepper>

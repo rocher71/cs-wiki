@@ -1,0 +1,51 @@
+---
+// 장비별로 아래(L1)에서 몇 층까지 뜯어보는지. 채워진 영역 = 그 장비가 읽는 범위.
+import Stepper from '../Stepper.astro';
+const rows = [
+  { l: 'L7 응용', v: 'URL·HTTP 헤더' },
+  { l: 'L4 전송', v: '포트 번호' },
+  { l: 'L3 네트워크', v: 'IP 주소' },
+  { l: 'L2 데이터 링크', v: 'MAC 주소' },
+  { l: 'L1 물리', v: '0·1 신호' },
+];
+const Y0 = 34, RH = 40;
+const devs = [
+  { n: '허브·리피터 (L1)', a: '신호만 보고 그대로 키워서', b: '모든 포트로 복사해요' },
+  { n: '스위치 (L2)', a: '목적 MAC 주소를 보고', b: '그 기기가 있는 포트로만 보내요' },
+  { n: '라우터 (L3)', a: '목적 IP를 보고 다음 홉을 고른 뒤', b: 'L2 헤더를 새로 붙여요 (IP는 그대로)' },
+  { n: 'L4 로드밸런서', a: 'IP와 포트까지 보고 서버를 골라요', b: 'HTTP 내용은 열지 않아요' },
+  { n: 'L7 로드밸런서', a: 'HTTP URL·헤더까지 열어 보고', b: '보낼 서버를 골라요' },
+];
+const PY = Y0 + 5 * RH + 18;
+const H = PY + 66;
+const steps = [
+  { caption: '허브·리피터는 L1 장비예요. 주소를 읽지 않고 들어온 신호를 모든 포트로 똑같이 복사해요.', show: ['z1', 'd0'] },
+  { caption: '스위치는 L2까지 열어 봐요. 이더넷 헤더의 목적 MAC 주소를 보고 해당 포트로만 보내요.', show: ['z2', 'd1'] },
+  { caption: '라우터는 L3까지 열어 봐요. 목적 IP로 다음 홉을 정하고, L2 헤더(MAC)는 새로 써서 내보내요. IP 주소는 바꾸지 않아요.', show: ['z3', 'd2', 'rw'] },
+  { caption: 'L4 로드밸런서는 IP와 포트까지 보고 뒤쪽 서버 중 하나를 골라요.', show: ['z4', 'd3'] },
+  { caption: 'L7 로드밸런서는 HTTP 메시지까지 열어서 URL·헤더를 보고 서버를 골라요. 많이 열어 볼수록 똑똑하게 나누지만 일이 늘어요.', show: ['z5', 'd4'] },
+];
+---
+<Stepper title="장비마다 어느 층까지 열어 보나" steps={steps}>
+  <svg class="viz" viewBox={`0 0 320 ${H}`} role="img" aria-label="허브는 L1, 스위치는 L2, 라우터는 L3, L4 로드밸런서는 L4, L7 로드밸런서는 L7까지 헤더를 읽는다">
+    <text class="sub l" x="4" y="16">아래부터 채워진 곳 = 그 장비가 읽는 층 (L5·L6 생략)</text>
+    {[1, 2, 3, 4, 5].map((m) => (
+      <rect data-id={`z${m}`} class="zone-c hide" x="4" y={Y0 + (5 - m) * RH} width="312" height={m * RH} rx="6" />
+    ))}
+    {rows.map((row, i) => (
+      <g>
+        <rect x="4" y={Y0 + i * RH} width="312" height={RH} rx="6" style="fill:none;stroke:var(--sl-color-gray-4);stroke-width:1.2" />
+        <text class="l" x="14" y={Y0 + i * RH + RH / 2} style="font-weight:700">{row.l}</text>
+        <text class="sub" x="306" y={Y0 + i * RH + RH / 2} style="text-anchor:end">{row.v}</text>
+      </g>
+    ))}
+    <text data-id="rw" class="hi hide" x="200" y={Y0 + 3 * RH + RH / 2} style="font-size:14px">새로 씀</text>
+    {devs.map((d, i) => (
+      <g data-id={`d${i}`} class="hide">
+        <text class="l hi" x="4" y={PY + 10} style="font-size:16px">{d.n}</text>
+        <text class="l" x="4" y={PY + 34} style="font-size:14px">{d.a}</text>
+        <text class="l" x="4" y={PY + 54} style="font-size:14px">{d.b}</text>
+      </g>
+    ))}
+  </svg>
+</Stepper>

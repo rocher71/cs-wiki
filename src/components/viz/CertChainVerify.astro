@@ -1,0 +1,74 @@
+---
+// 인증서 체인 검증: 위에서부터 루트 CA / 중간 CA / 리프 카드를 쌓고, 아래→위로 서명을 확인한다.
+import Stepper from '../Stepper.astro';
+const X = 56, W = 248, H = 96;
+const cards = [
+  { id: 'root', y: 8, title: '루트 CA', root: true, lines: ['신뢰 앵커: 브라우저·OS에 내장', '주체 = 발급자 (자체 서명)', '서버가 안 보내도 돼요'] },
+  { id: 'mid', y: 150, title: '중간 CA 인증서', lines: ['주체: Example 중간 CA', '발급자: Example 루트 CA', '서버가 함께 보냄'] },
+  { id: 'leaf', y: 292, title: '리프 인증서', lines: ['SAN: www.example.com', '발급자: Example 중간 CA', '유효기간: 2026-06 ~ 2027-06'] },
+];
+// 아래 카드 위쪽 → 위 카드 아래쪽으로 올라가는 검증 화살표
+const arrows = [
+  { id: 'v1', y1: 290, y2: 248, t: '리프 서명 ← 중간 CA 공개키로 확인' },
+  { id: 'v2', y1: 148, y2: 106, t: '중간 CA 서명 ← 루트 공개키로 확인' },
+];
+const captions = [
+  '서버가 자기 인증서(리프)를 보내요. 도메인(SAN), 유효기간, 발급자(중간 CA)가 적혀 있어요.',
+  '중간 CA 인증서도 함께 와요. 이 인증서의 발급자는 루트 CA예요.',
+  '루트 CA 인증서는 브라우저·OS에 미리 들어 있어요(신뢰 앵커). 그래서 서버가 보내지 않아도 돼요.',
+  '아래에서 위로 검증해요. 먼저 리프 인증서의 서명이 중간 CA 공개키로 맞는지 확인해요.',
+  '다음으로 중간 CA 인증서의 서명을 루트 공개키로 확인해요. 믿을 수 있는 루트까지 이어지면 체인이 완성돼요.',
+  '칸마다 유효기간이 지나지 않았는지, 폐기되지 않았는지, 발급자 이름이 위 칸의 주체와 같은지도 확인해요.',
+  '마지막으로 리프의 SAN이 접속한 도메인과 같은지 봐요. 모두 맞으면 통과, 한 칸이라도 틀리면 브라우저가 경고 화면을 띄워요.',
+];
+const steps = captions.map((caption, i) => ({
+  caption,
+  show: [
+    'leaf',
+    ...(i >= 1 ? ['mid'] : []),
+    ...(i >= 2 ? ['root'] : []),
+    ...(i >= 3 ? ['v1'] : []),
+    ...(i >= 4 ? ['v2'] : []),
+    ...(i >= 5 ? ['ok'] : []),
+    ...(i >= 6 ? ['san', 'url'] : []),
+  ],
+}));
+const halo = 'paint-order:stroke;stroke:var(--sl-color-gray-7, var(--sl-color-black));stroke-width:5px;stroke-linejoin:round';
+---
+<Stepper title="인증서 체인 검증" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 486" role="img" aria-label="리프 인증서 서명을 중간 CA 공개키로, 중간 CA 서명을 루트 CA 공개키로 아래에서 위로 확인하고, 칸마다 유효기간·폐기·발급자 이름, 마지막으로 SAN과 접속 도메인 일치를 확인하는 과정">
+    <defs>
+      <marker id="ccv-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+    </defs>
+    {cards.map((c) => (
+      <g data-id={c.id}>
+        <rect class={c.root ? 'chip' : 'box'} x={X} y={c.y} width={W} height={H} rx="10" />
+        <text class="l" x={X + 12} y={c.y + 20} style="font-weight:700">{c.title}</text>
+        {c.lines.map((t, k) => (
+          <text class="sub l" x={X + 12} y={c.y + 44 + k * 20}>{t}</text>
+        ))}
+      </g>
+    ))}
+    {cards.map((c) => (
+      <g data-id="ok" class="hide">
+        <rect class="chip" x={X + W - 128} y={c.y + 7} width="120" height="26" rx="13" />
+        <text x={X + W - 68} y={c.y + 20} style="font-size:14px"><tspan class="hi">✓</tspan> 기간·폐기·이름</text>
+      </g>
+    ))}
+    {arrows.map((a) => (
+      <g data-id={a.id}>
+        <line x1="32" y1={a.y1} x2="32" y2={a.y2 + 2} style="stroke:var(--sl-color-accent);stroke-width:2.4" marker-end="url(#ccv-a)" />
+        <text class="l" x={X} y={(a.y1 + a.y2) / 2} style={`font-size:14px;${halo}`}>{a.t}</text>
+      </g>
+    ))}
+    <rect data-id="san" class="hl hide" x={X + 4} y="326" width={W - 8} height="22" rx="6" />
+    <g data-id="url" class="hide">
+      <line x1="180" y1="400" x2="180" y2="390" style="stroke:var(--sl-color-accent);stroke-width:2.4" marker-end="url(#ccv-a)" />
+      <rect class="box" x={X} y="402" width={W} height="34" rx="8" style="stroke:var(--sl-color-accent);stroke-width:1.6" />
+      <text class="l" x={X + 12} y="419" style="font-size:14px">접속: www.example.com <tspan class="hi">✓ 일치</tspan></text>
+      <text class="err-t" x="160" y="464" style="font-size:14px">한 칸이라도 실패 → 경고 화면</text>
+    </g>
+  </svg>
+</Stepper>

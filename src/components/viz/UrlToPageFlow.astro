@@ -1,0 +1,113 @@
+---
+// 주소창에 URL을 치고 화면이 뜰 때까지 9단계. 2단계 캐시 적중 시 9로 건너뜀, 9단계 하위 리소스는 6부터 다시.
+import Stepper from '../Stepper.astro';
+const base = ['b1', 'b2', 'a1', 'b3', 'a2', 'b4', 'a3', 'b5', 'a4', 'b6', 'a5', 'b7', 'a6', 'b8', 'a7', 'b9', 'a8'];
+// 단계 n까지의 상자·화살표 (상자 bN 다음에 화살표 aN이 이어짐)
+const upto = (n: number) => base.slice(0, base.indexOf('b' + n) + 1);
+const steps = [
+  { caption: '주소창에 글자를 쳐요. 브라우저는 그게 URL인지 검색어인지 먼저 봐요. URL이면 https, 도메인, 경로로 나누고, 검색어면 검색엔진으로 보내요.', show: [...upto(1), 'hl1'] },
+  { caption: 'http로 쳤어도 HSTS 목록에 있는 사이트면 브라우저가 알아서 https로 바꿔요. 그리고 캐시를 봐요. 저장해 둔 응답이 아직 신선하면 네트워크를 안 타고 바로 9단계(렌더링)로 건너뛰어요.', show: [...upto(2), 'skip', 'hl2'] },
+  { caption: 'DNS: 도메인 이름을 IP 주소로 바꿔요. 브라우저 캐시 → OS 캐시 → 리졸버 순으로 묻고, 리졸버도 모르면 루트 → .com → 권한 서버까지 물어봐요.', show: [...upto(3), 'skip', 'hl3'] },
+  { caption: 'TCP 3-way handshake: SYN, SYN-ACK, ACK를 주고받아 연결을 맺어요. 한 번 왕복(1 RTT)이 걸려요.', show: [...upto(4), 'skip', 'hl4'] },
+  { caption: 'https라면 TLS 1.3 핸드셰이크를 해요. 서버가 보낸 인증서가 진짜인지 확인하고, 둘만 아는 암호 키를 정해요. 이것도 1 RTT예요.', show: [...upto(5), 'skip', 'hl5'] },
+  { caption: '이제 HTTP 요청을 보내요. "GET /경로", 어느 사이트인지(Host), 로그인 정보(Cookie) 같은 헤더가 함께 가요.', show: [...upto(6), 'skip', 'hl6'] },
+  { caption: '서버 쪽에서는 CDN·로드밸런서를 지나 웹서버, WAS(스프링이면 DispatcherServlet)로 가고, 필요하면 DB를 조회해요.', show: [...upto(7), 'skip', 'hl7'] },
+  { caption: '서버가 HTTP 응답을 돌려줘요. 상태코드(200 OK 등), 헤더, 그리고 본문에 HTML이 담겨 있어요.', show: [...upto(8), 'skip', 'hl8'] },
+  { caption: '브라우저가 HTML로 DOM, CSS로 CSSOM을 만들고 → 렌더 트리 → 레이아웃 → 페인트 → 합성으로 화면을 그려요. CSS·JS·이미지 같은 하위 리소스는 6단계부터 다시 요청해요(이미 맺은 연결을 재사용).', show: [...upto(9), 'skip', 'loop', 'hl9'] },
+];
+---
+<Stepper title="URL 입력부터 화면까지 9단계" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 544" role="img" aria-label="주소창 입력 해석, HSTS와 캐시 확인, DNS 조회, TCP 연결, TLS 핸드셰이크, HTTP 요청, 서버 처리, HTTP 응답, 렌더링의 9단계를 위에서 아래로 쌓은 그림. 캐시가 신선하면 2단계에서 9단계로 건너뛰고, 렌더링 중 하위 리소스는 6단계부터 다시 요청한다.">
+    <defs>
+      <marker id="u2p-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+      <marker id="u2p-arr-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+    </defs>
+    <g data-id="b1">
+      <rect class="box" x="34" y="8" width="252" height="46" rx="7" />
+      <circle class="badge" cx="54" cy="31" r="12" /><text class="on-badge" x="54" y="32">1</text>
+      <text x="174" y="23">주소창 입력 해석</text>
+      <text class="sub" x="174" y="42">URL 나누기 · 검색어면 검색엔진</text>
+    </g>
+    <line data-id="a1" class="line" x1="160" y1="54" x2="160" y2="66" marker-end="url(#u2p-arr)" />
+    <g data-id="b2">
+      <rect class="box" x="34" y="68" width="252" height="46" rx="7" />
+      <circle class="badge" cx="54" cy="91" r="12" /><text class="on-badge" x="54" y="92">2</text>
+      <text x="174" y="83">HSTS · 캐시 확인</text>
+      <text class="sub" x="174" y="102">http→https · 캐시 신선하면 9로</text>
+    </g>
+    <line data-id="a2" class="line" x1="160" y1="114" x2="160" y2="126" marker-end="url(#u2p-arr)" />
+    <g data-id="b3">
+      <rect class="box" x="34" y="128" width="252" height="46" rx="7" />
+      <circle class="badge" cx="54" cy="151" r="12" /><text class="on-badge" x="54" y="152">3</text>
+      <text x="174" y="143">DNS 조회</text>
+      <text class="sub" x="174" y="162">도메인 이름 → IP 주소</text>
+    </g>
+    <line data-id="a3" class="line" x1="160" y1="174" x2="160" y2="186" marker-end="url(#u2p-arr)" />
+    <g data-id="b4">
+      <rect class="box" x="34" y="188" width="252" height="46" rx="7" />
+      <circle class="badge" cx="54" cy="211" r="12" /><text class="on-badge" x="54" y="212">4</text>
+      <text x="174" y="203">TCP 연결 (1 RTT)</text>
+      <text class="sub" x="174" y="222">SYN → SYN-ACK → ACK</text>
+    </g>
+    <line data-id="a4" class="line" x1="160" y1="234" x2="160" y2="246" marker-end="url(#u2p-arr)" />
+    <g data-id="b5">
+      <rect class="box" x="34" y="248" width="252" height="46" rx="7" />
+      <circle class="badge" cx="54" cy="271" r="12" /><text class="on-badge" x="54" y="272">5</text>
+      <text x="174" y="263">TLS 핸드셰이크 (1 RTT)</text>
+      <text class="sub" x="174" y="282">인증서 검증 · 암호 키 합의</text>
+    </g>
+    <line data-id="a5" class="line" x1="160" y1="294" x2="160" y2="306" marker-end="url(#u2p-arr)" />
+    <g data-id="b6">
+      <rect class="box" x="34" y="308" width="252" height="46" rx="7" />
+      <circle class="badge" cx="54" cy="331" r="12" /><text class="on-badge" x="54" y="332">6</text>
+      <text x="174" y="323">HTTP 요청</text>
+      <text class="sub" x="174" y="342">GET · Host · Cookie</text>
+    </g>
+    <line data-id="a6" class="line" x1="160" y1="354" x2="160" y2="366" marker-end="url(#u2p-arr)" />
+    <g data-id="b7">
+      <rect class="box" x="34" y="368" width="252" height="46" rx="7" />
+      <circle class="badge" cx="54" cy="391" r="12" /><text class="on-badge" x="54" y="392">7</text>
+      <text x="174" y="383">서버 처리</text>
+      <text class="sub" x="174" y="402">CDN·LB → 웹서버 → WAS → DB</text>
+    </g>
+    <line data-id="a7" class="line" x1="160" y1="414" x2="160" y2="426" marker-end="url(#u2p-arr)" />
+    <g data-id="b8">
+      <rect class="box" x="34" y="428" width="252" height="46" rx="7" />
+      <circle class="badge" cx="54" cy="451" r="12" /><text class="on-badge" x="54" y="452">8</text>
+      <text x="174" y="443">HTTP 응답</text>
+      <text class="sub" x="174" y="462">상태코드 · 헤더 · HTML</text>
+    </g>
+    <line data-id="a8" class="line" x1="160" y1="474" x2="160" y2="486" marker-end="url(#u2p-arr)" />
+    <g data-id="b9">
+      <rect class="box" x="34" y="488" width="252" height="46" rx="7" />
+      <circle class="badge" cx="54" cy="511" r="12" /><text class="on-badge" x="54" y="512">9</text>
+      <text x="174" y="503">렌더링</text>
+      <text class="sub" x="174" y="522">DOM·CSSOM → 레이아웃 → 페인트</text>
+    </g>
+    <rect data-id="hl1" class="hl" x="30" y="4" width="260" height="54" rx="9" />
+    <rect data-id="hl2" class="hl" x="30" y="64" width="260" height="54" rx="9" />
+    <rect data-id="hl3" class="hl" x="30" y="124" width="260" height="54" rx="9" />
+    <rect data-id="hl4" class="hl" x="30" y="184" width="260" height="54" rx="9" />
+    <rect data-id="hl5" class="hl" x="30" y="244" width="260" height="54" rx="9" />
+    <rect data-id="hl6" class="hl" x="30" y="304" width="260" height="54" rx="9" />
+    <rect data-id="hl7" class="hl" x="30" y="364" width="260" height="54" rx="9" />
+    <rect data-id="hl8" class="hl" x="30" y="424" width="260" height="54" rx="9" />
+    <rect data-id="hl9" class="hl" x="30" y="484" width="260" height="54" rx="9" />
+    <g data-id="skip">
+      <path class="jump" d="M286 91 H296 V511 H290" marker-end="url(#u2p-arr-a)" />
+      <text class="sub" transform="translate(312 301) rotate(90)">캐시가 신선하면 바로 9로</text>
+    </g>
+    <g data-id="loop">
+      <path class="jump" d="M34 511 H24 V331 H30" marker-end="url(#u2p-arr-a)" />
+      <text class="sub" transform="translate(8 421) rotate(-90)">하위 리소스는 6부터</text>
+    </g>
+  </svg>
+</Stepper>
+
+<style>
+  .jump { fill: none; stroke: var(--sl-color-accent); stroke-width: 1.8; stroke-dasharray: 5 4; }
+</style>

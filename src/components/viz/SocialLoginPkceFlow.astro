@@ -1,0 +1,128 @@
+---
+// 소셜 로그인(Authorization Code + PKCE) 9단계 시퀀스: 브라우저 / 우리 백엔드 / 인가 서버 / 리소스 서버(제공자 API)
+import Stepper from '../Stepper.astro';
+const base = ['hdr'];
+const s1 = [...base, 'm1', 'n1'];
+const s2 = [...s1, 'm2'];
+const s3 = [...s2, 'n3'];
+const s4 = [...s3, 'm4'];
+const s5 = [...s4, 'n5'];
+const s6 = [...s5, 'm6'];
+const s7 = [...s6, 'n7', 'm7'];
+const s8 = [...s7, 'm8'];
+const s9 = [...s8, 'm9'];
+const steps = [
+  { caption: '① 사용자가 "소셜 로그인" 버튼을 눌러요. 백엔드는 state와 code_verifier(임의의 긴 문자열)를 만들어 세션에 보관하고, code_challenge = SHA256(verifier)를 계산해요.', show: [...s1, 'hl1'] },
+  { caption: '② 백엔드가 브라우저를 소셜 로그인 제공자의 인가 서버로 리다이렉트해요. 주소에 client_id, redirect_uri, response_type=code, scope, state, code_challenge가 붙어요. verifier 원본은 보내지 않아요.', show: [...s2, 'hl2'] },
+  { caption: '③ 사용자가 제공자 화면에서 로그인하고 "이 권한을 줄까요?"에 동의해요. 비밀번호는 제공자만 보고, 우리 서비스는 끝까지 못 봐요.', show: [...s3, 'hl3'] },
+  { caption: '④ 인가 서버가 브라우저를 redirect_uri?code=...&state=...로 돌려보내요. 브라우저는 그 주소로 우리 백엔드를 호출해요. code는 짧게 살고 한 번만 쓰는 교환권이에요.', show: [...s4, 'hl4'] },
+  { caption: '⑤ 백엔드가 돌아온 state와 ①에서 보관한 state를 비교해요. 다르면 남이 꾸민 요청(CSRF)일 수 있으니 바로 중단해요.', show: [...s5, 'hl5'] },
+  { caption: '⑥ 백엔드가 서버 대 서버로 토큰 엔드포인트에 code + client_secret + code_verifier를 보내요. 이 요청은 브라우저를 거치지 않아요.', show: [...s6, 'hl6'] },
+  { caption: '⑦ 인가 서버가 받은 verifier를 해시해 ②의 challenge와 같은지 확인해요. 맞으면 access token(필요하면 refresh token, OIDC면 id_token도)을 돌려줘요.', show: [...s7, 'hl7'] },
+  { caption: '⑧ 백엔드가 access token으로 제공자의 사용자 정보 API를 호출해 사용자 ID를 얻어요. OIDC라면 id_token 서명을 검증해 바로 꺼내도 돼요.', show: [...s8, 'hl8'] },
+  { caption: '⑨ 백엔드가 그 ID로 회원을 찾거나 새로 가입시킨 뒤, 우리 서비스의 세션 쿠키나 JWT를 따로 발급해요. 제공자 토큰을 그대로 로그인 토큰으로 쓰지 않아요.', show: [...s9, 'hl9'] },
+];
+---
+<Stepper title="소셜 로그인 (Authorization Code + PKCE)" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 542" role="img" aria-label="사용자 브라우저, 우리 백엔드, 소셜 로그인 제공자의 인가 서버, 리소스 서버 네 주체가 주고받는 9단계 흐름. 백엔드가 state와 code_verifier를 만들고, 브라우저를 인가 서버로 보내 로그인과 동의를 받고, code와 state를 돌려받아 state를 비교한 뒤, 서버 대 서버로 code와 verifier를 보내 토큰을 받고, 사용자 정보를 조회해 우리 세션이나 JWT를 발급한다.">
+    <defs>
+      <marker id="slp-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-2)" />
+      </marker>
+    </defs>
+
+    <g data-id="hdr">
+      <line class="life" x1="40" y1="44" x2="40" y2="540" />
+      <line class="life" x1="120" y1="44" x2="120" y2="540" />
+      <line class="life" x1="200" y1="44" x2="200" y2="540" />
+      <line class="life" x1="280" y1="44" x2="280" y2="540" />
+      <rect class="box" x="3" y="4" width="74" height="40" rx="7" />
+      <text x="40" y="17">사용자</text><text class="sub" x="40" y="34">브라우저</text>
+      <rect class="chip" x="83" y="4" width="74" height="40" rx="7" />
+      <text x="120" y="17">우리</text><text class="sub" x="120" y="34">백엔드</text>
+      <rect class="box" x="163" y="4" width="74" height="40" rx="7" />
+      <text x="200" y="17">인가 서버</text><text class="sub" x="200" y="34">(제공자)</text>
+      <rect class="box" x="243" y="4" width="74" height="40" rx="7" />
+      <text x="280" y="17">리소스</text><text class="sub" x="280" y="34">서버(API)</text>
+    </g>
+
+    <g data-id="m1">
+      <text class="lbl" x="80" y="60">① 로그인 클릭</text>
+      <line class="msg" x1="40" y1="72" x2="117" y2="72" marker-end="url(#slp-arr)" />
+    </g>
+    <g data-id="n1">
+      <rect class="chip" x="50" y="82" width="266" height="44" rx="7" />
+      <text x="183" y="97" style="font-size:14px">state · code_verifier 생성·보관</text>
+      <text class="mono" x="183" y="115">challenge=SHA256(verifier)</text>
+    </g>
+
+    <g data-id="m2">
+      <text class="lbl" x="120" y="142">② 인가 서버로 리다이렉트</text>
+      <text class="lbl sub" x="120" y="159">state + code_challenge 포함</text>
+      <line class="msg" x1="40" y1="171" x2="197" y2="171" marker-end="url(#slp-arr)" />
+    </g>
+
+    <g data-id="n3">
+      <rect class="box" x="14" y="180" width="212" height="44" rx="7" />
+      <text x="120" y="195">③ 제공자에 로그인 + 동의</text>
+      <text class="sub" x="120" y="213">비밀번호는 우리가 못 봐요</text>
+    </g>
+
+    <g data-id="m4">
+      <text class="lbl mono" x="160" y="240">④ redirect_uri?code&amp;state</text>
+      <line class="msg" x1="200" y1="254" x2="43" y2="254" marker-end="url(#slp-arr)" />
+      <line class="msg" x1="40" y1="268" x2="117" y2="268" marker-end="url(#slp-arr)" />
+    </g>
+
+    <g data-id="n5">
+      <rect class="chip" x="52" y="280" width="136" height="28" rx="7" />
+      <text x="120" y="294" style="font-size:14px">⑤ state 비교 ✓</text>
+    </g>
+
+    <g data-id="m6">
+      <text class="lbl" x="170" y="326">⑥ code + secret + verifier</text>
+      <text class="lbl sub" x="170" y="342">서버 대 서버 (브라우저 안 거침)</text>
+      <line class="msg" x1="120" y1="354" x2="197" y2="354" marker-end="url(#slp-arr)" />
+    </g>
+
+    <g data-id="n7">
+      <rect class="chip" x="130" y="364" width="186" height="44" rx="7" />
+      <text class="mono" x="223" y="379">⑦ SHA256(verifier)</text>
+      <text class="mono" x="223" y="397">= challenge ✓</text>
+    </g>
+    <g data-id="m7">
+      <text class="lbl" x="160" y="420">access token (+refresh, id_token)</text>
+      <line class="msg" x1="200" y1="432" x2="123" y2="432" marker-end="url(#slp-arr)" />
+    </g>
+
+    <g data-id="m8">
+      <text class="lbl" x="200" y="454">⑧ token으로 사용자 정보</text>
+      <line class="msg" x1="120" y1="466" x2="277" y2="466" marker-end="url(#slp-arr)" />
+      <text class="lbl sub" x="200" y="480">사용자 ID 응답</text>
+      <line class="msg ret" x1="280" y1="492" x2="123" y2="492" marker-end="url(#slp-arr)" />
+    </g>
+
+    <g data-id="m9">
+      <text class="lbl" x="150" y="515">⑨ 회원 확인 → 우리 세션·JWT</text>
+      <line class="msg" x1="120" y1="531" x2="43" y2="531" marker-end="url(#slp-arr)" />
+    </g>
+
+    <rect data-id="hl1" class="hl" x="2" y="50" width="316" height="80" rx="9" />
+    <rect data-id="hl2" class="hl" x="2" y="132" width="316" height="45" rx="9" />
+    <rect data-id="hl3" class="hl" x="10" y="177" width="220" height="50" rx="9" />
+    <rect data-id="hl4" class="hl" x="2" y="229" width="316" height="45" rx="9" />
+    <rect data-id="hl5" class="hl" x="48" y="276" width="144" height="36" rx="9" />
+    <rect data-id="hl6" class="hl" x="2" y="315" width="316" height="45" rx="9" />
+    <rect data-id="hl7" class="hl" x="2" y="361" width="316" height="78" rx="9" />
+    <rect data-id="hl8" class="hl" x="2" y="443" width="316" height="55" rx="9" />
+    <rect data-id="hl9" class="hl" x="2" y="501" width="316" height="39" rx="9" />
+  </svg>
+</Stepper>
+
+<style>
+  .life { stroke: var(--sl-color-gray-4); stroke-width: 1.2; stroke-dasharray: 4 4; }
+  .msg { stroke: var(--sl-color-gray-2); stroke-width: 1.8; }
+  .ret { stroke-dasharray: 5 3; }
+  /* 세로줄 위에 글자가 겹쳐도 읽히게 배경색 테두리 */
+  .lbl { paint-order: stroke; stroke: var(--sl-color-gray-7, var(--sl-color-black)); stroke-width: 5px; stroke-linejoin: round; }
+</style>

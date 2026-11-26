@@ -1,0 +1,99 @@
+---
+// TLS 1.3 전체 핸드셰이크: 클라이언트·서버 두 세로줄(시간은 위→아래), 위쪽 칩에 현재 상태.
+// ServerHello 이후 메시지는 "암호화 구간" 띠 안에 자물쇠 아이콘과 함께 그린다.
+import Stepper from '../Stepper.astro';
+const C = 64, S = 256;
+// 상태 칩: id, 문구, 자물쇠 여부, 보이는 단계들
+const chips = [
+  { id: 'ct', x: C, t: 'TCP 연결됨', steps: [0, 1] },
+  { id: 'st', x: S, t: 'TCP 연결됨', steps: [0, 1] },
+  { id: 'ck', x: C, t: '비밀 계산', lock: true, steps: [2, 3, 4, 5, 6] },
+  { id: 'sk', x: S, t: '비밀 계산', lock: true, steps: [2, 3, 4, 5, 6, 7] },
+  { id: 'cv', x: C, t: '검증 완료', lock: true, steps: [7] },
+  { id: 'cd', x: C, t: '대칭키 통신', lock: true, steps: [8] },
+  { id: 'sd', x: S, t: '대칭키 통신', lock: true, steps: [8] },
+];
+const msgs = [
+  { id: 'ch', x1: C, x2: S, y: 90, t: ['ClientHello (평문)', '암호 목록 · key_share · SNI'] },
+  { id: 'sh', x1: S, x2: C, y: 148, t: ['ServerHello (평문)', '고른 암호 · key_share'] },
+  { id: 'ee', x1: S, x2: C, y: 212, t: ['EncryptedExtensions', '추가 설정 (ALPN=h2)'], lock: true },
+  { id: 'ce', x1: S, x2: C, y: 264, t: ['Certificate', '리프 + 중간 CA 인증서'], lock: true },
+  { id: 'cvf', x1: S, x2: C, y: 316, t: ['CertificateVerify', '개인키로 대화 요약에 서명'], lock: true },
+  { id: 'sf', x1: S, x2: C, y: 368, t: ['Finished', '핸드셰이크 전체 확인값'], lock: true },
+  { id: 'cf', x1: C, x2: S, y: 486, t: ['Finished + HTTP 요청', '여기까지 1-RTT'], lock: true, hi: true },
+];
+const captions = [
+  'TCP 3-way handshake가 끝난 상태예요. 아직 아무것도 암호화돼 있지 않아요.',
+  'ClientHello: 지원하는 TLS 버전과 암호 목록, 내 물감(key_share), 접속할 도메인(SNI)을 평문으로 보내요.',
+  'ServerHello: 서버가 암호를 하나 고르고 자기 물감(key_share)을 보내요. 이 순간 양쪽이 각자 계산해 같은 공유 비밀을 얻어요. 열쇠 자체는 오가지 않아요.',
+  '여기부터 암호화돼요(자물쇠 표시). EncryptedExtensions에는 "HTTP/2(h2)로 하자" 같은 추가 설정이 담겨요.',
+  'Certificate: 서버 인증서(리프)와 중간 CA 인증서를 보내요. TLS 1.3에서는 인증서도 암호화돼서 중간에서 볼 수 없어요.',
+  'CertificateVerify: 지금까지 대화 요약에 서버가 개인키로 서명해요. 인증서만 복사한 가짜 서버는 이 서명을 만들 수 없어요.',
+  'Finished: 핸드셰이크 전체가 중간에 바뀌지 않았다는 확인값이에요.',
+  '클라이언트가 세 가지를 확인해요. 인증서 체인을 믿을 수 있는지, 서명이 인증서 공개키로 맞는지, Finished 값이 맞는지.',
+  '클라이언트 Finished와 첫 HTTP 요청이 함께 출발해요. 왕복 1번(1-RTT) 만에 요청이 나가고, 이후 데이터는 대칭키로 암호화해요.',
+];
+const msgAt = [0, 1, 2, 3, 4, 5, 6, 6, 7]; // 단계별로 보이는 메시지 수
+const steps = captions.map((caption, i) => ({
+  caption,
+  show: [
+    ...chips.filter((c) => c.steps.includes(i)).map((c) => c.id),
+    ...msgs.slice(0, msgAt[i]).map((m) => m.id),
+    ...(i >= 3 ? ['enc'] : []),
+    ...(i >= 7 ? ['chk'] : []),
+  ],
+}));
+const halo = 'paint-order:stroke;stroke:var(--sl-color-gray-7, var(--sl-color-black));stroke-width:5px;stroke-linejoin:round';
+// 자물쇠 아이콘(가로 12, 세로 14). (x, y)는 몸통 왼쪽 위
+const lock = (x: number, y: number) => `M${x + 3} ${y}v-3a3 3 0 0 1 6 0v3`;
+---
+<Stepper title="TLS 1.3 핸드셰이크 (1-RTT)" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 532" role="img" aria-label="ClientHello와 ServerHello로 키를 나눠 계산한 뒤, 서버가 암호화된 EncryptedExtensions, Certificate, CertificateVerify, Finished를 보내고, 클라이언트가 검증 후 Finished와 HTTP 요청을 함께 보내는 TLS 1.3 핸드셰이크">
+    <defs>
+      <marker id="tls-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-2)" />
+      </marker>
+      <marker id="tls-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+    </defs>
+    <g data-id="enc">
+      <rect class="chip" x="2" y="194" width="316" height="334" rx="10" style="fill-opacity:.35;stroke-dasharray:6 4" />
+      <text class="l hi" x="10" y="204" style={`font-size:14px;${halo}`}>암호화 구간</text>
+    </g>
+    {[[C, '클라이언트'], [S, '서버']].map(([x, t]) => (
+      <g>
+        <rect class="box" x={+x - 60} y="6" width="120" height="32" rx="8" />
+        <text x={x} y="22" style="font-weight:700">{t}</text>
+        <line class="line" x1={x} y1="84" x2={x} y2="524" style="stroke-dasharray:4 4" />
+      </g>
+    ))}
+    {chips.map((c) => (
+      <g data-id={c.id} class="hide">
+        <rect class="chip" x={c.x - 60} y="44" width="120" height="30" rx="15" />
+        {c.lock && (
+          <g style="stroke:var(--sl-color-accent-high);fill:none;stroke-width:1.6">
+            <path d={lock(c.x - 50, 56)} />
+            <rect x={c.x - 50} y="56" width="12" height="9" rx="1.5" style="fill:var(--sl-color-accent-high)" />
+          </g>
+        )}
+        <text x={c.lock ? c.x + 8 : c.x} y="59" style="font-size:14px">{c.t}</text>
+      </g>
+    ))}
+    {msgs.map((m) => (
+      <g data-id={m.id}>
+        <line x1={m.x1} y1={m.y} x2={m.x2 + (m.x2 > m.x1 ? -2 : 2)} y2={m.y + 30}
+          style={`stroke:var(${m.hi ? '--sl-color-accent' : '--sl-color-gray-2'});stroke-width:2.2`}
+          marker-end={`url(#tls-${m.hi ? 'a' : 'g'})`} />
+        <text class={m.hi ? 'hi' : ''} x="160" y={m.y + 7} style={`font-weight:700;${halo}`}>{m.t[0]}</text>
+        <text class="sub" x="160" y={m.y + 26} style={halo}>{m.t[1]}</text>
+      </g>
+    ))}
+    <g data-id="chk" class="hide">
+      <rect class="box" x="14" y="404" width="176" height="74" rx="8" style="stroke:var(--sl-color-accent);stroke-width:1.6" />
+      {['인증서 체인 OK', '서명 OK', 'Finished OK'].map((t, k) => (
+        <text class="l" x="26" y={420 + k * 21} style="font-size:14px"><tspan class="hi">✓</tspan> {t}</text>
+      ))}
+    </g>
+  </svg>
+</Stepper>

@@ -1,0 +1,76 @@
+---
+// PKCE가 code 가로채기를 막는 과정: 공격자 / 우리 백엔드 / 인가 서버
+import Stepper from '../Stepper.astro';
+const base = ['hdr', 'v'];
+const s1 = [...base, 'a1'];
+const s2 = [...s1, 'a2'];
+const s3 = [...s2, 'a3'];
+const s4 = [...s3, 'a4'];
+const steps = [
+  { caption: '① 공격자가 ④단계에서 브라우저로 돌아오는 code를 가로챘어요(악성 앱이 리다이렉트를 가로채거나, 로그·주소창에서 새는 경우).', show: [...s1, 'hl1'] },
+  { caption: '② 공격자가 그 code만 들고 토큰 엔드포인트에 교환을 요청해요. code_verifier는 우리 백엔드에만 있어서 공격자는 몰라요.', show: [...s2, 'hl2'] },
+  { caption: '③ 인가 서버는 verifier가 없으니 처음에 받은 challenge와 맞춰 볼 수 없어 요청을 거부해요. 가로챈 code는 쓸모가 없어요.', show: [...s3, 'hl3'] },
+  { caption: '④ 정상 백엔드는 보관해 둔 verifier를 code와 함께 보내요. 해시가 challenge와 맞으니 토큰을 받아요.', show: [...s4, 'hl4'] },
+];
+---
+<Stepper title="PKCE는 code를 훔쳐도 못 쓰게 해요" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 300" role="img" aria-label="공격자가 code를 가로채 토큰 교환을 요청하지만 code_verifier가 없어 인가 서버가 거부하고, verifier를 보관한 우리 백엔드만 토큰을 받는 그림">
+    <defs>
+      <marker id="pia-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-2)" />
+      </marker>
+      <marker id="pia-arr-err" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-red)" />
+      </marker>
+    </defs>
+
+    <g data-id="hdr">
+      <line class="life" x1="55" y1="44" x2="55" y2="296" />
+      <line class="life" x1="160" y1="44" x2="160" y2="296" />
+      <line class="life" x1="265" y1="44" x2="265" y2="296" />
+      <rect class="err" x="10" y="4" width="90" height="40" rx="7" />
+      <text class="err-t" x="55" y="24">공격자</text>
+      <rect class="chip" x="115" y="4" width="90" height="40" rx="7" />
+      <text x="160" y="17">우리</text><text class="sub" x="160" y="34">백엔드</text>
+      <rect class="box" x="220" y="4" width="90" height="40" rx="7" />
+      <text x="265" y="24">인가 서버</text>
+    </g>
+    <g data-id="v">
+      <rect class="chip" x="105" y="52" width="110" height="26" rx="13" />
+      <text x="160" y="65" style="font-size:14px">verifier 보관</text>
+    </g>
+
+    <g data-id="a1">
+      <text class="lbl err-t" x="160" y="98">① code 가로챔</text>
+      <line class="msg bad-msg" x1="265" y1="112" x2="58" y2="112" marker-end="url(#pia-arr-err)" />
+    </g>
+    <g data-id="a2">
+      <text class="lbl" x="160" y="144">② code만 들고 교환 요청</text>
+      <line class="msg bad-msg" x1="55" y1="158" x2="262" y2="158" marker-end="url(#pia-arr-err)" />
+    </g>
+    <g data-id="a3">
+      <rect class="err" x="170" y="170" width="140" height="44" rx="7" />
+      <text x="240" y="185" style="font-size:14px">③ verifier 없음</text>
+      <text class="err-t" x="240" y="203">✗ 거부</text>
+    </g>
+    <g data-id="a4">
+      <text class="lbl" x="212" y="236">④ code + verifier</text>
+      <line class="msg" x1="160" y1="250" x2="262" y2="250" marker-end="url(#pia-arr)" />
+      <text class="lbl" x="212" y="268">access token ✓</text>
+      <line class="msg ok-msg" x1="265" y1="282" x2="163" y2="282" marker-end="url(#pia-arr)" />
+    </g>
+
+    <rect data-id="hl1" class="hl" x="4" y="86" width="312" height="34" rx="9" />
+    <rect data-id="hl2" class="hl" x="4" y="132" width="312" height="34" rx="9" />
+    <rect data-id="hl3" class="hl" x="166" y="166" width="148" height="52" rx="9" />
+    <rect data-id="hl4" class="hl" x="110" y="224" width="206" height="68" rx="9" />
+  </svg>
+</Stepper>
+
+<style>
+  .life { stroke: var(--sl-color-gray-4); stroke-width: 1.2; stroke-dasharray: 4 4; }
+  .msg { stroke: var(--sl-color-gray-2); stroke-width: 1.8; }
+  .bad-msg { stroke: var(--sl-color-red); stroke-dasharray: 6 3; }
+  .ok-msg { stroke: var(--sl-color-accent); stroke-width: 2.4; }
+  .lbl { paint-order: stroke; stroke: var(--sl-color-gray-7, var(--sl-color-black)); stroke-width: 5px; stroke-linejoin: round; }
+</style>

@@ -1,0 +1,83 @@
+---
+// 패킷 겉(IP·포트)과 속(HTTP)을 나눠 보이고, L4는 겉만 보고 연결째 B로, L7은 속의 경로를 읽어 그룹을 고른다.
+import Stepper from '../Stepper.astro';
+const SX = [14, 118, 222], SW = 84, SY = 304, SH = 36;
+const notes = [
+  ['요청 하나 = 겉(IP·포트) + 속(HTTP)', 'HTTPS라서 속은 암호화돼 있어요'],
+  ['L4: 겉만 읽고 서버 B를 골라요', '이 연결(연결 #1)은 통째로 B 담당'],
+  ['같은 연결로 온 요청 2', '속을 안 보니 경로와 상관없이 B로'],
+  ['L7: TLS를 풀고 경로를 읽어요', '/api/* → A·B 그룹, /static/* → C'],
+  ['L7은 헤더를 덧붙여 보내요', '서버는 진짜 클라이언트 IP를 알게 돼요'],
+];
+const steps = [
+  { caption: '클라이언트가 보낸 요청은 겉(출발·목적 IP와 포트)과 속(HTTP 경로·헤더·쿠키)으로 나뉘어요. HTTPS면 속은 암호화돼 있어요.', show: ['outer', 'inner', 'lock', 'p1d', 'lb0', 'n0'] },
+  { caption: 'L4 로드밸런서는 겉의 IP·포트만 읽어요. 속은 열지 않고 이 TCP 연결 전체를 서버 B에 맡겨요.', show: ['outer', 'lock', 'p1d', 'lb4', 'aB', 'hlB', 'hlO', 'n1'] },
+  { caption: '같은 연결로 다음 요청(/static/logo.png)이 와도 L4는 경로를 모르니 그대로 B로 보내요. 나누는 단위가 연결이에요.', show: ['outer', 'lock', 'p2d', 'lb4', 'aB', 'hlB', 'hlO', 'n2'] },
+  { caption: 'L7 로드밸런서는 TLS를 풀고 HTTP 경로를 읽어요. /api/orders는 API 그룹(A·B)으로, /static/*는 정적 그룹(C)으로 보내요. 요청 하나하나가 단위예요.', show: ['outer', 'inner', 'open', 'p1', 'lb7', 'aA', 'hlA', 'hlI', 'grp', 'n3'] },
+  { caption: 'L7은 HTTP를 다루니 헤더도 붙일 수 있어요. X-Forwarded-For에 클라이언트 IP를 적어 서버로 넘겨요.', show: ['outer', 'inner', 'open', 'p1', 'xff', 'lb7', 'aA', 'hlA', 'grp', 'n4'] },
+];
+---
+<Stepper title="L4와 L7은 요청의 어디까지 읽나" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 446" role="img" aria-label="L4 로드밸런서는 IP와 포트만 보고 연결 전체를 한 서버로 보내고, L7 로드밸런서는 TLS를 풀어 HTTP 경로를 읽고 서버 그룹을 고르며 X-Forwarded-For 헤더를 붙인다">
+    <defs><marker id="l47-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" style="fill:var(--sl-color-gray-3)" /></marker></defs>
+    <text class="l" x="4" y="12" style="font-weight:700">클라이언트 <tspan class="mono">203.0.113.7</tspan></text>
+
+    <!-- 겉 -->
+    <rect class="box" x="4" y="26" width="312" height="200" rx="8" />
+    <g data-id="outer">
+      <text class="l" x="14" y="44" style="font-weight:700">겉: IP·포트</text>
+      <text class="l mono" x="14" y="66">출발 203.0.113.7:51000</text>
+      <text class="l mono" x="14" y="86">목적 198.51.100.10:443</text>
+    </g>
+    <rect data-id="hlO" class="hl" x="8" y="30" width="304" height="68" rx="6" />
+
+    <!-- 속 -->
+    <rect x="12" y="102" width="296" height="118" rx="6" style="fill:var(--sl-color-bg);stroke:var(--sl-color-gray-4);stroke-width:1.2" />
+    <g data-id="inner">
+      <text class="l" x="22" y="118" style="font-weight:700">속: HTTP</text>
+      <text class="l mono" x="22" y="164">Host: shop.example.com</text>
+      <text class="l mono" x="22" y="184">Cookie: sid=…</text>
+    </g>
+    <text data-id="lock" class="sub hide" x="298" y="118" style="text-anchor:end">암호화됨 (못 읽음)</text>
+    <text data-id="open" class="hi hide" x="298" y="118" style="text-anchor:end;font-size:14px">TLS 풀고 읽음</text>
+    <text data-id="p1" class="l mono hide" x="22" y="142">GET /api/orders</text>
+    <g data-id="p1d" class="hide"><text class="l mono" x="22" y="142" style="opacity:.3">GET /api/orders</text></g>
+    <g data-id="p2d" class="hide"><text class="l mono" x="22" y="142" style="opacity:.3">GET /static/logo.png</text></g>
+    <text data-id="xff" class="l mono hi hide" x="22" y="204">X-Forwarded-For: 203.0.113.7</text>
+    <rect data-id="hlI" class="hl" x="14" y="128" width="292" height="24" rx="4" />
+
+    <!-- 로드밸런서 -->
+    <line class="line" x1="160" y1="226" x2="160" y2="240" marker-end="url(#l47-arr)" />
+    <rect class="box" x="70" y="242" width="180" height="34" rx="8" />
+    <text data-id="lb0" class="hide" x="160" y="259" style="font-weight:700">로드밸런서</text>
+    <text data-id="lb4" class="hide" x="160" y="259" style="font-weight:700">L4 로드밸런서</text>
+    <text data-id="lb7" class="hide" x="160" y="259" style="font-weight:700">L7 로드밸런서</text>
+    <line data-id="aA" class="line hide" x1="110" y1="276" x2="60" y2="302" marker-end="url(#l47-arr)" />
+    <line data-id="aB" class="line hide" x1="160" y1="276" x2="160" y2="302" marker-end="url(#l47-arr)" />
+
+    <!-- 서버 -->
+    {['A', 'B', 'C'].map((s, i) => (
+      <g>
+        <rect class="box" x={SX[i]} y={SY} width={SW} height={SH} rx="6" />
+        <text x={SX[i] + SW / 2} y={SY + SH / 2}>서버 {s}</text>
+      </g>
+    ))}
+    <rect data-id="hlA" class="hl" x={SX[0] - 3} y={SY - 3} width={SW + 6} height={SH + 6} rx="8" />
+    <rect data-id="hlB" class="hl" x={SX[1] - 3} y={SY - 3} width={SW + 6} height={SH + 6} rx="8" />
+    <g data-id="grp" class="hide">
+      <rect class="frame" x="8" y="298" width="200" height="88" rx="8" />
+      <rect class="frame" x="216" y="298" width="96" height="88" rx="8" />
+      <text x="108" y="356">API 그룹</text>
+      <text class="mono" x="108" y="374">/api/*</text>
+      <text x="264" y="356">정적 그룹</text>
+      <text class="mono" x="264" y="374">/static/*</text>
+    </g>
+
+    {notes.map(([a, b], i) => (
+      <g data-id={`n${i}`} class="hide">
+        <text class="l hi" x="4" y="408" style="font-size:15px">{a}</text>
+        <text class="l" x="4" y="432" style="font-size:14px">{b}</text>
+      </g>
+    ))}
+  </svg>
+</Stepper>

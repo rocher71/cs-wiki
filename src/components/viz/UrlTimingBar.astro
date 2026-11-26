@@ -1,0 +1,43 @@
+---
+// 한 번 재 본 예시 값(첫 접속). 구간별 가로 막대, DNS는 두 번째 접속 값도 함께.
+const S = 1.3; // 1ms = 1.3 viewBox 단위
+const rows = [
+  { label: 'DNS', ms: 10, again: 3 },
+  { label: 'TCP 연결', ms: 42 },
+  { label: 'TLS', ms: 53 },
+  { label: '서버 처리', sub: '첫 바이트까지', ms: 113 },
+  { label: '본문 받기', ms: 81 },
+];
+let y = 40;
+const laid = rows.map((r) => { const top = y; y += r.again ? 62 : 44; return { ...r, top }; });
+const total = rows.reduce((a, r) => a + r.ms, 0);
+const H = y + 34;
+---
+<figure class="u2p-timing">
+  <svg class="viz" viewBox={`0 0 320 ${H}`} role="img" aria-label={`첫 접속 예시: ${rows.map((r) => `${r.label} 약 ${r.ms}ms`).join(', ')}, 합계 약 ${Math.round(total / 10) * 10}ms. 두 번째 접속에선 DNS가 약 3ms로 줄어든다.`}>
+    <text class="l" x="8" y="16">구간별 걸린 시간 (첫 접속)</text>
+    {laid.map((r) => (
+      <g>
+        <text class="l" x="8" y={r.top + (r.sub ? 8 : 14)}>{r.label}</text>
+        {r.sub && <text class="sub l" x="8" y={r.top + 27}>{r.sub}</text>}
+        <rect class="chip" x="104" y={r.top + 2} width={r.ms * S} height="24" rx="4" />
+        <text class="l" x={104 + r.ms * S + 6} y={r.top + 14}>{`${r.ms}ms`}</text>
+        {r.again && (
+          <>
+            <rect class="bad" x="104" y={r.top + 32} width={r.again * S} height="18" rx="3" />
+            <text class="sub l" x={104 + r.again * S + 6} y={r.top + 41}>{`두 번째 접속 ${r.again}ms (캐시)`}</text>
+          </>
+        )}
+      </g>
+    ))}
+    <line class="line" x1="8" y1={y + 4} x2="312" y2={y + 4} />
+    <text class="l" x="8" y={y + 22}>{`합계 약 ${Math.round(total / 10) * 10}ms`}</text>
+  </svg>
+  <figcaption>한 번 재 본 예시 값이에요. 네트워크 환경마다 달라요.</figcaption>
+</figure>
+
+<style>
+  .u2p-timing { margin: 1.25rem 0; }
+  .u2p-timing svg { width: 100%; height: auto; display: block; }
+  .u2p-timing figcaption { font-size: .85rem; color: var(--sl-color-gray-3); margin-top: .4rem; }
+</style>

@@ -1,0 +1,83 @@
+---
+// 캐시 신선도 + ETag 재검증: 브라우저·서버 두 세로줄(시간은 위→아래), 맨 위 칩에 캐시 저장본 상태.
+import Stepper from '../Stepper.astro';
+const C = 55, S = 265, M = 160;
+const states = [
+  '저장본 v1 · 나이 0초 · 신선',
+  '저장본 v1 · 나이 30초 · 신선',
+  '저장본 v1 · 나이 90초 · 낡음',
+  '저장본 v1 · 나이 0초 · 다시 신선',
+  '저장본 v2 · 나이 0초 · 신선',
+];
+const msgs = [
+  { id: 'req1', x1: C, x2: S, y: 96, t: ['GET /app.js', ''] },
+  { id: 'res1', x1: S, x2: C, y: 148, t: ['200 OK', 'max-age=60, ETag "v1"'] },
+  { id: 'req2', x1: C, x2: S, y: 290, t: ['GET /app.js', 'If-None-Match: "v1"'] },
+  { id: 'r304', x1: S, x2: C, y: 342, t: ['304 Not Modified', '본문 없음'], hi: true, hide: true },
+  { id: 'r200', x1: S, x2: C, y: 342, t: ['200 OK + 새 본문', 'ETag "v2"'], hi: true, hide: true },
+];
+const captions = [
+  '첫 요청에 서버가 파일과 함께 "60초 동안은 그냥 써(max-age=60)", "이 버전 이름은 v1(ETag)"을 보내요. 브라우저는 캐시에 저장해요.',
+  '30초 뒤: 나이 30 < 60이라 아직 신선해요. 서버에 묻지 않고 캐시에서 바로 써요. 네트워크 사용 0.',
+  '90초 뒤: 나이 90 > 60이라 낡았어요. 버리지 않고 "v1 갖고 있는데 바뀌었어?"(If-None-Match)라고 조건부 요청을 보내요.',
+  '파일이 그대로면 서버는 304 Not Modified만 보내요(본문 없음). 브라우저는 저장본을 다시 신선하게 갱신해서 써요.',
+  '반대로 파일이 바뀌었다면 서버는 200 OK와 새 본문, 새 꼬리표 ETag "v2"를 보내고 캐시가 교체돼요.',
+];
+const base = ['req1', 'res1'];
+const shows = [
+  base,
+  [...base, 't30', 'note'],
+  [...base, 't30', 'note', 't90', 'req2'],
+  [...base, 't30', 'note', 't90', 'req2', 'r304'],
+  [...base, 't30', 'note', 't90', 'req2', 'r200'],
+];
+const steps = captions.map((caption, i) => ({ caption, show: [`st${i}`, ...shows[i]] }));
+const halo = 'paint-order:stroke;stroke:var(--sl-color-gray-7, var(--sl-color-black));stroke-width:5px;stroke-linejoin:round';
+---
+<Stepper title="캐시 신선도와 ETag 재검증" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 392" role="img" aria-label="첫 응답을 캐시에 저장하고, 신선할 땐 서버에 묻지 않으며, 낡으면 If-None-Match로 물어 304 또는 새 200을 받는 과정">
+    <defs>
+      <marker id="etg-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-2)" />
+      </marker>
+      <marker id="etg-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+    </defs>
+    {[[C, '브라우저'], [S, '서버']].map(([x, t]) => (
+      <g>
+        <rect class="box" x={+x - 50} y="6" width="100" height="32" rx="8" />
+        <text x={x} y="22" style="font-weight:700">{t}</text>
+        <line class="line" x1={x} y1="84" x2={x} y2="384" style="stroke-dasharray:4 4" />
+      </g>
+    ))}
+    {states.map((s, i) => (
+      <g data-id={`st${i}`} class="hide">
+        <rect class="chip" x="10" y="46" width="300" height="30" rx="15" />
+        <text x={M} y="61" style="font-size:14px">{s}</text>
+      </g>
+    ))}
+    {msgs.map((m) => (
+      <g data-id={m.id} class={m.hide ? 'hide' : ''}>
+        <line x1={m.x1} y1={m.y} x2={m.x2 + (m.x2 > m.x1 ? -2 : 2)} y2={m.y + 36}
+          style={`stroke:var(${m.hi ? '--sl-color-accent' : '--sl-color-gray-2'});stroke-width:2.2`}
+          marker-end={`url(#etg-${m.hi ? 'a' : 'g'})`} />
+        <text class={m.hi ? 'hi' : ''} x={M} y={m.y + 8} style={`font-weight:700;${halo}`}>{m.t[0]}</text>
+        {m.t[1] && <text class="mono" x={M} y={m.y + 28} style={halo}>{m.t[1]}</text>}
+      </g>
+    ))}
+    <g data-id="t30">
+      <line class="line" x1="10" y1="206" x2="310" y2="206" style="stroke-dasharray:2 4" />
+      <text class="sub" x={M} y="206" style={halo}>30초 뒤</text>
+    </g>
+    <g data-id="note">
+      <rect class="box" x="10" y="220" width="200" height="44" rx="8" />
+      <text x="110" y="234" style="font-size:14px">캐시에서 바로 사용</text>
+      <text class="sub" x="110" y="253">서버에 요청 안 보냄</text>
+    </g>
+    <g data-id="t90">
+      <line class="line" x1="10" y1="276" x2="310" y2="276" style="stroke-dasharray:2 4" />
+      <text class="sub" x={M} y="276" style={halo}>90초 뒤</text>
+    </g>
+  </svg>
+</Stepper>

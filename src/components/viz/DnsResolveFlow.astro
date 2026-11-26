@@ -1,0 +1,124 @@
+---
+// DNS 조회 6단계: 왼쪽 내 PC, 가운데 재귀 리졸버, 오른쪽 위→아래 루트/TLD/권한.
+// 재귀 질의(실선·강조색) 1쌍, 반복 질의(점선·회색) 3쌍. 아래 패널에 그 단계의 메시지.
+import Stepper from '../Stepper.astro';
+
+// 리졸버↔서버 왕복 한 쌍: 질의(a→b)와 응답(b→a)을 법선 방향으로 5만큼 벌려 그린다.
+const pair = (ax: number, ay: number, bx: number, by: number, side = -1) => {
+  const len = Math.hypot(bx - ax, by - ay), dx = (bx - ax) / len, dy = (by - ay) / len;
+  const nx = -dy * 5, ny = dx * 5;
+  return {
+    q: [ax + nx, ay + ny, bx + nx, by + ny],
+    r: [bx - nx, by - ny, ax - nx, ay - ny],
+    badge: [(ax + bx) / 2 + side * nx * 3.4, (ay + by) / 2 + side * ny * 3.4],
+  };
+};
+const iter = [
+  { id: 'p3', n: 3, ...pair(190, 108, 240, 64) },
+  { id: 'p4', n: 4, ...pair(196, 148, 224, 148) },
+  { id: 'p5', n: 5, ...pair(190, 188, 240, 232) },
+];
+const msgs = [
+  ['브라우저 캐시: 없음', 'OS 캐시·hosts 파일: 없음'],
+  ['Q  www.example.com  A?', 'RD=1 (끝까지 찾아와) · UDP 53'],
+  ['루트: "모름. .com은', 'gtld-servers에 물어봐" (NS+글루)'],
+  ['.com: "example.com은', '이 권한 서버에 물어봐" (NS)'],
+  ['A  203.0.113.10', 'TTL 300 · AA=1 (원본 답)'],
+  ['A  203.0.113.10  (캐시함)', 'RA=1 → OS → 브라우저'],
+];
+const captions = [
+  '먼저 가까운 곳부터 봐요. 브라우저 캐시, 그다음 OS 캐시(hosts 파일 포함)에 www.example.com이 있는지 확인해요. 둘 다 없어요.',
+  'OS 안의 스텁 리졸버가 재귀 리졸버에게 "www.example.com의 A 레코드를 끝까지 찾아와 줘"라고 한 번 물어요(재귀 질의, RD=1, 보통 UDP 53번).',
+  '재귀 리졸버가 루트 서버에 물어요. 루트는 답을 모르고 ".com은 gtld-servers에 물어봐"라며 NS와 그 서버 IP(글루)를 알려 줘요. 이렇게 "저기 가 봐"만 받는 게 반복 질의예요.',
+  '이번엔 .com TLD 서버에 물어요. 역시 답 대신 "example.com은 이 권한 서버가 담당해"라는 NS를 돌려줘요.',
+  '권한 서버가 진짜 답을 줘요. A = 203.0.113.10, TTL 300초. 원본 담당자라는 뜻의 AA 플래그가 붙어 있어요.',
+  '재귀 리졸버는 이 답을 TTL 동안 캐시하고, 스텁 리졸버에게 돌려줘요(RA=1: 재귀를 해 줬다는 뜻). OS와 브라우저도 저장한 뒤 접속을 시작해요.',
+];
+const steps = captions.map((caption, i) => ({
+  caption,
+  show: [
+    'miss',
+    ...(i >= 1 ? ['q2'] : []),
+    ...iter.filter((p) => p.n <= i + 1).map((p) => p.id),
+    ...(i === 5 ? ['r6', 'rc'] : []),
+    `m${i}`,
+  ],
+}));
+const servers = [
+  { y: 8, t: '루트', s: '점(.) 맨 위' },
+  { y: 120, t: 'TLD', s: '.com' },
+  { y: 232, t: '권한 서버', s: 'example.com' },
+];
+---
+<Stepper title="www.example.com을 IP로 바꾸는 과정" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 396" role="img" aria-label="내 PC가 캐시를 확인한 뒤 재귀 리졸버에 재귀 질의를 한 번 보내고, 재귀 리졸버가 루트, .com TLD, 권한 서버에 차례로 반복 질의를 보내 A 레코드 203.0.113.10을 받아 캐시하고 돌려주는 그림">
+    <defs>
+      <marker id="drf-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-2)" />
+      </marker>
+      <marker id="drf-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+    </defs>
+
+    <rect class="box" x="4" y="100" width="80" height="100" rx="8" />
+    <text x="44" y="116" style="font-weight:700">내 PC</text>
+    <text class="sub" x="44" y="140">브라우저</text>
+    <text class="sub" x="44" y="162">OS·hosts</text>
+    <text data-id="miss" class="err-t" x="44" y="186" style="font-size:14px">캐시 없음</text>
+
+    <rect class="box" x="112" y="108" width="84" height="80" rx="8" />
+    <text x="154" y="136" style="font-weight:700">리졸버</text>
+    <text class="sub" x="154" y="160">(재귀)</text>
+    <g data-id="rc" class="hide">
+      <rect class="chip" x="112" y="196" width="84" height="28" rx="14" />
+      <text x="154" y="210" style="font-size:14px">캐시 저장</text>
+    </g>
+
+    {servers.map((s) => (
+      <g>
+        <rect class="box" x="224" y={s.y} width="92" height="56" rx="8" />
+        <text x="270" y={s.y + 19} style="font-weight:700">{s.t}</text>
+        <text class="sub" x="270" y={s.y + 40}>{s.s}</text>
+      </g>
+    ))}
+
+    <g data-id="q2">
+      <line class="rec" x1="84" y1="140" x2="111" y2="140" marker-end="url(#drf-a)" />
+      <circle class="badge" cx="98" cy="124" r="9" /><text class="on-badge" x="98" y="125">2</text>
+    </g>
+    <g data-id="r6">
+      <line class="rec" x1="112" y1="158" x2="85" y2="158" marker-end="url(#drf-a)" />
+      <circle class="badge" cx="98" cy="174" r="9" /><text class="on-badge" x="98" y="175">6</text>
+    </g>
+    {iter.map((p) => (
+      <g data-id={p.id}>
+        <line class="itr" x1={p.q[0]} y1={p.q[1]} x2={p.q[2]} y2={p.q[3]} marker-end="url(#drf-g)" />
+        <line class="itr" x1={p.r[0]} y1={p.r[1]} x2={p.r[2]} y2={p.r[3]} marker-end="url(#drf-g)" />
+        <circle class="nb" cx={p.badge[0]} cy={p.badge[1]} r="9" />
+        <text class="on-nb" x={p.badge[0]} y={p.badge[1] + 1}>{p.n}</text>
+      </g>
+    ))}
+    <circle class="badge" cx="44" cy="84" r="9" /><text class="on-badge" x="44" y="85">1</text>
+
+    <line class="rec" x1="8" y1="300" x2="38" y2="300" marker-end="url(#drf-a)" />
+    <text class="sub l" x="44" y="300">재귀 질의 (1쌍)</text>
+    <line class="itr" x1="168" y1="300" x2="198" y2="300" marker-end="url(#drf-g)" />
+    <text class="sub l" x="204" y="300">반복 질의 (3쌍)</text>
+
+    <rect class="box" x="4" y="320" width="312" height="70" rx="8" />
+    {msgs.map(([a, b], i) => (
+      <g data-id={`m${i}`} class="hide">
+        <text class="mono" x="160" y="342" style="font-weight:700">{a}</text>
+        <text class="mono" x="160" y="368">{b}</text>
+      </g>
+    ))}
+  </svg>
+</Stepper>
+
+<style>
+  .rec { stroke: var(--sl-color-accent); stroke-width: 2.4; }
+  .itr { stroke: var(--sl-color-gray-2); stroke-width: 1.8; stroke-dasharray: 4 3; }
+  .nb { fill: var(--sl-color-gray-2); }
+  svg.viz text.on-nb { fill: var(--sl-color-black); font-weight: 700; font-size: 14px; }
+</style>

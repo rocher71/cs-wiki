@@ -1,0 +1,64 @@
+---
+// 위: 캐시 4계층과 첫 조회/재조회 때 TTL. 아래: IP 전환 전에 TTL을 낮추는 타임라인.
+import Stepper from '../Stepper.astro';
+const layers = ['① 브라우저', '② OS (hosts 포함)', '③ 재귀 리졸버', '④ 루트·TLD·권한'];
+const ly = (i: number) => 26 + i * 50;
+const first = ['TTL 300 저장', 'TTL 300 저장', 'TTL 300 저장', '원본 TTL 300'];
+const rows = [
+  ['미리', 'TTL 3600 → 60', '변경 최소 1시간 전에'],
+  ['1시간 대기', '옛 캐시 만료', '3600초짜리 메모가 사라짐'],
+  ['T', 'IP → 198.51.100.20', '옛 IP 203.0.113.10'],
+  ['T+60초', '대부분 새 IP', '60초 캐시만 남아 있었음'],
+  ['그 뒤', '옛 서버 종료', '늦은 캐시 대비 잠시 유지'],
+  ['안정 후', 'TTL 60 → 3600', '조회 부하·지연 다시 줄임'],
+];
+const ry = (i: number) => 262 + i * 44;
+const steps = [
+  { caption: '캐시는 가까운 순서로 4층이에요. 브라우저 → OS(hosts 파일 포함) → 재귀 리졸버 → 루트·TLD·권한 서버. 위층에서 답이 나오면 아래로 내려가지 않아요.', show: ['top'] },
+  { caption: '첫 조회는 끝(권한 서버)까지 가서 TTL 300초짜리 답을 받아요. 돌아오는 길에 리졸버, OS, 브라우저가 각자 저장해요.', show: ['top', 's2'] },
+  { caption: '17초 뒤 다른 사용자가 같은 이름을 물으면 리졸버 캐시에서 끝나요. 이때 TTL은 300이 아니라 흐른 시간만큼 줄어든 283으로 와요.', show: ['top', 's3'] },
+  { caption: 'IP를 바꿀 계획이면 먼저 TTL을 3600에서 60으로 낮춰요. 그리고 옛 TTL(1시간)만큼 기다려요. 이미 퍼진 3600초짜리 캐시가 다 사라져야 하니까요.', show: ['t0', 't1'] },
+  { caption: '이제 IP를 바꿔요. 남은 캐시는 길어야 60초라서, 1분쯤 지나면 대부분의 사용자가 새 IP로 가요.', show: ['t0', 't1', 't2', 't3'] },
+  { caption: 'TTL을 무시하고 오래 들고 있는 캐시도 있어서 옛 서버는 잠시 켜 두었다가 꺼요. 안정되면 TTL을 다시 길게 돌려 조회 횟수를 줄여요.', show: ['t0', 't1', 't2', 't3', 't4', 't5'] },
+];
+---
+<Stepper title="DNS 캐시와 TTL" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 530" role="img" aria-label="위쪽은 브라우저, OS, 재귀 리졸버, 루트·TLD·권한 서버의 캐시 4계층과 첫 조회 TTL 300, 재조회 때 줄어든 TTL 283. 아래쪽은 TTL을 3600에서 60으로 낮추고 1시간 기다린 뒤 IP를 바꾸고, 옛 서버를 종료하고 TTL을 원복하는 타임라인">
+    <g data-id="top">
+      <text class="sub l" x="8" y="12">캐시 계층 (가까운 순)</text>
+      {layers.map((t, i) => (
+        <g>
+          <rect class="box" x="8" y={ly(i)} width="188" height="40" rx="8" />
+          <text class="l" x="18" y={ly(i) + 20}>{t}</text>
+        </g>
+      ))}
+    </g>
+    <g data-id="s2" class="hide">
+      {first.map((t, i) => (
+        <g>
+          <rect class="chip" x="204" y={ly(i) + 6} width="112" height="28" rx="14" />
+          <text x="260" y={ly(i) + 20} style="font-size:14px">{t}</text>
+        </g>
+      ))}
+    </g>
+    <g data-id="s3" class="hide">
+      <text class="sub" x="260" y={ly(0) + 20}>(새 사용자)</text>
+      <text class="sub" x="260" y={ly(1) + 20}>(새 사용자)</text>
+      <rect class="chip" x="204" y={ly(2) + 6} width="112" height="28" rx="14" />
+      <text class="hi" x="260" y={ly(2) + 20} style="font-size:14px">적중 · 283 남음</text>
+      <text class="sub" x="260" y={ly(3) + 20}>안 감</text>
+      <rect class="hl" x="4" y={ly(2) - 4} width="316" height="48" rx="10" />
+    </g>
+
+    <text class="sub l" x="8" y="242">IP 바꾸기 전 TTL 작전</text>
+    <line class="line" x1="48" y1={ry(0) + 14} x2="48" y2={ry(5) + 14} style="stroke-dasharray:4 4" />
+    {rows.map(([when, main, sub], i) => (
+      <g data-id={`t${i}`}>
+        <rect class="chip" x="8" y={ry(i)} width="80" height="28" rx="14" />
+        <text x="48" y={ry(i) + 14} style="font-size:14px">{when}</text>
+        <text class="l" x="98" y={ry(i) + 8} style="font-weight:700">{main}</text>
+        <text class="sub l" x="98" y={ry(i) + 28}>{sub}</text>
+      </g>
+    ))}
+  </svg>
+</Stepper>

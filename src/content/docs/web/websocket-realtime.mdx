@@ -1,0 +1,349 @@
+---
+title: WebSocket과 실시간 통신
+description: "실시간으로 데이터를 받는 방법은 숏 폴링, 롱 폴링, SSE, WebSocket 네 가지예요. 서버에서 클라이언트로만 보내면 SSE, 양쪽이 수시로 주고받으면 WebSocket을 쓰고, 서버를 여러 대로 늘리면 Pub/Sub으로 메시지를 나눠 줘야 해요."
+sidebar: { order: 13 }
+tags: [면접빈출, 서술형]
+---
+import { Aside } from '@astrojs/starlight/components';
+import RealtimeTimeline from '~/components/viz/RealtimeTimeline.astro';
+import PubSubBroadcast from '~/components/viz/PubSubBroadcast.astro';
+
+:::tip[한 줄 요약]
+HTTP는 클라이언트가 물어봐야 서버가 답하는 구조라서, 서버가 먼저 알려 주려면 **폴링·롱 폴링·SSE·WebSocket** 중 하나를 써요. 서버→클라이언트 한 방향이면 자동 재연결이 내장된 **SSE**, 채팅처럼 양쪽이 수시로 주고받으면 연결 하나로 양방향 통신하는 **WebSocket**이 맞아요.
+:::
+
+## 쉽게 이해하기
+
+택배가 왔는지 알고 싶은 상황이라고 해 볼게요.
+
+1. **숏 폴링**: 5분마다 경비실에 가서 "택배 왔어요?" 하고 물어요. 대부분 "아뇨"라는 답을 듣고 헛걸음해요.
+2. **롱 폴링**: 경비실에 가서 "택배 오면 알려 주세요" 하고 그 자리에서 기다려요. 택배가 오면 바로 받아 들고, 집에 갔다가 곧장 다시 와서 또 기다려요.
+3. **SSE**: 경비실에 스피커를 설치해 두고 "택배 왔어요" 방송을 계속 들어요. 듣기만 할 수 있고, 내가 할 말은 따로 경비실에 찾아가서 해요.
+4. **WebSocket**: 경비실과 전화를 연결해 두고 끊지 않아요. 양쪽 누구든 아무 때나 말할 수 있어요.
+
+단, 실제로 "계속 연결해 둔다"는 게 공짜는 아니에요. 중간의 로드밸런서는 한동안 조용한 연결을 끊어 버리기 때문에, 살아 있다는 신호를 주기적으로 보내야 해요.
+
+## 그림으로 보기
+
+<RealtimeTimeline />
+
+## 제대로 알기
+
+### 1. 왜 따로 방법이 필요한가
+
+HTTP는 **클라이언트가 요청해야 서버가 응답**하는 구조예요. 서버가 "새 메시지 왔어요"라고 먼저 말을 걸 방법이 기본으로는 없어요. 그래서 채팅, 주문 상태 알림, 주식 시세처럼 서버 쪽에서 일이 생기는 기능에는 아래 네 가지 방법 중 하나를 써요.
+
+### 2. 숏 폴링과 롱 폴링
+
+- **숏 폴링**(short polling, 정해진 주기로 계속 물어보기): 새 데이터가 없으면 서버는 빈 응답을 줘요. 지연을 줄이려면 주기를 짧게 해야 하는데, 그만큼 헛요청이 늘어 서버와 네트워크 부담이 커져요.
+- **롱 폴링**(long polling, 답이 생길 때까지 응답을 미루기): 서버가 이벤트가 생기거나 타임아웃이 될 때까지 응답을 잡고 있어요. 응답을 받은 클라이언트는 바로 다음 요청을 보내요. 지연은 네트워크 왕복 한 번 정도로 짧지만 두 가지 약점이 있어요.
+  - 응답마다 HTTP 헤더가 다시 붙어요.
+  - 응답을 받고 다음 요청을 보내기 전 틈에 생긴 이벤트는 그만큼 늦게 도착해요.
+
+### 3. SSE (Server-Sent Events)
+
+**SSE**(Server-Sent Events, 서버가 클라이언트로 이벤트를 흘려보내는 방식)는 HTML 표준에 정의된 **서버→클라이언트 단방향** 스트림이에요. 요청은 한 번만 보내고, 서버는 응답을 끝내지 않은 채 이벤트가 생길 때마다 한 줄씩 이어서 보내요.
+
+```js
+// 브라우저 쪽: EventSource 하나면 끝
+const es = new EventSource('/orders/42/events');
+es.addEventListener('status', (e) => {
+  console.log('주문 상태:', e.data);
+});
+```
+
+```text
+HTTP/1.1 200 OK
+Content-Type: text/event-stream
+
+id: 7
+event: status
+data: 배송 시작
+
+: 이 줄은 주석(연결 유지용)
+```
+
+- 응답 형식은 `text/event-stream`이고, `data:`, `event:`, `id:`, `retry:` 같은 텍스트 줄로 이뤄져요. `:`로 시작하는 줄은 주석이에요.
+- **자동 재연결이 내장**돼 있어요. 연결이 끊기면 브라우저가 알아서 다시 연결하고, 마지막으로 받은 `id`를 `Last-Event-ID` 요청 헤더에 실어 보내요. 서버는 그 다음 이벤트부터 이어서 보내면 돼요.
+- 재연결 대기 시간은 서버가 `retry:` 필드로 바꿀 수 있고, 서버가 **204 No Content**로 답하면 브라우저가 재연결을 멈춰요.
+- 표준 문서는 오래된 프록시가 조용한 연결을 끊을 수 있으니 **15초쯤마다 주석 줄**을 보내라고 권해요.
+- **HTTP/1.1에서는** 브라우저가 도메인당 동시 연결을 **6개**로 제한하고, 이 제한이 탭 전체에 걸려요. 탭을 여러 개 열면 SSE 연결이 모자랄 수 있어요. **HTTP/2**는 한 연결 안에서 여러 스트림을 쓰고 그 수를 서버와 협상해서(기본 100) 이 문제가 크게 줄어요. → [HTTP 버전](../http-versions/)
+
+<Aside type="note">
+SSE가 단방향이라고 클라이언트가 서버에 아무것도 못 보내는 건 아니에요. 보낼 게 있으면 그냥 일반 HTTP 요청(fetch)으로 보내면 돼요.
+</Aside>
+
+### 4. WebSocket
+
+**WebSocket**(RFC 6455, TCP 연결 하나로 양쪽이 동시에 메시지를 주고받는 프로토콜)은 **양방향**(full-duplex, 양쪽이 동시에 보낼 수 있음) 통신이에요. 주소는 `ws://`(기본 포트 80), 암호화하면 `wss://`(443, TLS)를 써요.
+
+#### 핸드셰이크: HTTP로 시작해서 갈아타기
+
+기존 웹 서버·중간 장비와 같은 포트를 쓰려고, 첫 인사를 **HTTP Upgrade 요청**으로 해요.
+
+```http
+GET /chat HTTP/1.1
+Host: server.example.com
+Upgrade: websocket
+Connection: Upgrade
+Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==
+Origin: http://example.com
+Sec-WebSocket-Version: 13
+```
+
+```http
+HTTP/1.1 101 Switching Protocols
+Upgrade: websocket
+Connection: Upgrade
+Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=
+```
+
+- **101 Switching Protocols**는 "이제부터 이 연결은 HTTP가 아니라 다른 프로토콜로 말할게요"라는 뜻이에요. 이후로는 HTTP 메시지가 아니라 **WebSocket 프레임**이 오가요. 그래서 HTTP 캐시 같은 일반 HTTP 장치는 101 이후의 대화에 끼지 않아요.
+- `Sec-WebSocket-Accept`는 서버가 `Key` 문자열 뒤에 고정 GUID(`258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)를 붙여 **SHA-1**(데이터를 고정 길이 값으로 바꾸는 해시 함수)을 돌리고 base64로 만든 값이에요. 목적은 "나는 WebSocket을 이해하고, 네 요청을 받았다"는 **확인**이에요. 인증도 암호화도 아니에요.
+
+```python
+# 직접 계산해 보기 (표준 라이브러리만)
+import base64, hashlib
+key = 'dGhlIHNhbXBsZSBub25jZQ=='
+guid = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
+print(base64.b64encode(hashlib.sha1((key + guid).encode()).digest()).decode())
+# s3pPLMBiTxaQ9kYGzzhZRbK+xOo=  ← 위 응답 예시와 같아요
+```
+
+- `Origin`은 브라우저가 "어느 사이트에서 연 연결인지" 알려 주는 헤더예요. 서버는 허용하지 않은 출처의 연결을 거절하는 데 써요. 단, 브라우저가 아닌 프로그램은 Origin을 마음대로 적을 수 있어서 이것만으로 인증을 대신하면 안 돼요.
+
+<Aside type="note">
+여기서 설명한 핸드셰이크는 HTTP/1.1 기준이에요. HTTP/2 위에서 WebSocket을 여는 방법은 별도 RFC(RFC 8441)에 따로 정의돼 있다는 정도만 알아 두면 돼요.
+</Aside>
+
+#### 프레임
+
+데이터는 **프레임**(frame, 메시지를 담는 작은 상자) 단위로 오가요. 프레임 머리에는 "이게 메시지의 마지막 조각인가(FIN)", "무슨 종류인가(opcode)", 마스킹 여부, 길이가 들어 있어요.
+
+| opcode | 뜻 |
+|---|---|
+| 0x0 | 앞 메시지에 이어지는 조각 |
+| 0x1 | 텍스트 |
+| 0x2 | 바이너리 |
+| 0x8 | Close(종료) |
+| 0x9 | Ping |
+| 0xA | Pong |
+
+- **마스킹**(masking): 클라이언트→서버 프레임은 **반드시** 마스킹하고, 서버→클라이언트 프레임은 마스킹하면 **안** 돼요. wss든 ws든 똑같아요. 마스킹 키가 프레임 안에 그대로 들어 있어서 암호화가 아니에요. 목적은 중간 프록시가 프레임 내용을 HTTP 요청으로 착각해 캐시가 오염되는 공격을 막는 거예요.
+- **Ping/Pong**: 제어 프레임이에요. Ping을 받으면 같은 데이터로 Pong을 돌려줘야 해요. 연결 유지(keepalive)와 "상대가 아직 살아 있나" 확인에 써요. Pong은 요청 없이 혼자 보내도 돼서 단방향 하트비트로도 써요.
+- **Close**: 앞 2바이트가 종료 코드예요.
+
+| 코드 | 뜻 |
+|---|---|
+| 1000 | 정상 종료 |
+| 1001 | 떠남(서버가 내려가거나 페이지 이동) |
+| 1002 | 프로토콜 오류 |
+| 1011 | 서버 내부 오류 |
+| 1006 | Close 프레임 없이 비정상으로 끊김(프레임에 직접 넣으면 안 되는 예약값) |
+
+- WebSocket에는 SSE 같은 **자동 재연결이 없어요**. 끊기면 앱이 직접 다시 연결해야 해요.
+
+### 5. 네 가지 비교
+
+| 방식 | 방향 | 지연 | 서버 부담 | 프록시·방화벽 | 재연결 |
+|---|---|---|---|---|---|
+| 숏 폴링 | 클라이언트가 묻고 서버가 답 | 폴링 주기만큼 | 빈 응답 반복으로 큼 | 일반 HTTP라 가장 무난 | 해당 없음 |
+| 롱 폴링 | 사실상 서버→클라이언트 | 낮음(재요청 틈은 늦음) | 대기 연결 + 매번 헤더 | 일반 HTTP, 타임아웃 주의 | 앱이 재요청 |
+| SSE | 서버→클라이언트 단방향 | 낮음 | 연결 하나 유지 | 일반 HTTP 응답, 프록시 버퍼링 주의 | 브라우저 내장 |
+| WebSocket | 양방향 | 가장 낮음 | 연결 하나 유지, 프레임 오버헤드 작음 | Upgrade 전달·LB 설정 필요 | 앱이 직접 구현 |
+
+고르는 기준은 간단해요.
+
+- 서버가 알려 주기만 하면 되고(알림, 진행률, 주문 상태) → **SSE**
+- 양쪽이 자주 주고받아야 하면(채팅, 협업 편집, 게임) → **WebSocket**
+- 갱신이 드물고 몇 초 늦어도 괜찮으면 → **폴링**도 충분해요. 가장 단순하고 어디서나 동작해요.
+
+### 6. 운영에서 걸리는 것들
+
+#### 프록시를 지날 때
+
+`Upgrade`와 `Connection`은 **hop-by-hop 헤더**(바로 옆 구간에만 유효하고 프록시가 다음으로 넘기지 않는 헤더)예요. 그래서 nginx 뒤에 WebSocket 서버를 두면 직접 넘겨 줘야 해요.
+
+```nginx
+location /ws/ {
+    proxy_pass http://backend;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_read_timeout 300s;   # 기본 60초
+}
+```
+
+#### idle timeout
+
+**idle timeout**(유휴 타임아웃, 아무 데이터도 안 오가면 연결을 끊는 시간)은 nginx 기본이 60초(`proxy_read_timeout`), AWS ALB 기본도 60초예요. 그래서 조용한 WebSocket이 딱 60초마다 끊기는 일이 흔해요. **하트비트 주기를 타임아웃보다 짧게** 잡거나 타임아웃을 늘려요.
+
+#### 서버를 여러 대로 늘릴 때
+
+WebSocket 연결은 **연결을 맺은 그 서버**의 메모리에 붙어 있어요. 사용자 A는 서버1, 사용자 B는 서버2에 붙어 있으면, 서버1은 A의 메시지를 B에게 직접 보낼 수 없어요. 그래서 모든 서버가 함께 구독하는 **메시지 브로커**를 둬요.
+
+<PubSubBroadcast />
+
+- **Redis Pub/Sub**: 가장 간단해요. 다만 전달 보장이 **at-most-once**(최대 한 번, 놓치면 끝)라서 구독자가 잠깐 끊겨 있던 동안의 메시지는 사라져요.
+- **Redis Streams, Kafka**: 메시지를 저장해 두고 나중에 다시 읽을 수 있어요. 유실이 안 되는 대신 운영이 더 복잡해요.
+- **Spring STOMP**: Spring은 WebSocket 위에 STOMP 메시징(`@MessageMapping`, `/topic` 구독)을 지원해요. 기본 Simple Broker는 서버 메모리 안에서만 동작하니, 서버가 여러 대면 RabbitMQ 같은 외부 브로커로 **broker relay**를 켜요.
+
+#### 인증
+
+WebSocket 연결도 시작은 HTTP 요청이라, **핸드셰이크 시점에** 쿠키나 토큰을 검증하고 `Origin`이 허용된 출처인지 확인해요. → [쿠키·세션·JWT](../cookie-session-jwt/)
+
+## 면접 질문
+
+<details>
+<summary>Q. 폴링, 롱 폴링, SSE, WebSocket의 차이와 선택 기준은요?</summary>
+
+**답변(30초)** 서버가 클라이언트에게 먼저 알려 주는 방법들이고, 방향과 연결 방식이 달라요. 숏 폴링은 주기적으로 묻는 거라 단순하지만 헛요청과 지연이 있고, 롱 폴링은 서버가 응답을 붙잡고 있다가 이벤트가 생기면 답해요. SSE는 한 번 연 HTTP 응답으로 서버→클라이언트 이벤트를 계속 흘려보내고 자동 재연결이 내장돼 있어요. WebSocket은 연결 하나로 양방향 통신을 해요. 알림처럼 한 방향이면 SSE, 채팅처럼 양방향이면 WebSocket을 골라요.
+
+**꼬리질문**
+- Q. 롱 폴링은 지연이 없나요? → 응답 직후 재요청 전 틈에 생긴 이벤트는 늦고, 매 응답마다 HTTP 헤더 비용도 들어요.
+- Q. SSE의 약점은요? → 텍스트 기반 단방향이고, HTTP/1.1에선 도메인당 연결 6개 제한에 걸려 탭이 많으면 모자랄 수 있어요. HTTP/2면 완화돼요.
+</details>
+
+<details>
+<summary>Q. WebSocket 연결은 어떻게 맺어지나요? 101은 무슨 뜻이에요?</summary>
+
+**답변(30초)** HTTP 요청으로 시작해서 프로토콜을 갈아타요. 클라이언트가 `Upgrade: websocket`, `Connection: Upgrade`, `Sec-WebSocket-Key`, 버전 13을 담아 GET을 보내면, 서버가 Key로 Accept 값을 계산해 `101 Switching Protocols`로 답해요. 101은 "이제 이 연결은 HTTP가 아니라 WebSocket으로 쓴다"는 뜻이에요. 그 뒤로는 같은 TCP 연결에서 WebSocket 프레임이 양방향으로 오가요.
+
+**꼬리질문**
+- Q. 왜 처음부터 별도 프로토콜로 안 하고 HTTP로 시작해요? → 기존 웹 서버·방화벽·프록시와 같은 80/443 포트를 그대로 쓰려고요.
+- Q. Sec-WebSocket-Key는 보안 기능인가요? → 아니에요. Key에 고정 GUID를 붙여 SHA-1과 base64를 거친 Accept로 "WebSocket을 이해하는 서버"임을 확인할 뿐이에요. 인증은 쿠키·토큰, 암호화는 wss(TLS)로 따로 해요.
+</details>
+
+<details>
+<summary>Q. 클라이언트가 보내는 프레임은 왜 마스킹해요?</summary>
+
+**답변(30초)** 중간 프록시를 속이는 공격을 막으려고요. 마스킹하지 않으면 공격자가 프레임 내용을 HTTP 요청처럼 꾸며서 WebSocket을 모르는 프록시가 그걸 진짜 요청으로 착각하고 캐시를 오염시킬 수 있어요. 그래서 클라이언트→서버 프레임은 TLS 여부와 상관없이 반드시 마스킹하고, 서버→클라이언트는 마스킹하지 않아요. 마스킹 키가 프레임에 함께 실리니 암호화는 아니에요.
+
+**꼬리질문**
+- Q. 그럼 내용 보호는 뭘로 해요? → wss, 즉 TLS로 암호화해요.
+</details>
+
+<details>
+<summary>Q. WebSocket 서버를 여러 대로 늘리면 어떤 문제가 생겨요?</summary>
+
+**답변(30초)** 연결이 특정 서버 메모리에 묶여 있어서, 다른 서버에 붙은 사용자에게 메시지를 못 보내요. 해결은 모든 서버가 구독하는 브로커를 두는 거예요. 메시지를 받은 서버가 Redis Pub/Sub 같은 채널에 발행하면, 구독 중인 모든 서버가 받아 자기에게 연결된 사용자에게 전달해요. 유실이 안 되어야 하면 Redis Streams나 Kafka처럼 메시지를 저장하는 쪽을 써요.
+
+**꼬리질문**
+- Q. 스티키 세션(같은 사용자를 같은 서버로 보내기)만으로 해결되나요? → 한 사용자의 연결은 고정되지만, 같은 방의 다른 사용자가 다른 서버에 있는 문제는 그대로예요.
+- Q. Redis Pub/Sub의 약점은요? → at-most-once라 구독 서버가 잠깐 끊긴 동안의 메시지는 사라져요.
+</details>
+
+<details>
+<summary>Q. WebSocket 연결의 인증은 어떻게 해요?</summary>
+
+**답변(30초)** 핸드셰이크가 HTTP 요청이니까 그 시점에 검증해요. 쿠키 세션이나 토큰을 확인해서 통과한 경우에만 101로 연결을 열고, `Origin` 헤더로 허용한 사이트에서 연 연결인지도 봐요. 연결이 열린 뒤에는 그 연결을 인증된 사용자에 묶어 두고 메시지마다 권한을 확인해요.
+
+**꼬리질문**
+- Q. Origin 검사만 하면 안 되나요? → 브라우저가 아닌 클라이언트는 Origin을 위조할 수 있어서 인증을 대신할 수 없어요.
+</details>
+
+## 서술형 연습
+
+<details>
+<summary>상황: 채팅 서버를 1대에서 2대로 늘렸더니 "같은 방인데 일부 사람에게 메시지가 안 간다"는 문의가 들어옵니다.</summary>
+
+**상황 파악**
+1대일 때는 모든 연결이 한 서버 메모리에 있어서 방 사람 전부에게 보낼 수 있었어요. 2대가 되자 로드밸런서가 사용자를 두 서버에 나눠 붙였고, 메시지를 받은 서버는 **자기에게 붙은 사람에게만** 보내고 있어요. "일부"에게만 안 가는 게 이 패턴과 딱 맞아요.
+
+**원인 후보**
+1. 방 참여자 목록과 연결이 서버별 메모리에만 있고, 서버끼리 메시지를 나눌 통로가 없어요. (가장 유력)
+2. Spring STOMP의 기본 Simple Broker를 그대로 써서 브로커가 서버마다 따로 놀아요.
+3. 로드밸런서의 Upgrade 설정 문제로 일부 연결이 아예 안 맺어졌을 수도 있어요. 이건 "메시지 일부 누락"보다 "연결 실패"로 보이니 로그로 구분해요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. Redis Pub/Sub: 받은 서버가 방 채널에 발행, 모든 서버가 구독해 자기 연결로 전달 | 구현이 가장 간단하고 지연이 짧음 | at-most-once라 서버가 잠깐 끊긴 동안의 메시지는 사라짐 |
+| B. Redis Streams나 Kafka: 메시지를 저장해 두고 각 서버가 읽어 감 | 유실 없이 재처리 가능, 재접속한 사용자에게 놓친 메시지 보충 가능 | 운영 대상이 늘고, 어디까지 읽었는지 관리가 필요 |
+| C. Spring STOMP broker relay + RabbitMQ 같은 외부 브로커 | Spring 코드 구조(`@MessageMapping`, `/topic`)를 거의 그대로 유지 | 브로커 서버를 따로 운영해야 함 |
+
+**내가 고를 방법**
+채팅은 메시지 하나도 잃으면 안 되니까, 실시간 전달은 A(Redis Pub/Sub)로 빠르게 하고, 메시지 자체는 **DB에 먼저 저장**하겠어요. 클라이언트가 재접속할 때 "마지막으로 받은 메시지 이후"를 DB에서 다시 받아 오면 Pub/Sub의 유실을 메울 수 있어요. 이미 Spring STOMP를 쓰고 있다면 C가 코드 변경이 가장 적어서 그쪽도 좋은 선택이에요. 메시지가 많아지고 다른 시스템도 이 이벤트를 써야 하는 단계가 오면 B로 옮겨요.
+
+**채점 포인트**: 연결은 서버 메모리에 고정, 서버 간 메시지 공유 통로 필요, Pub/Sub 브로드캐스트, Redis Pub/Sub at-most-once, Streams/Kafka 영속성, STOMP 외부 브로커, 재접속 시 놓친 메시지 보충, 스티키 세션만으로는 해결 안 됨.
+</details>
+
+<details>
+<summary>상황: 배포 후 WebSocket 연결이 정확히 60초마다 끊깁니다. 클라이언트 로그에는 종료 코드 1006이 찍혀요.</summary>
+
+**상황 파악**
+"정확히 60초"는 어떤 장치의 타임아웃 값과 맞아떨어진다는 신호예요. 1006은 Close 프레임 없이 끊겼다는 뜻이라, 서버 앱이 정상 종료한 게 아니라 **중간에서 연결이 잘렸다**는 쪽에 가까워요.
+
+**원인 후보**
+1. nginx의 `proxy_read_timeout` 기본값 60초: 백엔드가 60초 동안 아무것도 안 보내면 nginx가 연결을 닫아요.
+2. AWS ALB의 idle timeout 기본값 60초: 그 시간 동안 데이터가 안 오가면 LB가 끊어요.
+3. 하트비트(Ping/Pong)가 아예 없거나 주기가 60초 이상이에요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. 서버가 주기적으로 Ping을 보내기(예: 30초처럼 타임아웃보다 짧게) | 어떤 프록시·LB를 거쳐도 연결이 조용해지지 않음. Pong이 안 오면 죽은 연결도 찾아 정리할 수 있음 | 연결 수만큼 작은 트래픽과 타이머가 늘어남 |
+| B. nginx `proxy_read_timeout`, ALB idle timeout을 늘리기 | 설정 변경만으로 끝 | 경로에 있는 장치를 전부 찾아 맞춰야 하고, 죽은 연결이 오래 남아 자원을 차지함 |
+
+**내가 고를 방법**
+A를 기본으로 하겠어요. 하트비트 주기를 경로상 가장 짧은 idle timeout보다 짧게 잡으면 장치가 바뀌어도 버텨요. 필요하면 B로 타임아웃을 적당히 늘려 여유를 둬요. 그리고 네트워크는 언제든 끊길 수 있으니 클라이언트에 **재연결 로직**을 넣어요. 재시도 간격을 점점 늘리고(지수 백오프) 랜덤 지연을 섞으면, 서버 배포로 연결이 한꺼번에 끊겼을 때 모두가 동시에 몰려오는 걸 줄일 수 있어요. 서버를 내릴 때는 1001(going away)로 Close를 보내 정상 종료와 사고를 구분하게 해요.
+
+**채점 포인트**: 60초 = 타임아웃 값 의심, 1006은 Close 없는 비정상 종료, nginx proxy_read_timeout, ALB idle timeout, Ping/Pong 하트비트 주기 < idle timeout, 죽은 연결 감지, 클라이언트 재연결(백오프·랜덤 지연), 배포 시 1001.
+</details>
+
+<details>
+<summary>상황: 주문 상태(결제 완료 → 배송 시작 → 배송 완료)를 화면에 실시간으로 보여 주려고 합니다. WebSocket과 SSE 중 무엇을 쓰겠습니까?</summary>
+
+**상황 파악**
+데이터는 **서버→클라이언트 한 방향**이에요. 사용자가 서버에 보내는 건 거의 없고, 있더라도 "주문 취소" 같은 일반 API 호출이에요. 갱신은 주문 하나당 몇 번뿐이지만, 사용자가 잠깐 끊겼다가 돌아와도 **상태 변화를 놓치면 안 돼요**.
+
+**원인 후보(고려할 점)**
+1. 양방향이 정말 필요한가?
+2. 끊겼을 때 놓친 이벤트를 어떻게 메우나?
+3. 프록시·로드밸런서를 지나는 데 추가 설정이 얼마나 드나?
+4. HTTP/1.1이면 탭을 여러 개 열 때 연결 수 제한에 걸리나?
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. SSE | 한 방향에 딱 맞음. 브라우저가 자동 재연결하고 `Last-Event-ID`로 마지막 이벤트를 알려 줘서 서버가 놓친 상태부터 다시 보낼 수 있음. 일반 HTTP 응답이라 기존 인증·인프라를 그대로 씀 | HTTP/1.1이면 도메인당 연결 6개 제한. 프록시가 응답을 모아 두면(버퍼링) 실시간성이 깨지니 설정 확인 필요. 15초쯤마다 주석 줄로 연결 유지 |
+| B. WebSocket | 나중에 채팅 상담 같은 양방향 기능이 붙으면 그대로 확장 가능 | 이 기능엔 과함. 재연결·놓친 이벤트 보충을 앱이 직접 만들어야 하고, Upgrade 전달·idle timeout 설정이 추가로 필요 |
+| C. 폴링 | 가장 단순 | 상태가 몇 번 안 바뀌는데 계속 헛요청. 주기만큼 늦음 |
+
+**내가 고를 방법**
+A(SSE)를 고르겠어요. 방향이 한쪽이고, 이 기능의 핵심 요구인 "끊겨도 놓치지 않기"를 자동 재연결과 `Last-Event-ID`가 표준으로 해결해 주기 때문이에요. 서버는 이벤트마다 `id`를 붙이고, 재연결 요청이 오면 그 id 이후 상태를 다시 보내요. 주문이 끝나면 204로 답해 재연결을 멈추게 해요. 연결 수 제한은 HTTP/2를 쓰면 크게 줄어요. 화면에 양방향 기능이 생기는 시점이 오면 그때 WebSocket을 검토해요.
+
+**채점 포인트**: 단방향이면 SSE, 자동 재연결, Last-Event-ID로 누락 보충, 204로 재연결 중지, HTTP/1.1 연결 6개 제한과 HTTP/2 완화, 프록시 버퍼링·주석 줄 keepalive, WebSocket은 재연결 직접 구현·LB 설정 필요, 클라이언트→서버는 일반 HTTP.
+</details>
+
+## 필기 포인트
+
+- WebSocket은 **RFC 6455**. `ws://` 기본 80, `wss://` 기본 443.
+- 핸드셰이크 성공 응답은 **101 Switching Protocols**. `Sec-WebSocket-Version`은 **13**.
+- Accept = base64(SHA-1(Key + 고정 GUID)). Key는 디코딩하지 않은 문자열 그대로 붙여요.
+- 마스킹: **클라이언트→서버 필수, 서버→클라이언트 금지**. 암호화가 아님.
+- opcode: 0x1 텍스트, 0x2 바이너리, 0x8 Close, 0x9 Ping, 0xA Pong, 0x0 이어지는 조각.
+- 종료 코드 1000 정상, 1001 떠남, 1006은 프레임에 직접 넣으면 안 되는 예약값.
+- SSE: `EventSource`, `text/event-stream`, 자동 재연결, `Last-Event-ID`, `retry:`, 204면 재연결 중지.
+- 롱 폴링·SSE의 이슈 정리는 RFC 6202.
+
+## 함께 보기
+
+- [HTTP 기본](../http-basics/)
+- [HTTP 버전](../http-versions/)
+- [쿠키·세션·JWT](../cookie-session-jwt/)
+- [로드밸런서와 프록시](../load-balancer-proxy/)
+
+## 출처
+
+- [RFC 6455, The WebSocket Protocol](https://www.rfc-editor.org/rfc/rfc6455)
+- [RFC 6202, Known Issues and Best Practices for the Use of Long Polling and Streaming in Bidirectional HTTP](https://www.rfc-editor.org/rfc/rfc6202)
+- [HTML Living Standard, Server-sent events](https://html.spec.whatwg.org/multipage/server-sent-events.html)
+- [MDN, EventSource](https://developer.mozilla.org/en-US/docs/Web/API/EventSource)
+- [nginx, WebSocket proxying](https://nginx.org/en/docs/http/websocket.html)
+- [AWS, Application Load Balancers](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/application-load-balancers.html)
+- [Redis, Pub/Sub](https://redis.io/docs/latest/develop/pubsub/)
+- [Spring Framework Reference, STOMP External Broker](https://docs.spring.io/spring-framework/reference/web/websocket/stomp/handle-broker-relay.html)

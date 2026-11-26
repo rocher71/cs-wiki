@@ -1,0 +1,56 @@
+---
+// HTTP 요청/응답 메시지 구조: 위는 요청, 아래는 응답. 단계마다 한 부분씩 쌓이고 강조 테두리가 옮겨 간다.
+import Stepper from '../Stepper.astro';
+const L = 18;
+const reqHead = [['Host', 'shop.example'], ['Accept', 'application/json'], ['Authorization', 'Bearer abc123']];
+const resHead = [['Content-Type', 'application/json'], ['Content-Length', '27'], ['Cache-Control', 'max-age=60'], ['ETag', '"v1"']];
+// 시작줄 토큰: [x 중심, 글자, 이름]
+const reqStart = [[38, 'GET', '메서드'], [130, '/products/1', '경로'], [250, 'HTTP/1.1', '버전']];
+const resStart = [[50, 'HTTP/1.1', '버전'], [140, '200', '상태 코드'], [230, 'OK', '사유 문구']];
+const hls = [[38, 46], [84, 68], [154, 62], [264, 46], [302, 92], [396, 38]];
+const order = ['rq-start', 'rq-head', 'rq-body', 'rs-start', 'rs-head', 'rs-body'];
+const captions = [
+  '요청 시작줄은 "무엇을(메서드) · 어디에(경로) · 어떤 버전으로" 세 칸이에요.',
+  '그 아래 헤더는 "이름: 값" 한 줄씩이에요. 어느 사이트인지(Host), 어떤 형식을 원하는지(Accept), 누구인지(Authorization).',
+  '빈 줄 하나가 "헤더 끝"을 알려요. 그 뒤가 본문인데, GET은 비워 두고 POST라면 JSON이 들어가요.',
+  '응답 시작줄은 "버전 · 상태 코드 · 사유 문구"예요. 프로그램은 숫자 200만 보고, OK는 사람이 읽으라고 붙인 말이에요.',
+  '응답 헤더는 본문 형식(Content-Type), 길이(Content-Length), 캐시 규칙(Cache-Control), 버전 꼬리표(ETag)를 알려요.',
+  '빈 줄 뒤에 실제 데이터(본문)가 와요. Content-Type이 JSON이라고 했으니 JSON으로 읽어요.',
+];
+const steps = captions.map((caption, i) => ({ caption, show: [...order.slice(0, i + 1), `hl${i}`] }));
+---
+<Stepper title="HTTP 메시지 해부" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 446" role="img" aria-label="요청 메시지(시작줄, 헤더, 빈 줄, 본문)와 응답 메시지(시작줄, 헤더, 빈 줄, 본문)의 구조">
+    <rect class="frame" x="4" y="4" width="312" height="214" rx="8" />
+    <text class="l" x={L} y="22" style="font-weight:700">요청 (브라우저 → 서버)</text>
+    <rect class="frame" x="4" y="232" width="312" height="208" rx="8" />
+    <text class="l" x={L} y="250" style="font-weight:700">응답 (서버 → 브라우저)</text>
+
+    <g data-id="rq-start">
+      {reqStart.map(([x, t, n]) => (<g><text class="mono hi" x={x} y="52">{t}</text><text class="sub" x={x} y="72">{n}</text></g>))}
+    </g>
+    <g data-id="rq-head">
+      {reqHead.map(([k, v], i) => (<text class="mono l" x={L} y={98 + i * 22}><tspan class="hi">{k}:</tspan> {v}</text>))}
+    </g>
+    <g data-id="rq-body">
+      <line class="line" x1={L} y1="166" x2="80" y2="166" style="stroke-dasharray:3 3" />
+      <text class="sub l" x="88" y="166">빈 줄 = 헤더 끝</text>
+      <text class="l" x={L} y="188">본문: GET은 비어 있음</text>
+      <text class="sub l" x={L} y="206">(POST라면 JSON이 들어가요)</text>
+    </g>
+
+    <g data-id="rs-start">
+      {resStart.map(([x, t, n]) => (<g><text class="mono hi" x={x} y="280">{t}</text><text class="sub" x={x} y="300">{n}</text></g>))}
+    </g>
+    <g data-id="rs-head">
+      {resHead.map(([k, v], i) => (<text class="mono l" x={L} y={318 + i * 22}><tspan class="hi">{k}:</tspan> {v}</text>))}
+    </g>
+    <g data-id="rs-body">
+      <line class="line" x1={L} y1="404" x2="80" y2="404" style="stroke-dasharray:3 3" />
+      <text class="sub l" x="88" y="404">빈 줄</text>
+      <text class="mono l" x={L} y="424">{'{"id":1,"name":"키보드"}'}</text>
+    </g>
+
+    {hls.map(([y, h], i) => (<rect data-id={`hl${i}`} class="hl" x="10" y={y} width="300" height={h} rx="6" />))}
+  </svg>
+</Stepper>

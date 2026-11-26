@@ -1,0 +1,73 @@
+---
+// Richardson 성숙도 모델: L0 → L3 계단. 위는 계단, 아래 예시 칸은 단계마다 해당 레벨 요청/응답으로 바뀐다.
+import Stepper from '../Stepper.astro';
+const rows = [
+  { lv: 'L0', name: '주소 하나로 전부 처리' },
+  { lv: 'L1', name: '리소스마다 URI' },
+  { lv: 'L2', name: '메서드 + 상태 코드' },
+  { lv: 'L3', name: '링크로 다음 행동' },
+];
+// 예시 줄: [텍스트, 강조 여부]
+const ex: [string, boolean][][] = [
+  [['POST /api', true], ['{"action":"getOrder","id":1}', true], ['← 200 OK  (실패해도 200)', false], ['   {"error":"없는 주문"}', false]],
+  [['POST /orders/1', true], ['{"action":"get"}', false], ['← 200 OK', false], ['  (메서드는 아직 다 POST)', false]],
+  [['GET  /orders/1 → 200 OK', true], ['POST /orders   → 201 Created', true], ['     + Location: /orders/2', false], ['중복 주문      → 409 Conflict', true]],
+  [['GET /orders/1 → 200 OK', false], ['"_links": {', true], ['  "cancel": "/orders/1/cancel",', true], ['  "pay": "/orders/1/payment" }', true]],
+];
+const RH = 46, BH = 34, BW = 50, STEP = 12, GAP = 30;
+const ry = (k: number) => 30 + (3 - k) * RH + (k <= 2 ? GAP : 0);
+const bx = (k: number) => 24 + k * STEP;
+const PY = ry(0) + BH + 18; // 예시 칸 위치
+const LH = 24;
+const H = PY + 28 + LH * 4 + 10;
+const ids = (k: number) => rows.slice(0, k + 1).map((_, j) => `r${j}`);
+const steps = [
+  { caption: 'L0: 주소가 /api 하나뿐이에요. 무엇을 할지는 본문의 action에 적고, 결과는 실패여도 늘 200이에요. HTTP를 그냥 전송 통로로만 써요.', show: [...ids(0), 'h0', 'e0'] },
+  { caption: 'L1: 주문 1번은 /orders/1처럼 리소스마다 주소가 생겨요. 하지만 메서드는 여전히 전부 POST예요.', show: [...ids(1), 'h1', 'e1'] },
+  { caption: 'L2: 메서드와 상태 코드를 뜻대로 써요. 조회는 GET → 200, 생성은 POST → 201 + Location, 충돌은 409. 실무 API 대부분이 이 단계예요.', show: [...ids(2), 'h2', 'e2', 'prac'] },
+  { caption: 'L3: 응답에 _links를 넣어 "다음에 할 수 있는 행동"(취소, 결제)을 알려 줘요(HATEOAS). 클라이언트는 주소를 외우지 않고 링크를 따라가요. Fielding이 말한 진짜 REST는 여기까지예요.', show: [...ids(3), 'h3', 'e3', 'prac'] },
+];
+---
+<Stepper title="Richardson 성숙도 모델: REST다움의 4계단" steps={steps}>
+  <svg class="viz" viewBox={`0 0 320 ${H}`} role="img" aria-label="Richardson 성숙도 모델 L0부터 L3까지의 계단과 단계별 요청·응답 예시">
+    <defs>
+      <marker id="rm-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0 L10 5 L0 10 z" style="fill: var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+    <path d={`M10 ${ry(0) + BH} L10 34`} class="line" marker-end="url(#rm-arr)" />
+    <text class="sub l" x="2" y="16">REST다움</text>
+    <g data-id="prac" class="hide">
+      <path d={`M24 ${ry(2) - 12} H316`} class="frame" />
+      <text class="sub l" x="24" y={ry(2) - 26}>↓ 실무 API 대부분은 L2까지</text>
+    </g>
+    {rows.map((r, k) => {
+      const y = ry(k), x = bx(k);
+      return (
+        <g>
+          <rect data-id={`h${k}`} class="hl hide" x={x - 4} y={y - 4} width={316 - x + 4} height={BH + 8} rx="10" />
+          <g data-id={`r${k}`}>
+            <rect class={k === 0 ? 'bad' : 'chip'} x={x} y={y} width={BW} height={BH} rx="6" />
+            <text class="mono" x={x + BW / 2} y={y + BH / 2} style="font-weight:700;font-size:15px">{r.lv}</text>
+            <text class="l" x={x + BW + 10} y={y + BH / 2} style="font-size:15px">{r.name}</text>
+          </g>
+        </g>
+      );
+    })}
+    <rect class="box" x="4" y={PY} width="312" height={H - PY - 4} rx="8" />
+    {ex.map((lines, k) => (
+      <g data-id={`e${k}`} class="hide">
+        <text class="sub l" x="14" y={PY + 16}>{rows[k].lv} 예시: 주문 1번 다루기</text>
+        {lines.map(([t, hi], j) => {
+          // ponytail: 한글은 모노 폭이 달라 공백 정렬이 어긋나므로 '→' 앞뒤를 고정 x로 나눠 찍는다
+          const [a, b] = t.includes('→') ? [t.split('→')[0].trimEnd(), '→' + t.split('→')[1]] : [t, ''];
+          const cls = `mono l${hi ? ' hi' : ''}`, y = PY + 40 + j * LH;
+          return (<>
+            <text class={cls} x="14" y={y} style="white-space:pre">{a}</text>
+            {b && <text class={cls} x="140" y={y} style="white-space:pre">{b}</text>}
+          </>);
+        })}
+      </g>
+    ))}
+  </svg>
+</Stepper>

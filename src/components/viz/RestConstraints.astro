@@ -1,0 +1,53 @@
+---
+// REST 6개 제약(정적). 폰 폭에 맞춰 세로로 쌓고, 균일 인터페이스만 하위 4개를 2x2로 펼친다. 선택 제약은 점선 + "(선택)" 라벨.
+const items = [
+  { name: 'Client-server', desc: '화면과 데이터 저장을 나눠요' },
+  { name: 'Stateless', desc: '요청마다 필요한 정보를 다 담아요' },
+  { name: 'Cache', desc: '응답에 캐시해도 되는지 표시해요' },
+  { name: 'Uniform interface', desc: '모두 같은 방식으로 대화해요', subs: ['리소스 식별', '표현으로 조작', '자기 서술 메시지', 'HATEOAS'] },
+  { name: 'Layered system', desc: '중간에 LB·캐시를 끼워도 몰라요' },
+  { name: 'Code-on-demand', desc: '서버가 스크립트를 내려 줘요', opt: true },
+];
+const RH = 52, SUB = 32, GAP = 8, Y0 = 34;
+let y = Y0;
+const lay = items.map((it) => {
+  const h = RH + (it.subs ? SUB * 2 + 6 : 0);
+  const r = { ...it, y, h };
+  y += h + GAP;
+  return r;
+});
+const VH = y + 2;
+---
+<figure class="viz-static">
+  <svg class="viz" viewBox={`0 0 320 ${VH}`} role="img" aria-label="REST의 6개 제약: 필수 5개(Client-server, Stateless, Cache, Uniform interface, Layered system)와 선택 1개(Code-on-demand)">
+    <rect class="box" x="8" y="6" width="28" height="18" rx="4" />
+    <text class="sub l" x="42" y="15">필수</text>
+    <rect class="frame" x="96" y="6" width="28" height="18" rx="4" />
+    <text class="sub l" x="130" y="15">선택(점선)</text>
+    {lay.map((r, i) => (
+      <g>
+        <rect class={r.opt ? 'frame' : 'box'} x="4" y={r.y} width="312" height={r.h} rx="8" />
+        <circle class={r.opt ? 'bad' : 'badge'} cx="26" cy={r.y + 26} r="13" />
+        <text class={r.opt ? '' : 'on-badge'} x="26" y={r.y + 27} style="font-weight:700;font-size:14px">{i + 1}</text>
+        <text class="l" x="48" y={r.y + 16} style="font-weight:700">{r.name}{r.opt && <tspan class="sub" style="font-weight:400"> (선택)</tspan>}</text>
+        <text class="sub l" x="48" y={r.y + 37}>{r.desc}</text>
+        {r.subs?.map((s, j) => {
+          const sx = 48 + (j % 2) * 134, sy = r.y + RH + Math.floor(j / 2) * SUB;
+          return (
+            <g>
+              <rect class="chip" x={sx} y={sy} width="128" height="26" rx="6" />
+              <text x={sx + 64} y={sy + 13} style="font-size:14px">{s}</text>
+            </g>
+          );
+        })}
+      </g>
+    ))}
+  </svg>
+  <figcaption>1~5번은 REST라고 부르려면 꼭 지켜야 하는 제약이고, 6번 Code-on-demand만 선택이에요. 4번 균일 인터페이스가 REST를 다른 스타일과 가르는 핵심이고, 그 안의 HATEOAS를 실무에서 가장 자주 빼먹어요.</figcaption>
+</figure>
+
+<style>
+  .viz-static { margin: 1.25rem 0; padding: .75rem; border-radius: .75rem; border: 1px solid var(--sl-color-gray-5); }
+  .viz-static svg { width: 100%; height: auto; display: block; }
+  .viz-static figcaption { margin-top: .6rem; font-size: .9rem; line-height: 1.6; color: var(--sl-color-gray-2); }
+</style>

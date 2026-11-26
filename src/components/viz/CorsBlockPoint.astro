@@ -1,0 +1,64 @@
+---
+// CORS가 막는 지점: 요청은 서버에서 처리까지 끝나고, 브라우저가 응답을 JS에 넘기는 순간에만 막는다. 아래는 curl 비교.
+import Stepper from '../Stepper.astro';
+const B = 78, S = 242, M = 160;
+const captions = [
+  'evil.example의 JS가 api.example.com으로 단순 POST(폼 형식)를 보내요. 단순 요청이라 미리 묻지 않고 바로 나가요.',
+  '요청은 서버에 도착해 처리까지 끝나요. DB 변경도 이미 일어났어요. CORS는 이걸 막지 못해요.',
+  '응답(200 OK)도 브라우저까지 돌아와요. 다만 Access-Control-Allow-Origin 헤더가 없어요.',
+  '여기가 차단 지점이에요. 브라우저가 허가 헤더가 없는 걸 보고 응답을 JS에 넘기지 않아요. 콘솔엔 CORS 에러, JS는 TypeError만 받아요.',
+  '비교: curl·Postman은 브라우저가 아니라 이 검사가 없어요. 같은 요청에 응답 본문이 그대로 보여요.',
+];
+const base = ['req', 'done', 'res', 'block'];
+const steps = captions.map((caption, i) => ({ caption, show: i < 4 ? base.slice(0, i + 1) : [...base, 'curl'] }));
+const halo = 'paint-order:stroke;stroke:var(--sl-color-gray-7, var(--sl-color-black));stroke-width:5px;stroke-linejoin:round';
+---
+<Stepper title="CORS는 어디서 막나" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 412" role="img" aria-label="다른 출처 요청이 서버에서 처리된 뒤 응답이 브라우저에 돌아오고, 브라우저가 JS에 넘기기 직전에 막는 과정과 curl 비교">
+    <defs>
+      <marker id="cbp-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-2)" />
+      </marker>
+    </defs>
+    {[[B, '브라우저', 'evil.example'], [S, '서버', 'api.example.com']].map(([x, t, d]) => (
+      <g>
+        <rect class="box" x={+x - 72} y="4" width="144" height="44" rx="8" />
+        <text x={x} y="18" style="font-weight:700">{t}</text>
+        <text class="sub" x={x} y="37" style="font-size:14px">{d}</text>
+        <line class="line" x1={x} y1="56" x2={x} y2="276" style="stroke-dasharray:4 4" />
+      </g>
+    ))}
+    <g data-id="req">
+      <line x1={B} y1="88" x2={S - 2} y2="88" style="stroke:var(--sl-color-gray-2);stroke-width:2.2" marker-end="url(#cbp-a)" />
+      <text x={M} y="74" style={`font-weight:700;${halo}`}>① POST /transfer</text>
+      <text class="mono" x={M} y="104" style={halo}>Origin: https://evil.example</text>
+    </g>
+    <g data-id="done">
+      <rect class="chip" x="150" y="122" width="160" height="50" rx="8" />
+      <text x="230" y="138" style="font-size:14px;font-weight:700">② 처리 완료</text>
+      <text x="230" y="158" style="font-size:14px">DB 변경 이미 일어남</text>
+    </g>
+    <g data-id="res">
+      <line x1={S} y1="200" x2={B + 2} y2="200" style="stroke:var(--sl-color-gray-2);stroke-width:2.2" marker-end="url(#cbp-a)" />
+      <text x={M} y="186" style={`font-weight:700;${halo}`}>③ 200 OK + 본문</text>
+      <text class="sub" x={M} y="216" style={halo}>Allow-Origin 헤더 없음</text>
+    </g>
+    <g data-id="block">
+      <rect class="err" x="10" y="232" width="200" height="56" rx="8" />
+      <text class="err-t" x="110" y="249">④ 여기서 차단 ✕</text>
+      <text x="110" y="271" style="font-size:14px">JS는 TypeError만 받음</text>
+    </g>
+    <g data-id="curl" class="hide">
+      <line class="line" x1="10" y1="302" x2="310" y2="302" style="stroke-dasharray:2 4" />
+      <text class="sub" x={M} y="302" style={halo}>비교</text>
+      <rect class="box" x="10" y="318" width="90" height="36" rx="8" />
+      <text x="55" y="336" style="font-size:14px;font-weight:700">curl</text>
+      <rect class="box" x="220" y="318" width="90" height="36" rx="8" />
+      <text x="265" y="336" style="font-size:14px;font-weight:700">서버</text>
+      <line x1="102" y1="330" x2="216" y2="330" style="stroke:var(--sl-color-gray-2);stroke-width:2" marker-end="url(#cbp-a)" />
+      <line x1="218" y1="344" x2="104" y2="344" style="stroke:var(--sl-color-gray-2);stroke-width:2" marker-end="url(#cbp-a)" />
+      <rect class="chip" x="10" y="366" width="300" height="38" rx="8" />
+      <text x={M} y="385" style="font-size:14px">검사 없음 → 응답 본문 그대로 보임</text>
+    </g>
+  </svg>
+</Stepper>

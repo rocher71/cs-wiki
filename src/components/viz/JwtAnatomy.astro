@@ -1,0 +1,88 @@
+---
+// JWT 세 덩어리 구조와 서명 검증. 위: 토큰(헤더.페이로드.서명, 앞 8글자만), 아래: 단계별로 풀어 본 내용.
+// 값은 본문 jwt_demo 코드(KEY=demo-secret)로 실제 계산한 것.
+import Stepper from '../Stepper.astro';
+const parts = [
+  { x: 6, label: '헤더', tok: 'eyJhbG…' },
+  { x: 112, label: '페이로드', tok: 'eyJzdWIi…' },
+  { x: 218, label: '서명', tok: 'VthTkp…' },
+];
+const captions = [
+  'JWT는 점(.) 두 개로 나뉜 세 덩어리예요: 헤더.페이로드.서명. 각 덩어리는 Base64url로 적은 글자예요(그림은 앞 6글자만 표시).',
+  '헤더를 Base64url로 풀면 "서명 알고리즘은 HS256, 형식은 JWT"라는 JSON이 나와요.',
+  '페이로드를 풀면 sub(사용자), role(권한), exp(만료 시각)가 그대로 보여요. 키 없이 누구나 읽을 수 있으니 비밀 정보는 넣으면 안 돼요.',
+  '서명은 서버의 비밀키로 "헤더.페이로드"를 HMAC-SHA256한 값이에요. 비밀키가 없으면 맞는 서명을 만들 수 없어요.',
+  '공격자가 페이로드의 role을 user에서 admin으로 바꾸고, 원래 서명(VthT…)을 그대로 붙여 보내요. 비밀키가 없으니 새 서명은 못 만들어요.',
+  '서버는 받은 헤더.페이로드로 서명을 다시 계산해요. 결과(JEjB…)가 붙어 온 서명(VthT…)과 다르니 위조로 보고 거부해요.',
+];
+const shows = [
+  ['tok', 'dots', 'p-ok'],
+  ['tok', 'p-ok', 'dh'],
+  ['tok', 'p-ok', 'dh', 'dp', 'role-u', 'readable'],
+  ['tok', 'p-ok', 'dh', 'dp', 'role-u', 'sig'],
+  ['tok', 'p-bad', 'dh', 'dp', 'role-a', 'sig'],
+  ['tok', 'p-bad', 'dh', 'dp', 'role-a', 'sig', 'verify'],
+];
+const steps = captions.map((caption, i) => ({ caption, show: shows[i] }));
+const halo = 'paint-order:stroke;stroke:var(--sl-color-gray-7, var(--sl-color-black));stroke-width:5px;stroke-linejoin:round';
+---
+<Stepper title="JWT 뜯어보기와 위조 검증" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 446" role="img" aria-label="JWT는 헤더, 페이로드, 서명 세 부분이며 페이로드는 누구나 읽을 수 있지만 내용을 바꾸면 서명이 맞지 않아 거부된다">
+    <g data-id="tok">
+      {parts.map((p, k) => (
+        <g>
+          {k !== 1 && <rect class="box" x={p.x} y="8" width="96" height="34" rx="6" />}
+          {k !== 1 && <text class="mono" x={p.x + 48} y="25">{p.tok}</text>}
+          <text class="sub" x={p.x + 48} y="56">{p.label}</text>
+        </g>
+      ))}
+    </g>
+    <g data-id="p-ok">
+      <rect class="box" x="112" y="8" width="96" height="34" rx="6" />
+      <text class="mono" x="160" y="25">eyJzdW…</text>
+    </g>
+    <g data-id="p-bad" class="hide">
+      <rect class="err" x="112" y="8" width="96" height="34" rx="6" />
+      <text class="mono err-t" x="160" y="25">변조됨</text>
+    </g>
+    <g data-id="dots">
+      <text class="hi" x="109" y="25" style="font-size:22px">.</text>
+      <text class="hi" x="215" y="25" style="font-size:22px">.</text>
+      <rect class="hl" x="2" y="4" width="316" height="42" rx="8" />
+    </g>
+
+    <g data-id="dh">
+      <rect class="box" x="6" y="78" width="308" height="34" rx="6" />
+      <text class="mono" x="160" y="95">{'{"alg":"HS256","typ":"JWT"}'}</text>
+    </g>
+
+    <g data-id="dp">
+      <rect class="box" x="6" y="124" width="308" height="84" rx="6" />
+      <text class="mono l" x="20" y="142">{'"sub": "user42",'}</text>
+      <text class="mono l" x="20" y="190">{'"exp": 1900000000'}</text>
+    </g>
+    <g data-id="role-u" class="hide">
+      <text class="mono l" x="20" y="166">"role": <tspan class="hi">"user"</tspan>,</text>
+    </g>
+    <g data-id="role-a" class="hide">
+      <text class="mono l" x="20" y="166">"role": <tspan class="err-t">"admin"</tspan>, ← 수정됨</text>
+    </g>
+    <g data-id="readable" class="hide">
+      <rect class="chip" x="40" y="220" width="240" height="32" rx="16" />
+      <text x="160" y="236" style="font-size:14px">키 없이 누구나 읽힘(암호화 아님)</text>
+    </g>
+
+    <g data-id="sig">
+      <rect class="box" x="6" y="264" width="308" height="66" rx="6" />
+      <text x="160" y="284" style="font-size:14px">서명 = HMAC-SHA256(<tspan class="hi">비밀키</tspan>,</text>
+      <text x="160" y="310" style="font-size:14px">"헤더.페이로드") → <tspan class="mono">VthTkplw…</tspan></text>
+    </g>
+
+    <g data-id="verify" class="hide">
+      <rect class="err" x="6" y="344" width="308" height="94" rx="6" />
+      <text x="160" y="362" style="font-size:14px">붙어 온 서명: <tspan class="mono">VthTkplw…</tspan></text>
+      <text x="160" y="388" style="font-size:14px">다시 계산한 서명: <tspan class="mono err-t">JEjB8pyY…</tspan></text>
+      <text class="err-t" x="160" y="418" style={halo}>불일치 → 위조로 판단, 거부</text>
+    </g>
+  </svg>
+</Stepper>

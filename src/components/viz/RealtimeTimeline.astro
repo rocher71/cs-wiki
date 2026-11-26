@@ -1,0 +1,118 @@
+---
+// 실시간 통신 4가지: 클라이언트·서버 두 세로줄(시간은 위→아래). 단계마다 방식 하나의 흐름 전체를 보여 준다.
+import Stepper from '../Stepper.astro';
+const C = 55, S = 265, M = 160;
+// k: 'm' 메시지(d=1 클라→서버, -1 서버→클라), 'e' 서버 쪽 이벤트, 'n' 가운데 메모, 'x' 끊김, 'h' 서버가 붙잡고 대기
+type It = { k: string; y: number; t?: string; d?: number; hi?: boolean; mono?: boolean; y2?: number };
+const modes: { name: string; items: It[] }[] = [
+  { name: '1. 숏 폴링', items: [
+    { k: 'm', y: 96, d: 1, t: '새 소식 있어?' },
+    { k: 'm', y: 128, d: -1, t: '없음' },
+    { k: 'n', y: 160, t: '… 5초 뒤 …' },
+    { k: 'm', y: 190, d: 1, t: '새 소식 있어?' },
+    { k: 'm', y: 222, d: -1, t: '없음' },
+    { k: 'e', y: 258, t: '이벤트 발생' },
+    { k: 'n', y: 280, t: '… 5초 뒤 …' },
+    { k: 'm', y: 310, d: 1, t: '새 소식 있어?' },
+    { k: 'm', y: 342, d: -1, t: '새 소식!', hi: true },
+    { k: 'n', y: 386, t: '지연 = 최대 폴링 주기(5초)', hi: true },
+  ] },
+  { name: '2. 롱 폴링', items: [
+    { k: 'm', y: 96, d: 1, t: '오면 알려 줘' },
+    { k: 'h', y: 120, y2: 190, t: '응답 안 하고 붙잡고 대기' },
+    { k: 'e', y: 190, t: '이벤트 발생' },
+    { k: 'm', y: 214, d: -1, t: '새 소식! (즉시)', hi: true },
+    { k: 'e', y: 244, t: '틈에 또 발생' },
+    { k: 'm', y: 268, d: 1, t: '즉시 재요청' },
+    { k: 'm', y: 300, d: -1, t: '쌓인 소식 (조금 늦음)' },
+    { k: 'm', y: 338, d: 1, t: '다시 대기 요청' },
+    { k: 'n', y: 386, t: '빈 응답은 없지만 재요청 틈은 늦어요', hi: true },
+  ] },
+  { name: '3. SSE', items: [
+    { k: 'm', y: 96, d: 1, t: 'GET (event-stream)' },
+    { k: 'm', y: 128, d: -1, t: '200 · 응답이 안 끝남', hi: true },
+    { k: 'm', y: 168, d: -1, t: 'id:1 data: 소식1', mono: true },
+    { k: 'm', y: 204, d: -1, t: 'id:2 data: 소식2', mono: true },
+    { k: 'x', y: 246, t: '✕ 연결 끊김' },
+    { k: 'm', y: 280, d: 1, t: 'Last-Event-ID: 2', mono: true, hi: true },
+    { k: 'm', y: 318, d: -1, t: 'id:3 data: 소식3', mono: true },
+    { k: 'n', y: 386, t: '브라우저가 알아서 재연결해요', hi: true },
+  ] },
+  { name: '4. WebSocket', items: [
+    { k: 'm', y: 96, d: 1, t: 'Upgrade: websocket', mono: true },
+    { k: 'm', y: 128, d: -1, t: '101 Switching Protocols', hi: true },
+    { k: 'n', y: 162, t: '이제부터 WebSocket 프레임' },
+    { k: 'm', y: 194, d: 1, t: '메시지' },
+    { k: 'm', y: 222, d: -1, t: '메시지' },
+    { k: 'm', y: 250, d: -1, t: '메시지' },
+    { k: 'm', y: 278, d: 1, t: '메시지' },
+    { k: 'm', y: 314, d: 1, t: 'Ping', mono: true },
+    { k: 'm', y: 342, d: -1, t: 'Pong', mono: true },
+    { k: 'n', y: 386, t: '양쪽 누구든 아무 때나 보내요', hi: true },
+  ] },
+];
+const steps = [
+  { caption: '숏 폴링: 클라이언트가 5초마다 "새 소식 있어?"를 물어요. 대부분 "없음"이 와서 헛걸음이고, 이벤트가 생겨도 다음 물음 때까지 기다려야 해요.', show: ['m0'] },
+  { caption: '롱 폴링: 서버가 응답을 붙잡고 있다가 이벤트가 생기면 바로 답해요. 클라이언트는 곧장 다시 요청하는데, 그 틈에 생긴 이벤트는 조금 늦게 가요.', show: ['m1'] },
+  { caption: 'SSE: 요청은 한 번, 응답이 끝나지 않고 이벤트마다 data: 줄이 흘러와요. 끊기면 브라우저가 마지막 id를 Last-Event-ID에 실어 자동 재연결해요.', show: ['m2'] },
+  { caption: 'WebSocket: Upgrade 요청에 서버가 101로 답하면, 그 연결 위로 양쪽이 아무 때나 프레임을 보내요. 연결이 살아 있는지는 Ping/Pong으로 확인해요.', show: ['m3'] },
+];
+const halo = 'paint-order:stroke;stroke:var(--sl-color-gray-7, var(--sl-color-black));stroke-width:5px;stroke-linejoin:round';
+---
+<Stepper title="서버가 먼저 알려 주는 4가지 방법" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 404" role="img" aria-label="숏 폴링, 롱 폴링, SSE, WebSocket이 시간 순서로 클라이언트와 서버 사이에 주고받는 메시지 비교">
+    <defs>
+      <marker id="rt-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-2)" />
+      </marker>
+      <marker id="rt-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+    </defs>
+    {[[C, '클라이언트'], [S, '서버']].map(([x, t]) => (
+      <g>
+        <rect class="box" x={+x - 50} y="6" width="100" height="32" rx="8" />
+        <text x={x} y="22" style="font-weight:700">{t}</text>
+        <line class="line" x1={x} y1="84" x2={x} y2="360" style="stroke-dasharray:4 4" />
+      </g>
+    ))}
+    {modes.map((m, i) => (
+      <g data-id={`m${i}`} class="hide">
+        <rect class="chip" x="85" y="48" width="150" height="28" rx="14" />
+        <text x={M} y="62" style="font-weight:700">{m.name}</text>
+        {m.items.map((it) => {
+          if (it.k === 'm') {
+            const [x1, x2] = it.d === 1 ? [C, S - 2] : [S, C + 2];
+            return (
+              <g>
+                <line x1={x1} y1={it.y} x2={x2} y2={it.y + 16}
+                  style={`stroke:var(${it.hi ? '--sl-color-accent' : '--sl-color-gray-2'});stroke-width:2.2`}
+                  marker-end={`url(#rt-${it.hi ? 'a' : 'g'})`} />
+                <text class={`${it.mono ? 'mono ' : ''}${it.hi ? 'hi' : ''}`} x={M} y={it.y - 4} style={halo}>{it.t}</text>
+              </g>
+            );
+          }
+          if (it.k === 'e') return (
+            <g>
+              <circle class="badge" cx={S} cy={it.y} r="6" />
+              <text x={S - 12} y={it.y} style={`text-anchor:end;font-size:14px;font-weight:700;${halo}`}>{it.t}</text>
+            </g>
+          );
+          if (it.k === 'h') return (
+            <g>
+              <line x1={S} y1={it.y} x2={S} y2={it.y2} style="stroke:var(--sl-color-accent);stroke-width:6;stroke-linecap:round" />
+              <text class="sub" x={S - 14} y={(it.y + it.y2!) / 2} style={`text-anchor:end;${halo}`}>{it.t}</text>
+            </g>
+          );
+          if (it.k === 'x') return (
+            <g>
+              <line x1="10" y1={it.y} x2="310" y2={it.y} style="stroke:var(--sl-color-red);stroke-width:1.6;stroke-dasharray:6 4" />
+              <text class="err-t" x={M} y={it.y} style={halo}>{it.t}</text>
+            </g>
+          );
+          return <text class={it.hi ? 'hi' : 'sub'} x={M} y={it.y} style={halo}>{it.t}</text>;
+        })}
+      </g>
+    ))}
+  </svg>
+</Stepper>

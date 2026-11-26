@@ -1,0 +1,106 @@
+---
+// 세션 vs JWT 요청 흐름: 브라우저·서버·Redis 세 세로줄(시간은 위→아래). 단계마다 그 단계의 메시지만 보인다.
+import Stepper from '../Stepper.astro';
+const X = { c: 50, s: 160, r: 270 };
+type Row = { f: 'c' | 's' | 'r'; t: 'c' | 's' | 'r'; label: string; cls?: 'hi' | 'err'; y?: number };
+type Note = { x: number; w: number; lines: string[]; cls?: 'chip' | 'err' | 'bad'; y?: number };
+const scenes: { mode: string; rows: Row[]; notes?: Note[] }[] = [
+  { mode: '세션 방식 ① 로그인', rows: [
+    { f: 'c', t: 's', label: 'POST /login' },
+    { f: 's', t: 'r', label: 'SET a1b2 = user42', cls: 'hi' },
+    { f: 's', t: 'c', label: 'Set-Cookie: SID=a1b2', cls: 'hi' },
+  ] },
+  { mode: '세션 방식 ② 이후 요청', rows: [
+    { f: 'c', t: 's', label: 'Cookie: SID=a1b2', cls: 'hi' },
+    { f: 's', t: 'r', label: 'GET a1b2' },
+    { f: 'r', t: 's', label: 'user42' },
+    { f: 's', t: 'c', label: '200 OK' },
+  ] },
+  { mode: '세션 방식 ③ 로그아웃', rows: [
+    { f: 'c', t: 's', label: 'POST /logout' },
+    { f: 's', t: 'r', label: 'DEL a1b2', cls: 'err' },
+  ], notes: [{ x: 10, w: 300, lines: ['a1b2로 다시 와도 Redis에 없음', '→ 즉시 거부(즉시 로그아웃)'], cls: 'err' }] },
+  { mode: 'JWT 방식 ① 로그인', rows: [
+    { f: 'c', t: 's', label: 'POST /login' },
+    { f: 's', t: 'c', label: 'Access + Refresh 발급', cls: 'hi', y: 212 },
+  ], notes: [
+    { x: 92, w: 136, lines: ['비밀키로 서명'], cls: 'chip', y: 134 },
+    { x: 226, w: 88, lines: ['저장 안 함'], cls: 'bad', y: 134 },
+  ] },
+  { mode: 'JWT 방식 ② 이후 요청', rows: [
+    { f: 'c', t: 's', label: 'Bearer eyJhbGci…', cls: 'hi' },
+    { f: 's', t: 'c', label: '200 OK', y: 212 },
+  ], notes: [
+    { x: 92, w: 136, lines: ['서명·exp만 검증'], cls: 'chip', y: 134 },
+    { x: 226, w: 88, lines: ['조회 없음'], cls: 'bad', y: 134 },
+  ] },
+  { mode: 'JWT 방식 ③ Access 만료', rows: [
+    { f: 'c', t: 's', label: 'Bearer (만료된 Access)' },
+    { f: 's', t: 'c', label: '401 Unauthorized', cls: 'err' },
+    { f: 'c', t: 's', label: 'POST /refresh + Refresh' },
+    { f: 's', t: 'r', label: '옛 Refresh 폐기', cls: 'err' },
+    { f: 's', t: 'c', label: '새 Access + 새 Refresh', cls: 'hi' },
+  ] },
+];
+const captions = [
+  '세션 ① 로그인에 성공하면 서버가 추측 못 할 세션 ID(a1b2)를 만들어 Redis에 "a1b2 = user42"로 저장하고, ID만 Set-Cookie로 브라우저에 줘요.',
+  '세션 ② 이후 요청마다 브라우저가 쿠키(SID=a1b2)를 자동으로 붙여요. 서버는 Redis에서 a1b2를 찾아 누구인지 확인한 뒤 응답해요.',
+  '세션 ③ 로그아웃하면 서버가 Redis에서 a1b2를 지워요. 같은 ID로 다시 와도 장부에 없으니 바로 거부돼요. 즉시 무효화가 쉬운 이유예요.',
+  'JWT ① 로그인에 성공하면 서버가 사용자 정보를 비밀키로 서명해 Access 토큰(짧은 수명)과 Refresh 토큰(긴 수명)을 줘요. Access 토큰은 저장소에 적지 않아요(회전을 쓰려면 Refresh만 기록해요).',
+  'JWT ② 이후 요청은 Authorization: Bearer 헤더에 토큰을 실어 보내요. 서버는 저장소를 찾지 않고 서명이 맞는지, exp(만료 시각)가 지났는지만 계산해요.',
+  'JWT ③ Access가 만료되면 401을 받아요. 그러면 Refresh로 새 토큰을 요청하고, 서버는 새 Access와 새 Refresh를 주면서 옛 Refresh는 폐기해요(회전). 그래서 Refresh만은 서버가 기록해 둬요.',
+];
+const steps = captions.map((caption, i) => ({ caption, show: [`m${i}`, `s${i}`] }));
+const Y0 = 112, DY = 50;
+const halo = 'paint-order:stroke;stroke:var(--sl-color-gray-7, var(--sl-color-black));stroke-width:5px;stroke-linejoin:round';
+const color = (c?: string) => (c === 'hi' ? '--sl-color-accent' : c === 'err' ? '--sl-color-red' : '--sl-color-gray-2');
+const mk = (c?: string) => (c === 'hi' ? 'a' : c === 'err' ? 'r' : 'g');
+---
+<Stepper title="세션 vs JWT 요청 흐름" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 340" role="img" aria-label="세션은 서버가 Redis에 세션을 저장하고 쿠키로 ID만 주며, JWT는 서명한 토큰을 주고 서버는 저장소 없이 서명만 검증하는 흐름">
+    <defs>
+      {[['g', '--sl-color-gray-2'], ['a', '--sl-color-accent'], ['r', '--sl-color-red']].map(([k, c]) => (
+        <marker id={`svj-${k}`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0L10 5L0 10z" fill={`var(${c})`} />
+        </marker>
+      ))}
+    </defs>
+    {[[X.c, '브라우저'], [X.s, '서버'], [X.r, 'Redis']].map(([x, t]) => (
+      <g>
+        <rect class="box" x={+x - 45} y="6" width="90" height="32" rx="8" />
+        <text x={x} y="22" style="font-weight:700">{t}</text>
+        <line class="line" x1={x} y1="84" x2={x} y2="334" style="stroke-dasharray:4 4" />
+      </g>
+    ))}
+    {scenes.map((sc, i) => (
+      <g data-id={`m${i}`} class="hide">
+        <rect class="chip" x="10" y="46" width="300" height="30" rx="15" />
+        <text x="160" y="61" style="font-size:14px;font-weight:700">{sc.mode}</text>
+      </g>
+    ))}
+    {scenes.map((sc, i) => {
+      const notesY = Y0 + 10 + sc.rows.length * DY;
+      return (
+        <g data-id={`s${i}`} class="hide">
+          {sc.rows.map((r, k) => {
+            const y = r.y ?? Y0 + k * DY, x1 = X[r.f], x2 = X[r.t], dir = x2 > x1 ? -1 : 1;
+            return (
+              <g>
+                <line x1={x1} y1={y} x2={x2 + dir * 3} y2={y} style={`stroke:var(${color(r.cls)});stroke-width:2.2`} marker-end={`url(#svj-${mk(r.cls)})`} />
+                <text class={r.cls === 'hi' ? 'hi' : r.cls === 'err' ? 'err-t' : ''} x={(x1 + x2) / 2} y={y - 15} style={`font-size:14px;${halo}`}>{r.label}</text>
+              </g>
+            );
+          })}
+          {sc.notes?.map((n) => (
+            <g>
+              <rect class={n.cls} x={n.x} y={n.y ?? notesY} width={n.w} height={22 + n.lines.length * 20} rx="8" />
+              {n.lines.map((l, k) => (
+                <text x={n.x + n.w / 2} y={(n.y ?? notesY) + 21 + k * 20} style="font-size:14px">{l}</text>
+              ))}
+            </g>
+          ))}
+        </g>
+      );
+    })}
+  </svg>
+</Stepper>

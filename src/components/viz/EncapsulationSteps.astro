@@ -1,0 +1,60 @@
+---
+// 캡슐화: 보낼 때 L7→L1로 헤더가 앞에 한 겹씩 붙고(L2는 FCS 꼬리도), 받을 때 아래부터 떼어 낸다.
+// HTTP 블록 x를 고정해서 헤더가 왼쪽으로 쌓이는 모습이 보이게 한다.
+import Stepper from '../Stepper.astro';
+const X = { eth: 78, ip: 118, tcp: 152, http: 192, fcs: 276, end: 316 };
+const blk = [
+  { k: 'eth', t: 'Eth', w: X.ip - X.eth },
+  { k: 'ip', t: 'IP', w: X.tcp - X.ip },
+  { k: 'tcp', t: 'TCP', w: X.http - X.tcp },
+  { k: 'http', t: 'GET /', w: X.fcs - X.http },
+  { k: 'fcs', t: 'FCS', w: X.end - X.fcs },
+];
+const rows = [
+  { l: 'L7', pdu: '메시지', has: ['http'], d: 'HTTP 요청 메시지' },
+  { l: 'L4', pdu: '세그먼트', has: ['tcp', 'http'], d: '포트: 51000 → 443' },
+  { l: 'L3', pdu: '패킷', has: ['ip', 'tcp', 'http'], d: 'IP: 출발 IP → 목적 IP' },
+  { l: 'L2', pdu: '프레임', has: ['eth', 'ip', 'tcp', 'http', 'fcs'], d: 'MAC: 출발 → 다음 홉 / FCS: 오류 검사' },
+  { l: 'L1', pdu: '비트', has: [], d: '전기·빛·전파 신호로 선을 타고 나가요' },
+];
+const RY = (i: number) => 34 + i * 66;
+const H = RY(4) + 60;
+const r = (n: number) => Array.from({ length: n + 1 }, (_, i) => `r${i}`);
+const steps = [
+  { caption: 'L7 응용 계층: 브라우저가 HTTP 요청 "GET /"을 만들어요. 아직 헤더는 없어요. 이 단위를 메시지라고 불러요.', show: [...r(0), 'h0', 'send'] },
+  { caption: 'L4 전송 계층: 앞에 TCP 헤더(출발 포트 51000, 목적 포트 443)를 붙여요. 이제 세그먼트예요.', show: [...r(1), 'h1', 'send'] },
+  { caption: 'L3 네트워크 계층: 앞에 IP 헤더(출발 IP, 목적 IP)를 붙여요. 이제 패킷이에요.', show: [...r(2), 'h2', 'send'] },
+  { caption: 'L2 데이터 링크 계층: 앞에 이더넷 헤더(출발 MAC, 다음 홉 MAC), 뒤에 FCS 꼬리를 붙여요. 이제 프레임이에요.', show: [...r(3), 'h3', 'send'] },
+  { caption: 'L1 물리 계층: 프레임 전체를 0과 1 신호(비트)로 바꿔 선으로 내보내요.', show: [...r(4), 'h4', 'send'] },
+  { caption: '받는 쪽은 거꾸로 아래부터 떼요. 신호를 프레임으로 읽고, 이더넷 헤더와 FCS 꼬리를 떼면 패킷이 남아요.', show: [...r(2), 'h2', 'recv'] },
+  { caption: 'IP 헤더를 떼면 세그먼트가 남아요.', show: [...r(1), 'h1', 'recv'] },
+  { caption: 'TCP 헤더를 떼면 HTTP 메시지만 남아요. 목적 포트 443을 보고 웹 서버 프로그램에 넘겨요.', show: [...r(0), 'h0', 'recv'] },
+];
+---
+<Stepper title="캡슐화: 내려가며 헤더를 붙이고, 올라가며 뗀다" steps={steps}>
+  <svg class="viz" viewBox={`0 0 320 ${H}`} role="img" aria-label="HTTP 메시지에 TCP, IP, 이더넷 헤더와 FCS가 차례로 붙어 세그먼트, 패킷, 프레임, 비트가 되고, 받는 쪽에서 거꾸로 떼어 내는 과정">
+    <text data-id="send" class="sub l hide" x="4" y="14">보낼 때: 위에서 아래로 헤더 붙이기 ↓</text>
+    <text data-id="recv" class="sub l hide" x="4" y="14">받을 때: 아래에서 위로 헤더 떼기 ↑</text>
+    {rows.map((row, i) => {
+      const y = RY(i);
+      return (
+        <g>
+          <rect data-id={`h${i}`} class="hl hide" x="1" y={y - 5} width="318" height="62" rx="8" />
+          <g data-id={`r${i}`}>
+            <text class="l" x="8" y={y + 9} style="font-weight:700">{row.l}</text>
+            <text class="sub l" x="8" y={y + 29}>{row.pdu}</text>
+            {i === 4
+              ? <text class="mono" x={(X.eth + X.end) / 2} y={y + 15}>0110 1001 1101 0010 0111</text>
+              : blk.filter((b) => row.has.includes(b.k)).map((b) => (
+                  <g>
+                    <rect class={b.k === 'http' ? 'chip' : 'box'} x={X[b.k as keyof typeof X]} y={y} width={b.w} height="30" rx="4" />
+                    <text class="mono" x={X[b.k as keyof typeof X] + b.w / 2} y={y + 15}>{b.t}</text>
+                  </g>
+                ))}
+            <text class="sub l" x={X.eth} y={y + 45}>{row.d}</text>
+          </g>
+        </g>
+      );
+    })}
+  </svg>
+</Stepper>

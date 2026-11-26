@@ -1,0 +1,333 @@
+---
+title: OAuth 2.0과 소셜 로그인
+description: "OAuth 2.0은 비밀번호를 건네지 않고 정해진 범위의 권한만 위임하는 인가 프레임워크예요. 소셜 로그인은 Authorization Code 흐름으로 받은 토큰으로 사용자를 확인한 뒤, 우리 서비스가 자체 세션이나 JWT를 발급하는 구조예요."
+sidebar: { order: 10 }
+tags: [면접빈출, 서술형]
+---
+import { Aside } from '@astrojs/starlight/components';
+import SocialLoginPkceFlow from '~/components/viz/SocialLoginPkceFlow.astro';
+import PkceInterceptAttack from '~/components/viz/PkceInterceptAttack.astro';
+
+:::tip[한 줄 요약]
+OAuth 2.0은 사용자의 비밀번호를 넘기지 않고 **정해진 범위와 기간의 권한(access token)만 위임**하는 **인가** 프레임워크예요. 소셜 로그인은 보통 **Authorization Code + PKCE** 흐름으로 카카오·구글에게 사용자 신원을 확인받은 뒤, 우리 서비스가 **자체 세션이나 JWT를 따로 발급**하는 방식으로 만들어요.
+:::
+
+## 쉽게 이해하기
+
+호텔과 발렛 주차로 생각해 보면 쉬워요.
+
+1. 차 주인(사용자)은 발렛 기사(우리 앱)에게 **집 열쇠까지 달린 열쇠 꾸러미**(비밀번호)를 주고 싶지 않아요.
+2. 그래서 **발렛 키**를 줘요. 시동은 걸리지만 트렁크는 안 열리고(**범위**, scope), 오늘 하루만 써요(**기간**). 이게 **access token**이에요.
+3. 발렛 키는 차 주인이 직접 주지 않고 **호텔 프런트**(카카오·구글의 인가 서버)가 발급해요. 프런트는 차 주인 신분을 확인하고 "이 기사에게 이 정도 권한을 줘도 될까요?"라고 동의를 받아요.
+4. 프런트는 키를 바로 기사 손에 쥐여 주지 않고 **교환권**(인가 코드)을 줘요. 기사는 직원 전용 창구에서 교환권과 **자기 사원증**(client_secret)을 함께 내야 진짜 키를 받아요. 교환권만 주운 사람은 키를 못 받아요.
+5. 키를 받은 기사는 **주차장**(리소스 서버, 예: 카카오 API)에서 그 키로 차를 꺼내요. 주차장은 키만 보고 문을 열어 줘요.
+
+여기서 핵심 단어 두 개를 구분해요.
+
+- **인증**(Authentication, "너 누구야?" 확인): 프런트가 차 주인 신분증을 보는 일.
+- **인가**(Authorization, "뭘 해도 돼?" 허락): 발렛 키로 시동만 걸 수 있게 하는 일.
+
+OAuth 2.0은 원래 **인가**를 위한 규칙이에요. 단, 실제 소셜 로그인은 "이 사람이 누구인지"(인증)가 필요해서, OAuth 위에 인증을 얹은 **OIDC**(OpenID Connect)나 제공자의 사용자 정보 API를 함께 써요.
+
+## 그림으로 보기
+
+<SocialLoginPkceFlow />
+
+<PkceInterceptAttack />
+
+## 제대로 알기
+
+### 1. 왜 필요한가: 비밀번호를 넘기지 않으려고
+
+예전에는 "친구 목록을 불러오려면 구글 비밀번호를 입력하세요" 같은 화면이 있었어요. 이러면 앱이 비밀번호로 **모든 걸** 할 수 있고, 권한을 일부만 거두거나 기간을 정할 수도 없어요.
+
+OAuth 2.0은 이 문제를 이렇게 풀어요.
+
+- 비밀번호는 **제공자(인가 서버)에게만** 입력해요. 우리 앱은 비밀번호를 보지 못해요.
+- 앱은 **범위**(scope, 허락받은 권한 목록)와 **기간**이 정해진 토큰만 받아요.
+- 사용자는 나중에 그 앱의 권한만 따로 철회할 수 있어요.
+
+### 2. 등장인물 4명
+
+| 역할 | 뜻 | 소셜 로그인 예 |
+|---|---|---|
+| Resource Owner | 자원의 주인 | 사용자 |
+| Client | 사용자 대신 자원에 접근하려는 앱 | 우리 서비스 |
+| Authorization Server | 사용자를 인증하고 동의를 받아 토큰을 발급 | kauth.kakao.com, accounts.google.com |
+| Resource Server | 토큰을 받고 보호된 자원을 내주는 API | kapi.kakao.com |
+
+인가 서버와 리소스 서버는 같은 회사일 수도, 아예 같은 서버일 수도 있어요.
+
+**클라이언트 종류**도 알아 두면 좋아요.
+
+- **confidential client**(비밀 보관 가능): 서버에서 도는 웹 백엔드처럼 `client_secret`(앱 전용 비밀번호)을 안전하게 숨길 수 있는 앱.
+- **public client**(비밀 보관 불가): SPA(브라우저에서 도는 JS 앱)나 모바일 앱. 코드가 사용자 손에 있으니 비밀을 넣으면 누구나 꺼낼 수 있어요.
+
+### 3. 권한 받는 방법(grant) 4가지와 지금 쓰는 것
+
+**grant**(그랜트, 토큰을 받는 방식)는 RFC 6749에 4가지가 있어요.
+
+| grant | 한 줄 설명 | 지금은 |
+|---|---|---|
+| Authorization Code | 코드를 먼저 받고, 서버가 코드를 토큰으로 바꿈 | **표준**. PKCE와 함께 씀 |
+| Implicit | 토큰을 리다이렉트 URL에 바로 실어 줌 | 쓰지 말 것(SHOULD NOT) |
+| Resource Owner Password Credentials | 앱이 사용자 ID·비번을 직접 받아 토큰으로 바꿈 | 금지(MUST NOT) |
+| Client Credentials | 사용자 없이 서버끼리 앱 자격으로 토큰 받음 | 서버 간 통신에 씀 |
+
+"쓰지 말 것", "금지"는 2025년에 나온 보안 모범 사례 문서 **RFC 9700**(OAuth 2.0 Security BCP) 기준이에요. 예전엔 SPA에 Implicit을 쓰라고 했지만, 지금은 SPA도 **Code + PKCE**를 써요.
+
+### 4. Authorization Code 흐름
+
+1. 우리 앱이 브라우저를 인가 서버로 보내요. 주소에 `response_type=code`, `client_id`, `redirect_uri`(끝나면 돌아올 주소), `scope`, `state`를 붙여요.
+2. 인가 서버가 사용자를 로그인시키고 "이 앱에 이 권한을 줄까요?" 동의를 받아요.
+3. 인가 서버가 브라우저를 `redirect_uri?code=...&state=...`로 돌려보내요.
+4. 우리 백엔드가 **서버 대 서버로** 토큰 엔드포인트에 `code`를 보내요. confidential client면 `client_secret`으로 자기도 인증해요.
+5. 인가 서버가 **access token**(필요하면 refresh token도)을 돌려줘요.
+
+**왜 토큰을 바로 안 주고 코드를 한 번 거치나요?**
+브라우저 주소창과 리다이렉트는 기록·로그·확장 프로그램 등으로 새기 쉬운 길이에요. 그 길로는 **짧게 살고 한 번만 쓸 수 있는 코드**만 보내요. 진짜 토큰은 서버와 인가 서버가 **TLS**(HTTPS의 암호화 연결)로 직접 주고받는 **백채널**(브라우저를 거치지 않는 길)에서, 클라이언트 인증까지 거친 뒤에 받아요. 코드가 두 번 쓰이면 인가 서버는 거부해야 해요.
+
+### 5. state: CSRF 막기
+
+**CSRF**(Cross-Site Request Forgery, 사용자가 모르게 요청을 대신 보내게 하는 공격)를 OAuth에 적용하면 이런 장면이에요.
+
+1. 공격자가 **자기 계정**으로 로그인을 시작해서 콜백 직전의 `code`를 얻어요.
+2. 그 콜백 주소(`redirect_uri?code=공격자코드`)를 피해자가 누르게 만들어요.
+3. 우리 서버는 아무 의심 없이 처리해서, 피해자 브라우저가 **공격자 계정으로 로그인**돼요. 피해자가 카드를 등록하거나 글을 쓰면 공격자 계정에 쌓여요.
+
+**state**는 이걸 막는 값이에요. 로그인을 시작할 때 서버가 **추측 불가능한 일회용 값**을 만들어 그 사용자 세션에 저장하고, 인가 요청에 붙여 보내요. 콜백에서 돌아온 `state`가 세션에 저장한 값과 다르면 중단해요. 공격자가 심은 콜백에는 피해자 세션의 state가 없으니 걸러져요.
+
+RFC 9700은 CSRF 방어를 **필수**로 정했어요. 인가 서버가 PKCE를 지원하는 게 확인되면 PKCE로 대신할 수 있고, 아니면 `state`(또는 OIDC의 `nonce`)를 써야 해요. 실무에서는 둘 다 넣는 경우가 많아요.
+
+### 6. PKCE: 코드를 가로채도 못 쓰게
+
+**PKCE**(Proof Key for Code Exchange, "픽시", RFC 7636)는 "코드를 받은 사람이 정말 처음에 요청한 그 앱인가"를 증명하는 장치예요.
+
+1. 앱이 요청마다 무작위 문자열 `code_verifier`를 만들고 숨겨 둬요.
+2. 그 **해시**(원래 값으로 되돌릴 수 없게 만든 지문 같은 값)값 `code_challenge = BASE64URL(SHA256(code_verifier))`만 인가 요청에 붙여요(방식 이름 `S256`).
+3. 코드를 토큰으로 바꿀 때 원본 `code_verifier`를 보내요.
+4. 인가 서버가 받은 verifier를 해시해서 처음 challenge와 같은지 봐요.
+
+중간에서 코드를 가로챈 공격자는 원본 verifier가 없어서 토큰을 못 받아요. 해시는 거꾸로 풀 수 없으니 challenge를 봐도 verifier를 알 수 없어요. 해시 없이 그대로 보내는 `plain` 방식도 있지만, S256을 쓸 수 있으면 S256을 써야 해요.
+
+PKCE는 원래 비밀을 못 숨기는 **모바일 앱**용으로 나왔어요. 지금은 RFC 9700이 public client에는 **필수**, 서버 백엔드 같은 confidential client에도 **권장**으로 넓혔어요.
+
+| | state | PKCE |
+|---|---|---|
+| 막는 것 | CSRF(남의 코드가 내 세션에 주입됨) | 코드 가로채기·주입 |
+| 누가 만드나 | 클라이언트가 요청마다 | 클라이언트가 요청마다 |
+| 검증하는 곳 | **클라이언트**가 콜백에서 비교 | **인가 서버**가 토큰 교환 때 비교 |
+
+### 7. 토큰 세 가지
+
+| 토큰 | 용도 | 누가 읽나 | 어디로 보내나 |
+|---|---|---|---|
+| Access token | API를 호출할 권한 | 리소스 서버 | 리소스 서버(`Authorization: Bearer ...`) |
+| Refresh token | access token이 만료되면 사용자 개입 없이 새로 받기 | 인가 서버 | **인가 서버에만** |
+| ID token(OIDC) | 이 사용자가 누구이고 언제 인증됐는지 | 클라이언트(우리 서비스) | 우리 서비스가 검증하고 끝 |
+
+- **Bearer 토큰**(가진 사람이 곧 주인인 토큰): access token은 보통 이 방식이라, 훔친 사람도 그대로 쓸 수 있어요. 그래서 **TLS(HTTPS)가 필수**이고, URL 쿼리에 토큰을 싣지 말아야 해요. 수명도 보통 짧게 잡아요.
+- **access token 형식은 OAuth가 정하지 않아요.** 아무 의미 없는 긴 문자열일 수도, JWT일 수도 있어요. "OAuth = JWT"는 오해예요. JWT로 정해진 건 OIDC의 **ID token**이에요.
+- **refresh token 보호**: RFC 9700은 public client의 refresh token에 **rotation**(쓸 때마다 새 refresh token을 주고 이전 것은 무효화) 또는 토큰을 특정 클라이언트에 묶는 방식(mTLS·DPoP)을 요구해요. rotation을 쓰면 이미 쓴 refresh token이 다시 들어왔을 때 탈취를 의심할 수 있어요.
+
+### 8. OAuth vs OIDC
+
+**OIDC**(OpenID Connect)는 OAuth 2.0 위에 얹은 **인증** 계층이에요. `scope`에 `openid`를 넣으면 OIDC 요청이 되고, 토큰 응답에 **ID token**이 추가돼요.
+
+ID token은 JWT이고, 꼭 들어가는 값은 다음과 같아요.
+
+- `iss`: 누가 발급했나
+- `sub`: 사용자 고유 ID(다른 사람에게 재할당되지 않음)
+- `aud`: 누구를 위한 토큰인가(우리 `client_id`가 있어야 함)
+- `exp`, `iat`: 만료 시각, 발급 시각
+
+받으면 **서명, `iss`, `aud`에 내 client_id, `exp` 안 지났는지, 보낸 `nonce`와 같은지**를 검증해요. `nonce`는 요청 때 보낸 일회용 값이 ID token에 그대로 담겨 와서, 다른 요청의 ID token을 재사용하는 걸 막아요.
+
+access token만 보고 "이 사람은 누구다"라고 판단하는 건 OAuth 표준이 보장하지 않아요. 신원은 ID token이나, access token으로 호출하는 **UserInfo**(사용자 정보) API로 확인해요.
+
+### 9. 소셜 로그인 백엔드 구현 순서
+
+1. 프론트의 "카카오로 로그인" 버튼 → 백엔드가 `state`(와 PKCE를 쓰면 `code_verifier`)를 만들어 세션에 저장하고 인가 페이지로 리다이렉트.
+   - 카카오: `GET https://kauth.kakao.com/oauth/authorize`
+   - 구글: `https://accounts.google.com/o/oauth2/v2/auth`
+2. 사용자가 제공자에서 로그인·동의 → 백엔드의 `redirect_uri`로 `code`, `state` 도착.
+3. 백엔드가 `state` 비교. 다르면 중단.
+4. 백엔드가 토큰 엔드포인트로 코드 교환. **`client_secret`은 서버에만** 둬요.
+   - 카카오: `POST https://kauth.kakao.com/oauth/token`
+   - 구글: `https://oauth2.googleapis.com/token`
+5. access token으로 사용자 정보 API를 부르거나(카카오: `https://kapi.kakao.com/v2/user/me`), ID token을 검증해서 **제공자의 사용자 ID**를 얻어요.
+6. 우리 DB에서 `(제공자, 제공자 사용자 ID)`로 회원을 찾고, 없으면 가입시켜요.
+7. **우리 서비스 자체 세션 쿠키나 JWT를 발급**해요. → [쿠키·세션·JWT](../cookie-session-jwt/)
+
+카카오·구글의 access token을 그대로 우리 API 로그인 토큰으로 쓰지 않아요. 그건 **제공자 API를 부르기 위한 키**예요. 우리 로그인 수명은 우리가 정해요.
+
+<Aside type="note" title="제공자별로 다른 점">
+- 카카오는 OIDC를 켜거나 scope에 `openid`를 넣으면 `id_token`도 줘요. 토큰 응답에 각 토큰의 남은 수명(`expires_in`, `refresh_token_expires_in`)이 같이 와요. 수명 값은 문서에서 바뀔 수 있으니 코드에 박지 말고 응답 값을 써요.
+- 구글은 `access_type=offline`을 줘야 refresh token을 주고, 그것도 **처음 동의할 때만** 줘요. 다시 받으려면 `prompt=consent`로 다시 동의를 받거나 권한을 철회했다가 다시 연결해야 해요.
+</Aside>
+
+### 10. 꼭 지킬 보안 규칙(RFC 9700 요약)
+
+- `redirect_uri`는 등록한 값과 **문자열이 정확히 같아야** 해요. "앞부분만 맞으면 OK" 같은 느슨한 비교는 금지예요.
+- 아무 주소로나 넘겨주는 **open redirector**(검증 없이 다른 주소로 보내 주는 페이지)를 만들지 않아요.
+- access token을 URL 쿼리로 보내지 않아요.
+- CSRF 방어(state 또는 PKCE)는 필수예요.
+- Implicit은 쓰지 말고, ROPC는 금지예요.
+
+## 면접 질문
+
+<details>
+<summary>Q. OAuth 2.0이 뭐고 왜 쓰나요?</summary>
+
+**답변(30초)** OAuth 2.0은 사용자의 비밀번호를 제3자 앱에 주지 않고, 정해진 범위와 기간의 권한만 위임하는 인가 프레임워크예요. 사용자는 비밀번호를 카카오 같은 인가 서버에만 입력하고, 앱은 access token만 받아 API를 호출해요. 덕분에 앱이 비밀번호를 볼 일이 없고, 권한을 일부만 주거나 나중에 철회할 수 있어요. 원래 목적은 로그인이 아니라 "사용자 대신 API를 부를 권한"을 주는 거예요.
+
+**꼬리질문**
+- Q. 역할 4가지를 말해 보세요. → 자원 주인(사용자), 클라이언트(우리 앱), 인가 서버(토큰 발급), 리소스 서버(토큰 받고 API 제공)예요.
+- Q. 인증과 인가 차이는요? → 인증은 "누구인지" 확인, 인가는 "무엇을 해도 되는지" 허락이에요. OAuth는 인가, 인증은 OIDC가 표준화했어요.
+</details>
+
+<details>
+<summary>Q. Authorization Code 흐름을 설명하고, 왜 코드를 한 번 거치는지 말해 주세요.</summary>
+
+**답변(30초)** 앱이 브라우저를 인가 서버로 보내면 사용자가 로그인하고 동의해요. 인가 서버는 브라우저를 redirect_uri로 돌려보내면서 짧게 살고 한 번만 쓸 수 있는 코드를 줘요. 그러면 백엔드가 서버 대 서버로 코드와 client_secret을 보내 access token을 받아요. 코드를 거치는 이유는 새기 쉬운 브라우저 리다이렉트로는 코드만 오가게 하고, 진짜 토큰은 클라이언트 인증을 거친 백채널에서만 받게 하려는 거예요.
+
+**꼬리질문**
+- Q. Implicit grant는 왜 안 쓰나요? → 토큰을 리다이렉트 URL에 바로 실어 줘서 브라우저 기록이나 로그로 새기 쉬워요. 지금은 SPA도 Code + PKCE를 써요.
+- Q. 코드를 두 번 쓰면요? → 인가 서버가 거부해야 하고, 그 코드로 발급한 토큰도 폐기하는 게 권장돼요.
+</details>
+
+<details>
+<summary>Q. state 파라미터와 PKCE는 각각 무엇을 막나요?</summary>
+
+**답변(30초)** state는 CSRF를, PKCE는 인가 코드 가로채기를 막아요. state는 로그인 시작 때 서버가 만든 일회용 값을 세션에 저장해 두고, 콜백에서 돌아온 값과 비교해서 공격자가 자기 코드를 피해자 세션에 심는 걸 걸러요. PKCE는 요청마다 비밀 verifier를 만들고 그 해시만 먼저 보낸 뒤, 토큰 교환 때 원본을 보내서 인가 서버가 같은 앱인지 확인하게 해요. 그래서 코드를 훔쳐도 verifier가 없으면 토큰을 못 받아요.
+
+**꼬리질문**
+- Q. PKCE는 모바일 전용 아닌가요? → 모바일용으로 시작했지만, 지금 보안 모범 사례(RFC 9700)는 public client엔 필수, 서버 앱에도 권장해요.
+- Q. code_challenge를 보면 verifier를 알 수 있지 않나요? → S256은 SHA-256 해시라 거꾸로 풀 수 없어요.
+</details>
+
+<details>
+<summary>Q. access token과 refresh token은 어떻게 다른가요?</summary>
+
+**답변(30초)** access token은 리소스 서버에 API를 호출할 때 쓰는 권한 증표이고, 보통 수명이 짧아요. refresh token은 access token이 만료됐을 때 사용자에게 다시 묻지 않고 새 access token을 받는 데 쓰고, 인가 서버에만 보내요. access token은 Bearer 토큰이라 훔치면 누구나 쓸 수 있어서 짧게 살게 하고, 오래 사는 refresh token은 rotation 같은 방식으로 따로 보호해요.
+
+**꼬리질문**
+- Q. refresh token rotation이 뭔가요? → 쓸 때마다 새 refresh token을 주고 이전 것은 무효로 만들어요. 이미 쓴 토큰이 다시 오면 탈취를 의심할 수 있어요.
+- Q. access token은 꼭 JWT인가요? → 아니요. OAuth는 형식을 정하지 않아요. JWT로 정해진 건 OIDC의 ID token이에요.
+</details>
+
+<details>
+<summary>Q. OAuth와 OpenID Connect(OIDC)는 어떻게 다른가요?</summary>
+
+**답변(30초)** OAuth는 권한을 위임하는 인가 규칙이고, OIDC는 그 위에 "이 사용자가 누구인지"를 알려 주는 인증 계층을 얹은 거예요. scope에 openid를 넣으면 토큰 응답에 ID token이 추가돼요. ID token은 JWT라서 발급자, 사용자 고유 ID인 sub, 대상 client_id, 만료 시각 같은 값이 들어 있어요. 우리 서비스는 서명과 이 값들을 검증해서 사용자를 확인해요.
+
+**꼬리질문**
+- Q. access token만으로 로그인 처리하면 안 되나요? → access token은 API 권한일 뿐이라 신원을 표준으로 보장하지 않아요. ID token을 검증하거나 사용자 정보 API로 확인해요.
+- Q. nonce는 뭔가요? → 요청 때 보낸 일회용 값이 ID token에 그대로 담겨 오는지 확인해서, 다른 요청의 ID token 재사용을 막아요.
+</details>
+
+<details>
+<summary>Q. 소셜 로그인을 백엔드에서 어떻게 구현하나요?</summary>
+
+**답변(30초)** Authorization Code 흐름으로 구현해요. 백엔드가 state를 만들어 세션에 저장하고 카카오 인가 페이지로 보낸 뒤, 콜백으로 온 state를 비교하고 코드를 서버에서 토큰으로 바꿔요. 그 토큰으로 사용자 정보를 조회하거나 ID token을 검증해서 제공자의 사용자 ID를 얻고, 우리 회원과 매핑해요. 마지막으로 카카오 토큰을 그대로 쓰지 않고 우리 서비스 세션이나 JWT를 따로 발급해요.
+
+**꼬리질문**
+- Q. 회원은 이메일로 식별하면 안 되나요? → 이메일은 바뀌거나 제공자마다 겹칠 수 있어요. `(제공자, 제공자 사용자 ID)` 조합에 유니크 제약을 걸어 식별해요.
+- Q. client_secret은 어디 두나요? → 백엔드에만 둬요. 프론트 코드에 넣으면 누구나 꺼낼 수 있어요.
+</details>
+
+## 서술형 연습
+
+<details>
+<summary>상황: 카카오·구글 소셜 로그인을 새로 붙이려 합니다. 백엔드 구조를 설계해 주세요.</summary>
+
+**상황 파악**
+필요한 건 세 가지예요. 제공자에게 사용자 신원을 안전하게 확인받기, 우리 회원과 연결하기, 이후 우리 서비스 로그인 상태 유지하기. 제공자가 여럿이라 회원 테이블도 그에 맞춰야 해요.
+
+**원인 후보(설계에서 틀리기 쉬운 곳)**
+1. 토큰 교환을 프론트에서 해서 `client_secret`이 노출돼요.
+2. state나 PKCE를 빼먹어 CSRF·코드 가로채기에 열려요.
+3. 이메일로 회원을 식별해서 제공자 간 계정이 꼬여요.
+4. 제공자 access token을 우리 로그인 토큰으로 써서, 제공자 토큰 만료나 장애가 곧바로 우리 로그아웃이 돼요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. 백엔드가 콜백을 받고 코드 교환까지 전부 처리(confidential client) + state + PKCE, 끝나면 우리 세션/JWT 발급 | 비밀과 제공자 토큰이 브라우저에 안 나옴. 보안 규칙을 한곳에서 지킴 | 백엔드가 리다이렉트를 다뤄야 해서 프론트·백엔드 도메인 설정, 콜백 후 프론트로 돌려보내는 처리가 필요 |
+| B. 프론트(SPA)가 Code + PKCE로 직접 코드 교환(public client), 받은 토큰을 백엔드에 넘겨 검증 | 프론트만으로 흐름이 돌아 구현이 가벼움 | 제공자 토큰이 브라우저에 노출되고, 백엔드가 받은 토큰을 다시 검증해야 함. 제공자가 이 방식을 지원하는지 확인 필요 |
+
+회원 테이블은 `social_account(provider, provider_user_id, user_id)`처럼 따로 두고 `(provider, provider_user_id)`에 유니크 제약을 걸어요. 같은 이메일의 기존 계정이 있을 때 자동으로 합칠지, 사용자 확인을 받고 연동할지는 정책으로 정해요(자동 병합은 남의 계정 탈취 통로가 될 수 있어요).
+
+**내가 고를 방법**
+A를 고르겠어요. `client_secret`과 제공자 토큰을 서버에만 두는 게 가장 안전하고, state 검증·PKCE·redirect_uri 정확 일치·ID token 검증을 백엔드 한곳에서 관리할 수 있어요. 로그인 후엔 우리 세션이나 JWT를 따로 발급해서, 제공자 토큰의 수명이나 장애와 우리 로그인 상태를 분리해요. 제공자 API를 계속 불러야 할 때만 refresh token을 서버에 암호화해 저장해요.
+
+**채점 포인트**: Authorization Code 흐름, 백엔드에서 코드 교환(client_secret 서버 보관), state 검증, PKCE, redirect_uri 정확 일치, ID token 검증 또는 사용자 정보 API, (provider, provider_user_id) 유니크, 이메일 식별 금지·계정 연동 정책, 자체 세션/JWT 발급으로 외부 토큰과 수명 분리.
+</details>
+
+<details>
+<summary>상황: 소셜 로그인 후 "내가 아닌 다른 사람 계정으로 로그인돼 있다"는 신고가 들어왔습니다. 코드를 보니 콜백에서 state를 검증하지 않습니다.</summary>
+
+**상황 파악**
+피해자 브라우저가 **공격자 계정**으로 로그인된 상황일 가능성이 커요. 공격자가 자기 계정으로 받은 코드를 담은 콜백 링크를 피해자에게 누르게 하면, state 검증이 없는 서버는 그걸 피해자 요청으로 받아들여요. 피해자가 그 상태로 결제수단을 등록하거나 개인정보를 입력하면 공격자 계정에 쌓여요(로그인 CSRF).
+
+**원인 후보**
+1. state를 만들지 않거나, 만들어도 콜백에서 세션 값과 비교하지 않아요.
+2. state가 고정값이거나 추측 가능해요.
+3. redirect_uri를 느슨하게 비교해서 공격자 주소로 코드가 새요.
+4. 회원을 이메일로 식별해서 다른 제공자 계정과 엉켜요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. state: 로그인 시작 때 추측 불가 랜덤 값을 만들어 사용자 세션(또는 HttpOnly 쿠키)에 저장, 콜백에서 비교 후 즉시 폐기 | 모든 제공자에 통하는 기본 방어. 구현이 단순 | 로그인 시작 전에 세션이나 쿠키가 있어야 함. 여러 탭에서 동시에 로그인하면 값 관리가 필요 |
+| B. PKCE: verifier를 세션에 두고 토큰 교환 때 보냄 | 인가 서버가 검증해서 코드 주입·가로채기까지 막음. RFC 9700상 지원이 확인되면 CSRF 방어를 대신할 수 있음 | 제공자가 PKCE를 지원해야 함. 지원 여부를 제공자별로 확인해야 함 |
+
+**내가 고를 방법**
+A를 바로 넣고, 지원하는 제공자에는 B도 함께 넣겠어요. state는 어떤 제공자든 쓸 수 있어서 당장 구멍을 막고, PKCE는 코드 가로채기까지 막아 줘요. 함께 redirect_uri를 등록값과 정확히 일치하게 바꾸고, 회원 식별을 `(제공자, 제공자 사용자 ID)`로 고쳐요. 이미 잘못 묶인 세션은 무효화하고 영향받은 계정을 점검해요.
+
+**채점 포인트**: 로그인 CSRF(공격자 코드 주입) 시나리오, state는 추측 불가·일회용·사용자 세션에 묶임, 콜백에서 비교 후 폐기, PKCE와 막는 공격 차이, RFC 9700 CSRF 방어 필수, redirect_uri 정확 일치, 식별자는 제공자+sub, 기존 세션 무효화.
+</details>
+
+<details>
+<summary>상황: 프론트 개발자가 "카카오 access token과 refresh token을 받아서 프론트의 localStorage에 두고 API 호출 때 쓰자"고 제안했습니다.</summary>
+
+**상황 파악**
+질문은 두 개로 나뉘어요. 첫째, **제공자 토큰을 우리 로그인 토큰으로 쓸지**. 둘째, **토큰을 브라우저 JS가 읽을 수 있는 곳에 둘지**. access token은 Bearer라 훔치면 누구나 쓸 수 있고, refresh token은 오래 살아서 새면 피해가 커요.
+
+**원인 후보(이 제안이 위험한 이유)**
+1. localStorage는 JS로 읽을 수 있어서, XSS(악성 스크립트 삽입) 한 번이면 토큰이 통째로 새요.
+2. 제공자 토큰을 우리 API 인증에 쓰면 매 요청마다 제공자에 검증을 물어야 하고, 제공자 장애가 우리 장애가 돼요.
+3. 제공자 토큰은 제공자 API 권한(scope)을 담고 있어서, 새면 우리 서비스 밖의 정보까지 노출돼요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. 제공자 토큰은 백엔드에만 두고, 프론트엔 우리 서비스 세션을 HttpOnly·Secure 쿠키로 발급 | JS가 토큰을 못 읽어 XSS로 토큰이 새지 않음. 제공자 토큰과 우리 로그인 분리 | 쿠키라 CSRF 대비(SameSite, CSRF 토큰)가 필요. 서버가 세션 상태를 관리 |
+| B. 우리 서비스 JWT를 발급해 프론트가 보관하고 `Authorization: Bearer`로 전송 | 서버가 상태를 덜 들고 모바일 앱과 구조를 맞추기 쉬움 | 프론트에 두면 XSS 위험은 남음. access token은 짧게, refresh token은 HttpOnly 쿠키 + rotation 같은 보완이 필요 |
+| C. 제안대로 제공자 토큰을 localStorage에 보관 | 구현이 가장 빠름 | XSS 한 번에 제공자 권한까지 탈취, 제공자 토큰 수명·장애에 우리 로그인이 끌려감. 권하지 않음 |
+
+**내가 고를 방법**
+A를 고르겠어요. 제공자 토큰은 제공자 API를 부를 때만 백엔드에서 쓰고, 브라우저엔 우리 서비스 세션만 HttpOnly 쿠키로 줘요. 그래야 XSS가 있어도 토큰을 JS로 빼 갈 수 없고, 우리 로그인 수명을 우리가 정해요. 모바일 앱도 함께 지원해야 하면 B처럼 짧은 access JWT + rotation되는 refresh token을 쓰되, 그것도 제공자 토큰이 아니라 **우리 서비스 토큰**이어야 해요.
+
+**채점 포인트**: 제공자 토큰과 우리 서비스 토큰 분리, Bearer 탈취 위험, localStorage는 XSS에 노출, HttpOnly·Secure 쿠키, 쿠키 사용 시 CSRF 대비(SameSite), refresh token은 인가 서버에만·rotation, 짧은 access token 수명, 제공자 장애와 우리 로그인 분리.
+</details>
+
+## 함께 보기
+
+- [쿠키·세션·JWT](../cookie-session-jwt/)
+- [HTTPS와 TLS](../https-tls/)
+- [CORS](../cors/)
+- [스프링 시큐리티](../../spring/spring-security/)
+
+## 출처
+
+- [RFC 6749, The OAuth 2.0 Authorization Framework](https://www.rfc-editor.org/rfc/rfc6749)
+- [RFC 6750, Bearer Token Usage](https://www.rfc-editor.org/rfc/rfc6750)
+- [RFC 7636, Proof Key for Code Exchange (PKCE)](https://www.rfc-editor.org/rfc/rfc7636)
+- [RFC 9700, Best Current Practice for OAuth 2.0 Security](https://www.rfc-editor.org/rfc/rfc9700)
+- [OpenID Connect Core 1.0](https://openid.net/specs/openid-connect-core-1_0.html)
+- [Kakao Developers, 카카오 로그인 REST API](https://developers.kakao.com/docs/ko/kakaologin/rest-api)
+- [Google Identity, Using OAuth 2.0 for Web Server Applications](https://developers.google.com/identity/protocols/oauth2/web-server)
