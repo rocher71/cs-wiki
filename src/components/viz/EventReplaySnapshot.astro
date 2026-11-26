@@ -1,0 +1,75 @@
+---
+// 상태 덮어쓰기 vs 이벤트 추가 → 재생으로 잔액 계산 → 이벤트가 많아지면 스냅숏 + 이후 이벤트만 재생.
+// 위: 상태 저장 / 가운데: 이벤트 저장소와 누적 합 / 아래: 이벤트 1,000개 막대와 스냅숏.
+import Stepper from '../Stepper.astro';
+const events = ['#1 계좌 개설 0', '#2 입금 +100,000', '#3 출금 −30,000', '#4 입금 +50,000'];
+const sums = ['= 0', '= 100,000', '= 70,000', '= 120,000'];
+const steps = [
+  { caption: '보통 DB는 계좌 행 하나에 잔액만 덮어써요. 지금 120,000원이라는 건 알지만, 어떻게 이렇게 됐는지는 사라졌어요.', show: ['state', 'hl-state'] },
+  { caption: '이벤트 소싱은 잔액 대신 "있었던 일"을 저장소 끝에 차례로 추가만 해요. 고치거나 지우지 않아요.', show: ['state', 'ev', 'hl-ev'] },
+  { caption: '현재 잔액이 필요하면 이벤트를 처음부터 차례로 더해요(재생). 0 → 100,000 → 70,000 → 120,000.', show: ['state', 'ev', 'sums', 'hl-sum'] },
+  { caption: '시간이 지나 이벤트가 1,003개가 됐어요. 잔액 하나 구하려고 매번 1,003번을 더해야 해서 느려져요.', show: ['ev', 'sums', 'big', 'longarr'] },
+  { caption: '그래서 1,000번째 이벤트 시점의 잔액 사본(스냅숏)을 따로 저장해 둬요. 이벤트는 그대로 남아 있어요.', show: ['ev', 'sums', 'big', 'snap', 'hl-snap'] },
+  { caption: '복원할 때는 스냅숏을 읽고 1001~1003번 이벤트 3개만 더해요. 결과는 처음부터 재생한 것과 같아요.', show: ['ev', 'sums', 'big', 'snap', 'shortarr'] },
+];
+---
+<Stepper title="이벤트 재생과 스냅숏" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 384" role="img" aria-label="잔액만 덮어쓰는 상태 저장과 달리 이벤트를 추가만 하고 재생해서 잔액을 계산하며, 이벤트가 많아지면 스냅숏을 저장해 그 뒤 이벤트만 재생하는 과정">
+    <defs>
+      <marker id="es-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0,0 L10,5 L0,10 z" style="fill:var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+    <!-- 상태 저장 -->
+    <g data-id="state">
+      <text class="sub l" x="10" y="14">상태 저장 (보통 DB)</text>
+      <rect class="box" x="10" y="26" width="300" height="48" rx="6" />
+      <text x="160" y="42" style="font-weight:700">계좌 A · 잔액 120,000</text>
+      <text class="sub" x="160" y="62">이전 값은 덮어써서 사라짐</text>
+    </g>
+    <rect data-id="hl-state" class="hl" x="7" y="23" width="306" height="54" rx="8" />
+
+    <!-- 이벤트 저장소 -->
+    <g data-id="ev">
+      <text class="sub l" x="10" y="94">이벤트 저장소 (끝에 추가만)</text>
+      {events.map((t, i) => (
+        <g>
+          <rect class="box" x="10" y={106 + i * 32} width="190" height="28" rx="4" />
+          <text class="l" x="18" y={120 + i * 32} style="font-size:14px">{t}</text>
+        </g>
+      ))}
+    </g>
+    <rect data-id="hl-ev" class="hl" x="7" y="103" width="196" height="130" rx="6" />
+    <g data-id="sums">
+      {sums.map((t, i) => <text class="hi l" x="210" y={120 + i * 32} style="font-size:14px">{t}</text>)}
+    </g>
+    <rect data-id="hl-sum" class="hl" x="204" y="200" width="108" height="32" rx="6" />
+
+    <!-- 이벤트 1,000개 + 스냅숏 -->
+    <g data-id="big">
+      <text class="sub l" x="10" y="250">이벤트가 1,003개로 늘면</text>
+      <rect class="box" x="10" y="262" width="160" height="34" rx="4" />
+      <text x="90" y="279" style="font-size:14px">#1 ~ #1000</text>
+      {[1001, 1002, 1003].map((n, i) => (
+        <g>
+          <rect class="chip" x={176 + i * 46} y="262" width="42" height="34" rx="4" />
+          <text x={197 + i * 46} y="279" style="font-size:14px">{n}</text>
+        </g>
+      ))}
+    </g>
+    <g data-id="longarr" class="hide">
+      <line class="line" x1="10" y1="308" x2="310" y2="308" marker-end="url(#es-arrow)" />
+      <text class="err-t" x="160" y="326" style="font-size:14px">재생: 1,003번 더하기 (느림)</text>
+    </g>
+    <g data-id="shortarr" class="hide">
+      <line class="line" x1="176" y1="308" x2="310" y2="308" marker-end="url(#es-arrow)" style="stroke:var(--sl-color-accent);stroke-width:2.4" />
+      <text class="hi" x="160" y="326" style="font-size:14px">재생: 스냅숏 + 3개만 더하기</text>
+    </g>
+    <g data-id="snap">
+      <line class="line" x1="170" y1="298" x2="170" y2="340" style="stroke-dasharray:4 3" />
+      <rect class="chip" x="70" y="342" width="200" height="34" rx="6" />
+      <text x="170" y="359" style="font-size:14px;font-weight:700">스냅숏 @#1000 (잔액 사본)</text>
+    </g>
+    <rect data-id="hl-snap" class="hl" x="67" y="339" width="206" height="40" rx="8" />
+  </svg>
+</Stepper>

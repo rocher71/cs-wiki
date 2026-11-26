@@ -1,0 +1,98 @@
+---
+// Raft 로그 복제·커밋 6단계: 쓰기 요청 → 리더 7번 칸 기록(미확정) → AppendEntries → 과반 저장 → 커밋·OK → 하트비트로 커밋 전달·늦은 팔로워 재전송.
+// 같은 자리에 번갈아 나오는 7번 칸·상태 글자·아래 정리 상자는 class="hide".
+import Stepper from '../Stepper.astro';
+
+const steps = [
+  { caption: '클라이언트가 리더 S3에게 "x=3으로 바꿔 줘"라고 요청해요. 쓰기는 리더만 받아요.', show: ['req', 'n1'] },
+  { caption: '리더가 자기 로그 7번 칸에 (임기 2, x=3)을 적어요. 아직 과반이 갖고 있지 않아서 미확정(점선)이고, 실제 값에 적용하지 않아요.', show: ['L7p', 'n2'] },
+  { caption: '리더가 팔로워 4대에게 "7번 칸을 받아 적어 줘"(로그 복제 요청, AppendEntries)를 동시에 보내요.', show: ['L7p', 'bus', 'n3'] },
+  { caption: 'S1·S2가 받아 적고 "저장했어요"라고 답해요. 리더 자신까지 3대, 5대 중 과반이 7번 칸을 가졌어요. S4·S5는 아직 못 받았어요.', show: ['L7p', 'f17p', 'f27p', 'st1a', 'st2a', 'n4'] },
+  { caption: '과반이 저장했으니 7번 칸은 커밋(확정)이에요. 리더가 x=3을 적용하고 클라이언트에 OK를 보내요. 이제 리더가 죽어도 이 값은 사라지지 않아요.', show: ['L7c', 'stL', 'f17p', 'f27p', 'st1a', 'st2a', 'ok', 'n5'] },
+  { caption: '다음 하트비트에 "7번까지 커밋됐어"를 실어 보내면 팔로워들도 x=3을 적용해요. 늦게 받은 S4도 따라왔고, 아직 못 받은 S5에게는 받을 때까지 다시 보내요.', show: ['L7c', 'stL', 'f17c', 'f27c', 'f47c', 'st1b', 'st2b', 'st4b', 'st5b', 'bus', 'n6'] },
+];
+// 팔로워 행의 위쪽 y. 이름 상자 x 36~100, 칸은 x 108/162/216 (폭 50).
+const rows = [
+  { n: 'S1', y: 140 },
+  { n: 'S2', y: 188 },
+  { n: 'S4', y: 236 },
+  { n: 'S5', y: 284 },
+];
+const cells = [
+  { x: 108, v: 'y=5', t: '임기 1' },
+  { x: 162, v: 'z=2', t: '임기 2' },
+];
+---
+<Stepper title="Raft 로그 복제: 과반이 저장하면 커밋" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 408" role="img" aria-label="클라이언트 아래에 리더 S3의 로그, 그 아래에 팔로워 S1, S2, S4, S5의 로그가 줄지어 있는 그림. 리더가 7번 칸에 x=3을 미확정으로 적고 팔로워들에게 복제를 요청한다. S1과 S2가 저장해 리더 포함 3/5 과반이 되면 커밋하고 클라이언트에 OK를 보낸다. 다음 하트비트로 팔로워도 적용하고, 아직 못 받은 S5에게는 다시 보낸다.">
+    <defs>
+      <marker id="rlc-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+    </defs>
+
+    <!-- 클라이언트 -->
+    <rect class="box" x="8" y="6" width="100" height="34" rx="6" /><text x="58" y="24">클라이언트</text>
+    <g data-id="req" class="hide">
+      <line class="line acc" x1="40" y1="40" x2="40" y2="70" marker-end="url(#rlc-arr)" />
+      <text class="l hi" x="48" y="54">x=3 쓰기</text>
+    </g>
+    <g data-id="ok" class="hide">
+      <line class="line acc" x1="76" y1="72" x2="76" y2="42" marker-end="url(#rlc-arr)" />
+      <text class="l hi" x="84" y="54">OK</text>
+    </g>
+
+    <!-- 칸 번호 -->
+    <text class="sub" x="133" y="62">5번</text>
+    <text class="sub" x="187" y="62">6번</text>
+    <text class="sub" x="241" y="62">7번</text>
+
+    <!-- 리더 S3 -->
+    <rect class="box" x="8" y="72" width="92" height="48" rx="8" />
+    <text x="54" y="88">S3 <tspan class="hi">리더</tspan></text>
+    <text class="sub" x="54" y="108">임기 2</text>
+    {cells.map((c) => <><rect class="box" x={c.x} y="72" width="50" height="48" rx="4" /><text x={c.x + 25} y="88">{c.v}</text><text class="sub" x={c.x + 25} y="108">{c.t}</text></>)}
+    <rect class="frame" x="216" y="72" width="50" height="48" rx="4" />
+    <g data-id="L7p" class="hide"><rect class="bad" x="216" y="72" width="50" height="48" rx="4" /><text x="241" y="88">x=3</text><text class="sub" x="241" y="108">임기 2</text></g>
+    <g data-id="L7c" class="hide"><rect class="chip" x="216" y="72" width="50" height="48" rx="4" /><text x="241" y="88">x=3</text><text class="sub" x="241" y="108">임기 2</text></g>
+    <text data-id="stL" class="hi hide" x="293" y="96">적용</text>
+
+    <!-- 팔로워 -->
+    {rows.map((r) => <>
+      <rect class="box" x="36" y={r.y} width="64" height="44" rx="8" /><text x="68" y={r.y + 22}>{r.n}</text>
+      {cells.map((c) => <><rect class="box" x={c.x} y={r.y} width="50" height="44" rx="4" /><text x={c.x + 25} y={r.y + 14}>{c.v}</text><text class="sub" x={c.x + 25} y={r.y + 32}>{c.t}</text></>)}
+      <rect class="frame" x="216" y={r.y} width="50" height="44" rx="4" />
+    </>)}
+    <g data-id="f17p" class="hide"><rect class="bad" x="216" y="140" width="50" height="44" rx="4" /><text x="241" y="154">x=3</text><text class="sub" x="241" y="172">임기 2</text></g>
+    <g data-id="f17c" class="hide"><rect class="chip" x="216" y="140" width="50" height="44" rx="4" /><text x="241" y="154">x=3</text><text class="sub" x="241" y="172">임기 2</text></g>
+    <g data-id="f27p" class="hide"><rect class="bad" x="216" y="188" width="50" height="44" rx="4" /><text x="241" y="202">x=3</text><text class="sub" x="241" y="220">임기 2</text></g>
+    <g data-id="f27c" class="hide"><rect class="chip" x="216" y="188" width="50" height="44" rx="4" /><text x="241" y="202">x=3</text><text class="sub" x="241" y="220">임기 2</text></g>
+    <g data-id="f47c" class="hide"><rect class="chip" x="216" y="236" width="50" height="44" rx="4" /><text x="241" y="250">x=3</text><text class="sub" x="241" y="268">임기 2</text></g>
+
+    <!-- 팔로워 상태 -->
+    <text data-id="st1a" class="hi hide" x="293" y="162">저장</text>
+    <text data-id="st1b" class="hide" x="293" y="162">적용</text>
+    <text data-id="st2a" class="hi hide" x="293" y="210">저장</text>
+    <text data-id="st2b" class="hide" x="293" y="210">적용</text>
+    <text data-id="st4b" class="hide" x="293" y="258">적용</text>
+    <text data-id="st5b" class="err-t hide" x="293" y="306">재전송</text>
+
+    <!-- 리더 → 팔로워 복제 요청 / 하트비트 -->
+    <g data-id="bus" class="hide">
+      <path class="line acc" d="M20 120 V306" />
+      {rows.map((r) => <line class="line acc" x1="20" y1={r.y + 22} x2="34" y2={r.y + 22} marker-end="url(#rlc-arr)" />)}
+    </g>
+
+    <!-- 아래 정리 상자 (같은 자리, 번갈아) -->
+    <g data-id="n1" class="hide"><rect class="box" x="6" y="340" width="308" height="62" rx="8" /><text x="160" y="360">클라이언트 → 리더: x=3</text><text class="sub" x="160" y="384">쓰기는 리더만 받아요</text></g>
+    <g data-id="n2" class="hide"><rect class="box" x="6" y="340" width="308" height="62" rx="8" /><text x="160" y="360">7번 칸에 기록(점선)</text><text class="sub" x="160" y="384">아직 미확정 · 적용 안 함</text></g>
+    <g data-id="n3" class="hide"><rect class="chip" x="6" y="340" width="308" height="62" rx="8" /><text x="160" y="360">복제 요청(AppendEntries)</text><text class="sub" x="160" y="384">팔로워 4대에게 동시에</text></g>
+    <g data-id="n4" class="hide"><rect class="chip" x="6" y="340" width="308" height="62" rx="8" /><text x="160" y="360">저장 2대 + 리더 = <tspan class="hi">3/5</tspan></text><text class="sub" x="160" y="384">과반 확보</text></g>
+    <g data-id="n5" class="hide"><rect class="chip" x="6" y="340" width="308" height="62" rx="8" /><text x="160" y="360">커밋! 리더가 x=3 적용</text><text class="sub" x="160" y="384">클라이언트에 OK</text></g>
+    <g data-id="n6" class="hide"><rect class="box" x="6" y="340" width="308" height="62" rx="8" /><text x="160" y="360">하트비트: "7번까지 커밋"</text><text class="sub" x="160" y="384">팔로워도 적용 · S5엔 재전송</text></g>
+  </svg>
+</Stepper>
+
+<style>
+  .acc { stroke: var(--sl-color-accent) !important; stroke-width: 2 !important; }
+</style>

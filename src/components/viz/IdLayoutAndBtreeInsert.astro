@@ -1,0 +1,122 @@
+---
+// 위: Snowflake·UUID v7·UUID v4 비트 배치(RFC 9562 §5.4·§5.7, Snowflake README).
+// 아래: B+트리 리프 페이지에 새 키가 들어가는 위치 — 순차 키는 오른쪽 끝, v4는 중간에 끼어 페이지 분할.
+// 칸 폭은 글자가 들어가도록 조정해서 비트 수에 정확히 비례하지 않는다(Snowflake만 대략 비례).
+import Stepper from '../Stepper.astro';
+
+type Seg = { w: number; name: string; bits: string; cls: string };
+const bars: { id: string; label: string; y: number; segs: Seg[] }[] = [
+  { id: 'sf', label: 'Snowflake · 64비트', y: 24, segs: [
+    { w: 18, name: '', bits: '0', cls: 'bad' },
+    { w: 182, name: '시간(ms)', bits: '41', cls: 'chip' },
+    { w: 46, name: '기계', bits: '10', cls: 'box' },
+    { w: 54, name: '시퀀스', bits: '12', cls: 'box' },
+  ] },
+  { id: 'v7', label: 'UUID v7 · 128비트 (칸 폭은 대략)', y: 100, segs: [
+    { w: 100, name: '시간(ms)', bits: '48', cls: 'chip' },
+    { w: 28, name: 'ver', bits: '4', cls: 'bad' },
+    { w: 52, name: 'rand_a', bits: '12', cls: 'box' },
+    { w: 28, name: 'var', bits: '2', cls: 'bad' },
+    { w: 92, name: 'rand_b', bits: '62', cls: 'box' },
+  ] },
+  { id: 'v4', label: 'UUID v4 · 128비트 (난수 122)', y: 176, segs: [
+    { w: 100, name: '난수', bits: '48', cls: 'box' },
+    { w: 28, name: 'ver', bits: '4', cls: 'bad' },
+    { w: 52, name: '난수', bits: '12', cls: 'box' },
+    { w: 28, name: 'var', bits: '2', cls: 'bad' },
+    { w: 92, name: '난수', bits: '62', cls: 'box' },
+  ] },
+];
+const segX = (segs: Seg[], k: number) => 10 + segs.slice(0, k).reduce((s, g) => s + g.w, 0);
+
+// 리프 페이지: 한 페이지에 키 3칸. x = 8 + 78*col
+const PW = 70, PH = 34, R1 = 300, R2 = 364;
+const px = (c: number) => 8 + c * 78;
+const pages: { id: string; y: number; col: number; keys: string[] }[] = [
+  { id: 'seq', y: R1, col: 0, keys: ['10', '11', '12'] },
+  { id: 'seq', y: R1, col: 1, keys: ['13', '14', '15'] },
+  { id: 'seq', y: R1, col: 2, keys: ['16', '17', '18'] },
+  { id: 'seq', y: R1, col: 3, keys: ['19', '20', '·'] },
+  { id: 'rnd', y: R1, col: 0, keys: ['1a', '3c', '41'] },
+  { id: 'rnd', y: R1, col: 1, keys: ['4f', '6b', '8e'] },
+  { id: 'rnd', y: R1, col: 2, keys: ['a2', 'b7', 'c0'] },
+  { id: 'split', y: R2, col: 0, keys: ['1a', '3c', '41'] },
+  { id: 'split', y: R2, col: 1, keys: ['4f', '5d', '·'] },
+  { id: 'split', y: R2, col: 2, keys: ['6b', '8e', '·'] },
+  { id: 'split', y: R2, col: 3, keys: ['a2', 'b7', 'c0'] },
+];
+const newKey = (k: string, p: { keys: string[] }) => k === '20' || k === '5d';
+
+const steps = [
+  { caption: 'Snowflake는 64비트 정수예요. 맨 앞 부호 1비트는 0, 그다음 41비트가 시간(ms)이에요. 시간이 앞에 있어서 숫자 크기 순서가 대략 생성 시간 순서예요.', show: ['sf', 't1', 'pv'] },
+  { caption: 'UUID v7은 128비트예요. 앞 48비트가 Unix 시간(ms)이고, 버전 4비트·rand_a 12비트·변형 2비트·rand_b 62비트가 뒤따라요. 역시 앞이 시간이라 정렬하면 시간순이에요.', show: ['sf', 'v7', 't2', 'pv'] },
+  { caption: 'UUID v4는 버전·변형 6비트를 빼고 122비트가 모두 난수예요. 크기 순으로 정렬해도 언제 만들었는지와 상관이 없어요.', show: ['sf', 'v7', 'v4', 't3', 'pv'] },
+  { caption: 'auto_increment나 v7처럼 커지는 키는 B+트리에서 늘 맨 오른쪽 리프 페이지 끝에 붙어요. 앞 페이지들은 꽉 찬 채로 건드릴 일이 없어요.', show: ['sf', 'v7', 'seq', 'k20', 'hlSeq', 'b4'] },
+  { caption: 'v4 키 5d는 4f와 6b 사이, 이미 꽉 찬 페이지 한가운데로 들어가야 해요. 자리가 없으니 페이지를 둘로 쪼개요(페이지 분할). 이런 반쯤 빈 페이지가 계속 늘어나요.', show: ['v4', 'rnd', 'k5d', 'hlRnd', 'split', 'hlSplit', 'b5'] },
+];
+---
+<Stepper title="ID 비트 배치와 인덱스에 들어가는 자리" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 428" role="img" aria-label="Snowflake와 UUID v7은 앞쪽 비트가 시간이라 B+트리 맨 오른쪽 페이지에 차례로 붙고, UUID v4는 난수라 꽉 찬 페이지 중간에 끼어들어 페이지 분할을 일으키는 모습">
+    <defs>
+      <marker id="idb-a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+    </defs>
+
+    <!-- 비트 막대 3개 -->
+    {bars.map((b) => (
+      <g data-id={b.id}>
+        <text class="sub l" x="10" y={b.y - 12}>{b.label}</text>
+        {b.segs.map((s, k) => (
+          <>
+            <rect class={s.cls} x={segX(b.segs, k)} y={b.y} width={s.w} height="44" />
+            {s.name && <text x={segX(b.segs, k) + s.w / 2} y={b.y + 14} style="font-size:14px">{s.name}</text>}
+            <text x={segX(b.segs, k) + s.w / 2} y={s.name ? b.y + 32 : b.y + 22} style="font-size:14px">{s.bits}</text>
+          </>
+        ))}
+      </g>
+    ))}
+    <text data-id="t1" class="hi hide" x="160" y="240">앞이 시간 → 숫자 순 ≈ 시간순</text>
+    <text data-id="t2" class="hi hide" x="160" y="240">v7도 앞 48비트가 시간</text>
+    <text data-id="t3" class="hi hide" x="160" y="240">v4는 정렬해도 시간과 무관</text>
+
+    <!-- B+트리 리프 -->
+    <text class="sub l" x="10" y="264">B+트리 리프 페이지 (키 정렬, 3칸)</text>
+    <!-- 1~3단계: 리프 영역이 비어 보이지 않게 빈 페이지 자리와 예고 문구 -->
+    <g data-id="pv" class="hide">
+      {[0, 1, 2, 3].map((c) => (
+        <rect class="box" x={px(c)} y={R1} width={PW} height={PH} rx="5" style="stroke-dasharray:4 3;fill:none" />
+      ))}
+      <text class="sub" x="160" y="364">4단계부터: 새 키가 어느 페이지에</text>
+      <text class="sub" x="160" y="384">들어가는지 봐요</text>
+    </g>
+    {pages.map((p) => (
+      <g data-id={p.id} class="hide">
+        <rect class="box" x={px(p.col)} y={p.y} width={PW} height={PH} rx="5" />
+        {p.keys.map((k, j) => (
+          <>
+            {newKey(k, p) && <rect class="chip" x={px(p.col) + 3 + j * 22} y={p.y + 5} width="20" height="24" rx="3" />}
+            <text x={px(p.col) + 13 + j * 22} y={p.y + 17} style="font-size:14px">{k}</text>
+          </>
+        ))}
+      </g>
+    ))}
+    <!-- 새 키 -->
+    <g data-id="k20" class="hide">
+      <text class="hi" x={px(3) + 35} y="284" style="font-size:14px">새 키 20</text>
+      <line x1={px(3) + 35} y1="291" x2={px(3) + 35} y2="298" style="stroke:var(--sl-color-accent);stroke-width:2" marker-end="url(#idb-a)" />
+    </g>
+    <rect data-id="hlSeq" class="hl" x={px(3) - 3} y={R1 - 3} width={PW + 6} height={PH + 6} rx="7" />
+    <g data-id="k5d" class="hide">
+      <text class="hi" x={px(1) + 35} y="284" style="font-size:14px">새 키 5d</text>
+      <line x1={px(1) + 35} y1="291" x2={px(1) + 35} y2="298" style="stroke:var(--sl-color-accent);stroke-width:2" marker-end="url(#idb-a)" />
+    </g>
+    <rect data-id="hlRnd" class="hl" x={px(1) - 3} y={R1 - 3} width={PW + 6} height={PH + 6} rx="7" />
+    <text data-id="split" class="sub l hide" x="10" y="348">분할 후 ↓</text>
+    <rect data-id="hlSplit" class="hl" x={px(1) - 3} y={R2 - 3} width={PW * 2 + 14} height={PH + 6} rx="7" />
+
+    <text data-id="b4" class="hi hide" x="160" y="381">앞 페이지는 꽉 찬 그대로, 분할 없음</text>
+    <text data-id="b4" class="hi hide" x="160" y="414">새 키는 늘 오른쪽 끝에 붙어요</text>
+    <text data-id="b5" class="err-t hide" x="160" y="414">반쯤 빈 페이지 2개 → 페이지 수 ↑</text>
+  </svg>
+</Stepper>

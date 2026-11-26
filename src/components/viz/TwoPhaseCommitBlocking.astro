@@ -1,0 +1,102 @@
+---
+// 2PC 8단계: 쓰기(잠금) → prepare → 예(약속) → 커밋 포인트(로그) → 정상 커밋 / 장애: 한쪽만 커밋 후 코디네이터 다운 → 의심 상태로 잠금 유지 → 재시작 후 로그로 복구.
+// 메시지 화살표·DB 상태 글자·잠금 표시·아래 정리 상자는 같은 자리에 번갈아 나오므로 class="hide".
+import Stepper from '../Stepper.astro';
+const steps = [
+  { caption: '앱이 주문 DB와 재고 DB에 같은 트랜잭션 ID(tx-7)로 쓰기를 해요. 각 DB는 바꾸는 행에 잠금을 걸어요.', show: ['mWrite', 'oWork', 'sWork', 'oLock', 'sLock'] },
+  { caption: '1단계(prepare): 코디네이터가 두 DB에 "커밋할 준비 됐니?"라고 물어요.', show: ['mPrep', 'oWork', 'sWork', 'oLock', 'sLock'] },
+  { caption: '두 DB가 변경 내용을 디스크에 기록한 뒤 "예"라고 답해요. 이건 약속이라서, 이제 DB 혼자서는 취소할 수 없어요. 잠금도 계속 쥐고 있어요.', show: ['mYes', 'oReady', 'sReady', 'oLock', 'sLock', 'nPromise'] },
+  { caption: '모두 "예"라서 코디네이터가 "커밋"으로 결정하고 자기 로그에 먼저 적어요. 이 순간이 커밋 포인트예요.', show: ['log', 'oReady', 'sReady', 'oLock', 'sLock', 'nPoint'] },
+  { caption: '정상 흐름: 2단계(commit)로 두 DB에 "커밋"을 보내요. 두 DB가 커밋하고 잠금을 풀어요. 끝!', show: ['log', 'mCommit', 'oDone', 'sDone', 'oFree', 'sFree', 'nOk'] },
+  { caption: '장애 흐름(4단계에서 다시): 재고 DB에만 "커밋"을 보낸 직후 코디네이터가 죽어요. 재고 DB는 커밋하고 잠금을 풀었어요.', show: ['log', 'mCommitR', 'cDown', 'oReady', 'sDone', 'oLock', 'sFree', 'nHalf'] },
+  { caption: '주문 DB는 "예"라고 약속했으니 혼자 취소도 못 하고, 커밋인지 모르니 커밋도 못 해요. 잠금을 쥔 채 기다리고, 그 행을 쓰려는 다른 요청도 같이 막혀요. 이게 2PC의 블로킹이에요.', show: ['log', 'cDown', 'oDoubt', 'sDone', 'oLock', 'sFree', 'nBlock'] },
+  { caption: '코디네이터가 재시작해 로그를 읽어요. "커밋"이라고 적혀 있으니 주문 DB에 커밋을 다시 보내요. 그제야 잠금이 풀려요.', show: ['log', 'cBack', 'mCommitL', 'oDone', 'sDone', 'oFree', 'sFree', 'nRecover'] },
+];
+---
+<Stepper title="2PC와 코디네이터 장애(블로킹)" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 362" role="img" aria-label="코디네이터 아래에 주문 DB와 재고 DB가 있는 그림. 쓰기로 잠금을 건 뒤 준비 요청, 예 응답, 로그에 커밋 결정 기록, 커밋 전송 순으로 진행한다. 장애 흐름에서는 재고 DB에만 커밋이 전달된 뒤 코디네이터가 죽어, 주문 DB가 결정을 모른 채 잠금을 쥐고 기다리다가 코디네이터 재시작 후 커밋을 받아 잠금을 푼다.">
+    <defs>
+      <marker id="tpc-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+    </defs>
+
+    <!-- 코디네이터 -->
+    <rect class="box" x="10" y="8" width="160" height="54" rx="8" />
+    <text x="90" y="27"><tspan font-weight="700">코디네이터</tspan></text>
+    <text class="sub" x="90" y="48">트랜잭션 관리자</text>
+    <g data-id="cDown" class="hide">
+      <rect class="err" x="10" y="8" width="160" height="54" rx="8" />
+      <path class="tpc-x" d="M24 14 L156 56 M156 14 L24 56" />
+      <text class="err-t" x="90" y="36">다운</text>
+    </g>
+    <text data-id="cBack" class="hi hide" x="90" y="76">재시작</text>
+    <g data-id="log" class="hide">
+      <rect class="chip" x="182" y="8" width="128" height="54" rx="8" />
+      <text x="246" y="27">로그</text>
+      <text class="hi" x="246" y="48">"커밋" 기록</text>
+    </g>
+
+    <!-- 메시지 화살표 (같은 자리, 번갈아) -->
+    <g data-id="mWrite" class="hide">
+      <line class="tpc-m" x1="60" y1="64" x2="60" y2="152" marker-end="url(#tpc-a)" />
+      <line class="tpc-m" x1="140" y1="64" x2="230" y2="152" marker-end="url(#tpc-a)" />
+      <text class="hi" x="125" y="110">쓰기 tx-7</text>
+    </g>
+    <g data-id="mPrep" class="hide">
+      <line class="tpc-m" x1="60" y1="64" x2="60" y2="152" marker-end="url(#tpc-a)" />
+      <line class="tpc-m" x1="140" y1="64" x2="230" y2="152" marker-end="url(#tpc-a)" />
+      <text class="hi" x="122" y="110">준비됐니?</text>
+    </g>
+    <g data-id="mYes" class="hide">
+      <line class="tpc-m" x1="60" y1="152" x2="60" y2="66" marker-end="url(#tpc-a)" />
+      <line class="tpc-m" x1="230" y1="152" x2="140" y2="66" marker-end="url(#tpc-a)" />
+      <text class="hi" x="118" y="110">예</text>
+    </g>
+    <g data-id="mCommit" class="hide">
+      <line class="tpc-m" x1="60" y1="64" x2="60" y2="152" marker-end="url(#tpc-a)" />
+      <line class="tpc-m" x1="140" y1="64" x2="230" y2="152" marker-end="url(#tpc-a)" />
+      <text class="hi" x="118" y="110">커밋</text>
+    </g>
+    <g data-id="mCommitR" class="hide">
+      <line class="tpc-m" x1="140" y1="64" x2="230" y2="152" marker-end="url(#tpc-a)" />
+      <text class="hi" x="150" y="110">커밋</text>
+    </g>
+    <g data-id="mCommitL" class="hide">
+      <line class="tpc-m" x1="60" y1="84" x2="60" y2="152" marker-end="url(#tpc-a)" />
+      <text class="hi l" x="70" y="118">커밋 재전송</text>
+    </g>
+
+    <!-- 주문 DB -->
+    <rect class="box" x="10" y="156" width="140" height="104" rx="8" />
+    <text x="80" y="176"><tspan font-weight="700">주문 DB</tspan></text>
+    <text data-id="oWork" class="hide" x="80" y="204">쓰는 중</text>
+    <text data-id="oReady" class="hide" x="80" y="204">준비 완료(약속)</text>
+    <text data-id="oDone" class="hi hide" x="80" y="204">커밋 완료</text>
+    <text data-id="oDoubt" class="err-t hide" x="80" y="204">커밋? 취소?</text>
+    <g data-id="oLock" class="hide"><rect class="err" x="30" y="220" width="100" height="28" rx="14" /><text class="err-t" x="80" y="235">잠금 중</text></g>
+    <text data-id="oFree" class="sub hide" x="80" y="235">잠금 해제</text>
+
+    <!-- 재고 DB -->
+    <rect class="box" x="170" y="156" width="140" height="104" rx="8" />
+    <text x="240" y="176"><tspan font-weight="700">재고 DB</tspan></text>
+    <text data-id="sWork" class="hide" x="240" y="204">쓰는 중</text>
+    <text data-id="sReady" class="hide" x="240" y="204">준비 완료(약속)</text>
+    <text data-id="sDone" class="hi hide" x="240" y="204">커밋 완료</text>
+    <g data-id="sLock" class="hide"><rect class="err" x="190" y="220" width="100" height="28" rx="14" /><text class="err-t" x="240" y="235">잠금 중</text></g>
+    <text data-id="sFree" class="sub hide" x="240" y="235">잠금 해제</text>
+
+    <!-- 아래 정리 상자 (같은 자리, 번갈아) -->
+    <g data-id="nPromise" class="hide"><rect class="chip" x="10" y="278" width="300" height="74" rx="8" /><text x="160" y="302">"예" = 약속</text><text class="sub" x="160" y="330">이제 DB 혼자 취소할 수 없음</text></g>
+    <g data-id="nPoint" class="hide"><rect class="chip" x="10" y="278" width="300" height="74" rx="8" /><text x="160" y="302">커밋 포인트</text><text class="sub" x="160" y="330">이후엔 무슨 일이 있어도 커밋</text></g>
+    <g data-id="nOk" class="hide"><rect class="chip" x="10" y="278" width="300" height="74" rx="8" /><text x="160" y="302">정상 종료</text><text class="sub" x="160" y="330">두 DB 모두 커밋, 잠금 해제</text></g>
+    <g data-id="nHalf" class="hide"><rect class="err" x="10" y="278" width="300" height="74" rx="8" /><text class="err-t" x="160" y="302">커밋이 반쪽만 전달됨</text><text class="sub" x="160" y="330">주문 DB는 아직 결정을 모름</text></g>
+    <g data-id="nBlock" class="hide"><rect class="err" x="10" y="278" width="300" height="74" rx="8" /><text class="err-t" x="160" y="302">블로킹: 잠금 쥔 채 대기</text><text class="sub" x="160" y="330">같은 행을 쓰려는 요청도 막힘</text></g>
+    <g data-id="nRecover" class="hide"><rect class="chip" x="10" y="278" width="300" height="74" rx="8" /><text x="160" y="302">로그로 결정 복구</text><text class="sub" x="160" y="330">코디네이터가 살아나야 풀림</text></g>
+  </svg>
+</Stepper>
+
+<style>
+  .tpc-m { stroke: var(--sl-color-accent); stroke-width: 2; fill: none; }
+  .tpc-x { stroke: var(--sl-color-red); stroke-width: 3; fill: none; opacity: .55; }
+</style>

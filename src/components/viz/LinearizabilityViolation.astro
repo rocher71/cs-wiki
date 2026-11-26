@@ -1,0 +1,87 @@
+---
+// 선형성 위반: A의 쓰기(x=2)가 끝난 뒤 시작한 B의 읽기가 팔로워에서 옛 값(x=1)을 본다. 잠시 뒤 수렴.
+// 위: 클라이언트 / 가운데: 리더·팔로워 / 아래: 시간 축(A 쓰기 구간, B 읽기 구간)과 단계 라벨. 번갈아 나오는 요소는 class="hide".
+import Stepper from '../Stepper.astro';
+const notes = [
+  '① 처음엔 둘 다 x = 1',
+  '② A의 쓰기 완료, 복제는 아직',
+  '③ 쓰기가 끝난 뒤 읽었는데 1',
+  '④ 선형성 위반 (최종 일관성은 허용)',
+  '⑤ 복제 도착 → 결국 x = 2로 수렴',
+];
+const base = ['L', 'F', 'rep', 'axis'];
+const steps = [
+  { caption: '같은 데이터를 리더와 팔로워 두 곳에 복제해 뒀어요. 처음 값은 둘 다 x=1이에요.', show: [...base, 'l1', 'f1', 'n1'] },
+  { caption: '클라이언트 A가 리더에 x=2를 쓰고 "완료" 응답까지 받았어요. 팔로워로 가는 복제는 아직 도착 전이에요.', show: [...base, 'wA', 'l2', 'f1', 'pkt', 'barA', 'hlL', 'n2'] },
+  { caption: 'A의 쓰기가 끝난 뒤에 클라이언트 B가 팔로워에서 x를 읽어요. 팔로워는 아직 x=1이라 옛 값이 나와요.', show: [...base, 'rB', 'l2', 'f1', 'pkt', 'barA', 'barB1', 'hlF', 'n3'] },
+  { caption: 'A의 쓰기가 끝난 뒤에 시작한 B의 읽기가 1을 봤어요. 사본이 하나뿐이었다면 쓰기가 끝난 뒤의 읽기는 무조건 2여야 해요. 그래서 선형성 위반이에요. 최종 일관성은 이 상태를 허용해요.', show: [...base, 'l2', 'f1', 'pkt', 'barA', 'barB1', 'cmp', 'n4'] },
+  { caption: '잠시 뒤 복제가 도착해 팔로워도 x=2가 돼요. 이제 B가 다시 읽으면 2가 나와요. 시간이 지나면 같아진다는 게 최종 일관성이에요.', show: [...base, 'rB', 'l2', 'f2', 'arrived', 'barA', 'barB2', 'hlF', 'n5'] },
+];
+---
+<Stepper title="쓰기가 끝났는데 옛 값이 보이면" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 316" role="img" aria-label="클라이언트 A가 리더에 x=2를 쓰고 완료 응답을 받은 뒤, 클라이언트 B가 아직 복제가 안 온 팔로워에서 x=1을 읽는다. 쓰기 완료 뒤 시작한 읽기가 옛 값을 봤으므로 선형성 위반이고, 잠시 뒤 복제가 도착해 둘 다 x=2가 된다.">
+    <defs>
+      <marker id="lin-arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0,0 L10,5 L0,10 z" style="fill:var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+    <rect class="box" x="10" y="8" width="120" height="36" rx="6" /><text x="70" y="27">클라이언트 A</text>
+    <rect class="box" x="190" y="8" width="120" height="36" rx="6" /><text x="250" y="27">클라이언트 B</text>
+
+    <g data-id="wA" class="hide">
+      <line class="line" x1="70" y1="46" x2="70" y2="96" marker-end="url(#lin-arr)" />
+      <text class="hi l" x="78" y="64">x=2 쓰기</text>
+      <text class="sub l" x="78" y="82">완료 응답 ✓</text>
+    </g>
+    <g data-id="rB" class="hide">
+      <line class="line" x1="250" y1="46" x2="250" y2="96" marker-end="url(#lin-arr)" />
+      <text class="hi l" x="258" y="72">x 읽기</text>
+    </g>
+
+    <g data-id="L">
+      <rect class="box" x="10" y="100" width="120" height="76" rx="8" />
+      <text x="70" y="120" style="font-weight:700">리더</text>
+    </g>
+    <g data-id="F">
+      <rect class="box" x="190" y="100" width="120" height="76" rx="8" />
+      <text x="250" y="120" style="font-weight:700">팔로워</text>
+    </g>
+    <text data-id="l1" class="hide" x="70" y="152" style="font-size:18px">x = 1</text>
+    <text data-id="l2" class="hi hide" x="70" y="152" style="font-size:18px">x = 2</text>
+    <text data-id="f1" class="hide" x="250" y="152" style="font-size:18px">x = 1</text>
+    <text data-id="f2" class="hi hide" x="250" y="152" style="font-size:18px">x = 2</text>
+    <rect data-id="hlL" class="hl" x="7" y="97" width="126" height="82" rx="10" />
+    <rect data-id="hlF" class="hl" x="187" y="97" width="126" height="82" rx="10" />
+
+    <!-- 복제 -->
+    <line data-id="rep" class="line" x1="134" y1="140" x2="186" y2="140" marker-end="url(#lin-arr)" style="stroke-dasharray:4 3" />
+    <g data-id="pkt" class="hide">
+      <text class="sub" x="160" y="158">x=2</text>
+      <text class="sub" x="160" y="176">가는 중</text>
+    </g>
+    <text data-id="arrived" class="sub hide" x="160" y="158">도착</text>
+
+    <!-- 시간 축 -->
+    <g data-id="axis">
+      <line class="line" x1="10" y1="240" x2="306" y2="240" marker-end="url(#lin-arr)" />
+      <text class="sub" x="306" y="202" style="text-anchor:end">시간 →</text>
+    </g>
+    <g data-id="barA" class="hide">
+      <rect class="chip" x="10" y="214" width="130" height="22" rx="4" />
+      <text x="75" y="225" style="font-size:14px">A: x=2 쓰기 끝</text>
+    </g>
+    <g data-id="barB1" class="hide">
+      <rect class="err" x="160" y="244" width="150" height="22" rx="4" />
+      <text class="err-t" x="235" y="255" style="font-size:14px">B: 읽기 → 1</text>
+    </g>
+    <g data-id="barB2" class="hide">
+      <rect class="chip" x="160" y="244" width="150" height="22" rx="4" />
+      <text x="235" y="255" style="font-size:14px">B: 다시 읽기 → 2</text>
+    </g>
+    <g data-id="cmp" class="hide">
+      <line class="line" x1="150" y1="208" x2="150" y2="270" style="stroke-dasharray:3 3" />
+    </g>
+
+    {notes.map((t, i) => <text data-id={`n${i + 1}`} class="hi hide" x="160" y="294" style="font-size:15px">{t}</text>)}
+  </svg>
+</Stepper>

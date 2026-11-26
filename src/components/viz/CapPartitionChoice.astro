@@ -1,0 +1,91 @@
+---
+// CAP: 네트워크 분할 중 B에 읽기가 오면 '에러(C 선택)'와 '옛 값(A 선택)' 중 하나를 골라야 한다.
+// 위: 클라이언트 / 가운데: 노드 A·B와 복제선 / 아래: 결과 상자와 단계 라벨. 같은 자리에 번갈아 나오는 요소는 class="hide".
+import Stepper from '../Stepper.astro';
+const notes = [
+  '① 정상: 복제가 잘 됨',
+  '② 네트워크 분할(P)',
+  '③ 분할 중 A에만 새 값',
+  '④ 갈림길: B는 어떻게 답할까',
+  '⑤ C 선택: 가용성 포기',
+  '⑤ A 선택: 일관성 포기',
+  '⑥ 복구 후엔 지연 vs 일관성(ELC)',
+];
+const results: [string, string, string][] = [
+  ['r1', 'chip', '어디서 읽어도 x = 1'],
+  ['r2', 'box', '둘 다 살아 있지만 연락이 안 돼요'],
+  ['r3', 'box', 'B는 x = 2가 생긴 걸 몰라요'],
+  ['r4', 'box', 'B: 에러를 줄까, 옛 값을 줄까?'],
+  ['rC', 'err', 'B: "지금은 답 못 해요" (에러)'],
+  ['rA', 'chip', 'B: x = 1 (옛 값으로 응답)'],
+  ['r6', 'chip', '다시 맞춤 → 둘 다 x = 2'],
+];
+const base = ['A', 'B'];
+const steps = [
+  { caption: '정상: 클라이언트1이 노드 A에 x=1을 써요. A는 B에 복제해서, 어느 노드에서 읽어도 1이 나와요.', show: [...base, 'link', 'w1', 'a1', 'b1', 'r1', 'n1'] },
+  { caption: '네트워크 분할: A와 B 사이 연결이 끊겼어요. 두 노드는 모두 살아 있고 요청도 받을 수 있어요. 서로 연락만 못 해요.', show: [...base, 'cut', 'a1', 'b1', 'r2', 'n2'] },
+  { caption: '클라이언트1이 A에 x=2를 써요. 복제할 길이 끊겨서 B는 여전히 x=1이고, 바뀐 줄도 몰라요.', show: [...base, 'cut', 'w2', 'a2', 'b1', 'r3', 'hlA', 'n3'] },
+  { caption: '이때 클라이언트2가 B에 x를 읽어 달라고 해요. B는 자기 값이 최신인지 확인할 방법이 없어요. 여기서 둘 중 하나를 골라야 해요.', show: [...base, 'cut', 'rd', 'a2', 'b1', 'r4', 'hlB', 'n4'] },
+  { caption: 'C(일관성)를 고르면: B는 "최신인지 확신 못 하니 답하지 않을게요"라며 에러나 타임아웃을 줘요. 틀린 값은 안 주지만, 살아 있는 노드가 응답을 못 했으니 가용성을 포기한 거예요.', show: [...base, 'cut', 'rd', 'a2', 'b1', 'rC', 'hlB', 'n5'] },
+  { caption: 'A(가용성)를 고르면: B는 갖고 있는 x=1을 그대로 돌려줘요. 응답은 했지만 A에는 이미 2가 있으니, 옛 값을 준 거예요. 일관성을 포기한 거예요.', show: [...base, 'cut', 'rd', 'a2', 'b1', 'rA', 'hlB', 'n6'] },
+  { caption: '연결이 돌아오면 B가 x=2를 받아 값을 다시 맞춰요. 분할이 없는 평소엔 C와 A를 둘 다 지킬 수 있고, 대신 "확인하고 답할까(느림) vs 바로 답할까(빠름)"를 고르게 돼요. 이게 PACELC의 E 부분이에요.', show: [...base, 'link', 'a2', 'b2', 'r6', 'n7'] },
+];
+---
+<Stepper title="네트워크가 끊기면: 에러냐, 옛 값이냐" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 312" role="img" aria-label="노드 A와 B가 복제로 연결된 그림. 연결이 끊긴 뒤 A에만 x=2가 쓰이고, B에 읽기가 오면 일관성을 고르면 에러를, 가용성을 고르면 옛 값 x=1을 준다. 연결이 돌아오면 다시 x=2로 맞춘다.">
+    <defs>
+      <marker id="cap-arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0,0 L10,5 L0,10 z" style="fill:var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+    <!-- 클라이언트 -->
+    <rect class="box" x="10" y="8" width="120" height="36" rx="6" /><text x="70" y="27">클라이언트1</text>
+    <rect class="box" x="190" y="8" width="120" height="36" rx="6" /><text x="250" y="27">클라이언트2</text>
+
+    <!-- 요청 화살표 -->
+    <line data-id="w1" class="line hide" x1="70" y1="46" x2="70" y2="96" marker-end="url(#cap-arr)" />
+    <line data-id="w2" class="line hide" x1="70" y1="46" x2="70" y2="96" marker-end="url(#cap-arr)" />
+    <text data-id="w1" class="hi l hide" x="80" y="72">x=1 쓰기</text>
+    <text data-id="w2" class="hi l hide" x="80" y="72">x=2 쓰기</text>
+    <g data-id="rd" class="hide">
+      <line class="line" x1="250" y1="46" x2="250" y2="96" marker-end="url(#cap-arr)" />
+      <text class="hi l" x="258" y="72">x 읽기</text>
+    </g>
+
+    <!-- 노드 -->
+    <g data-id="A">
+      <rect class="box" x="10" y="100" width="120" height="86" rx="8" />
+      <text x="70" y="120" style="font-weight:700">노드 A</text>
+    </g>
+    <g data-id="B">
+      <rect class="box" x="190" y="100" width="120" height="86" rx="8" />
+      <text x="250" y="120" style="font-weight:700">노드 B</text>
+    </g>
+    <text data-id="a1" class="hide" x="70" y="158" style="font-size:18px">x = 1</text>
+    <text data-id="a2" class="hi hide" x="70" y="158" style="font-size:18px">x = 2</text>
+    <text data-id="b1" class="hide" x="250" y="158" style="font-size:18px">x = 1</text>
+    <text data-id="b2" class="hi hide" x="250" y="158" style="font-size:18px">x = 2</text>
+    <rect data-id="hlA" class="hl" x="7" y="97" width="126" height="92" rx="10" />
+    <rect data-id="hlB" class="hl" x="187" y="97" width="126" height="92" rx="10" />
+
+    <!-- 복제선 / 끊김 -->
+    <g data-id="link" class="hide">
+      <line class="line" x1="134" y1="150" x2="186" y2="150" style="stroke-dasharray:4 3" />
+      <text class="sub" x="160" y="134">복제</text>
+    </g>
+    <g data-id="cut" class="hide">
+      <text class="err-t" x="160" y="150" style="font-size:22px">✕</text>
+      <text class="err-t" x="160" y="174" style="font-size:14px">끊김</text>
+    </g>
+
+    <!-- 결과 -->
+    {results.map(([id, cls, t]) => (
+      <g data-id={id} class="hide">
+        <rect class={cls} x="10" y="206" width="300" height="44" rx="6" />
+        <text class={cls === 'err' ? 'err-t' : ''} x="160" y="228">{t}</text>
+      </g>
+    ))}
+
+    {notes.map((t, i) => <text data-id={`n${i + 1}`} class="hi hide" x="160" y="284" style="font-size:15px">{t}</text>)}
+  </svg>
+</Stepper>

@@ -1,0 +1,122 @@
+---
+// 이중 쓰기 실패 2가지(유실, 유령 이벤트) → Outbox(한 트랜잭션) → 릴레이 발행 → 중복 발행을 소비자가 ID로 거름.
+// 앞 2단계와 뒤 3단계는 그림이 다르고 같은 자리에 번갈아 나오므로 모든 그룹에 class="hide".
+import Stepper from '../Stepper.astro';
+const steps = [
+  { caption: '이중 쓰기 실패 A: 주문을 DB에 커밋했는데, Kafka로 메시지를 보내기 직전에 서버가 죽었어요. 결제 서비스는 주문이 생긴 줄 몰라요(유실).', show: ['d-base', 'a-db', 'a-down', 'a-miss', 'a-res'] },
+  { caption: '이중 쓰기 실패 B: 순서를 바꿔 메시지를 먼저 보냈더니, 그다음 DB 저장이 실패해 롤백됐어요. 없는 주문의 이벤트가 이미 나가 버렸어요(유령 이벤트).', show: ['d-base', 'b-pub', 'b-rb', 'b-flow', 'b-res'] },
+  { caption: 'Outbox: 주문 행과 "보낼 메시지" 행을 같은 DB, 같은 트랜잭션으로 INSERT해요. 둘 다 커밋되거나 둘 다 취소돼서 어긋날 일이 없어요.', show: ['o-base', 'o-tx'] },
+  { caption: '릴레이(주기적으로 조회하는 폴링, 또는 DB 변경 로그를 읽는 CDC)가 outbox의 새 행을 읽어 Kafka로 발행해요. 결제 서비스가 받아 처리해요.', show: ['o-base', 'o-tx', 'o-relay', 'o-pub'] },
+  { caption: '릴레이가 발행은 했는데 "보냄" 표시를 남기기 전에 죽으면, 다시 살아나 같은 메시지를 또 보내요. 그래서 소비자는 메시지 ID를 기억해 두고 이미 처리한 건 건너뛰어요.', show: ['o-base', 'o-tx', 'o-relay', 'o-pub', 'o-dup'] },
+];
+const halo = 'paint-order:stroke;stroke:var(--sl-color-gray-7, var(--sl-color-black));stroke-width:5px;stroke-linejoin:round';
+const acc = 'stroke:var(--sl-color-accent);stroke-width:2.4;fill:none';
+const dash = 'stroke-dasharray:5 4';
+---
+<Stepper title="이중 쓰기 vs Transactional Outbox" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 400" role="img" aria-label="DB와 메시지를 따로 쓰면 유실이나 유령 이벤트가 생기고, outbox 테이블에 같은 트랜잭션으로 쓰면 릴레이가 나중에 안전하게 발행하며 중복은 소비자가 걸러내는 모습">
+    <defs>
+      <marker id="dwo-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+      <marker id="dwo-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+
+    <!-- 이중 쓰기 -->
+    <g data-id="d-base" class="hide">
+      <text class="hi" x="160" y="14">이중 쓰기: DB와 Kafka에 따로</text>
+      <rect class="box" x="100" y="34" width="120" height="44" rx="8" />
+      <text x="160" y="56" style="font-weight:700">주문 서버</text>
+      <rect class="box" x="10" y="150" width="120" height="50" rx="8" />
+      <text x="70" y="175" style="font-weight:700">주문 DB</text>
+      <rect class="box" x="190" y="150" width="120" height="50" rx="8" />
+      <text x="250" y="175" style="font-weight:700">Kafka</text>
+      <rect class="box" x="190" y="262" width="120" height="44" rx="8" />
+      <text x="250" y="284" style="font-weight:700">결제 서비스</text>
+      <line class="line" x1="250" y1="202" x2="250" y2="258" marker-end="url(#dwo-g)" />
+    </g>
+    <g data-id="a-db" class="hide">
+      <line x1="130" y1="80" x2="84" y2="146" style={acc} marker-end="url(#dwo-a)" />
+      <text class="hi" x="62" y="108" style={halo}>① 커밋 ✓</text>
+    </g>
+    <g data-id="a-down" class="hide">
+      <rect class="err" x="100" y="34" width="120" height="44" rx="8" />
+      <text class="err-t" x="160" y="56">✕ 서버 다운</text>
+    </g>
+    <g data-id="a-miss" class="hide">
+      <line class="line" x1="190" y1="80" x2="236" y2="146" style={dash} />
+      <text class="err-t" x="262" y="108" style={halo}>② 못 보냄</text>
+    </g>
+    <g data-id="a-res" class="hide">
+      <rect class="err" x="10" y="330" width="300" height="56" rx="8" />
+      <text class="err-t" x="160" y="348">결제 서비스는 주문을 몰라요</text>
+      <text class="err-t" x="160" y="370">= 메시지 유실</text>
+    </g>
+    <g data-id="b-pub" class="hide">
+      <line x1="190" y1="80" x2="236" y2="146" style={acc} marker-end="url(#dwo-a)" />
+      <text class="hi" x="262" y="108" style={halo}>① 발행 ✓</text>
+    </g>
+    <g data-id="b-rb" class="hide">
+      <line class="line" x1="130" y1="80" x2="84" y2="146" style={dash} />
+      <text class="err-t" x="62" y="108" style={halo}>② 실패</text>
+      <rect class="err" x="10" y="150" width="120" height="50" rx="8" />
+      <text class="err-t" x="70" y="175">✕ 롤백됨</text>
+    </g>
+    <g data-id="b-flow" class="hide">
+      <line x1="250" y1="202" x2="250" y2="258" style={acc} marker-end="url(#dwo-a)" />
+      <text class="sub" x="100" y="284">주문 #42 없음</text>
+    </g>
+    <g data-id="b-res" class="hide">
+      <rect class="err" x="10" y="330" width="300" height="56" rx="8" />
+      <text class="err-t" x="160" y="348">없는 주문의 이벤트가 나갔어요</text>
+      <text class="err-t" x="160" y="370">= 유령 이벤트</text>
+    </g>
+
+    <!-- Outbox -->
+    <g data-id="o-base" class="hide">
+      <text class="hi" x="160" y="14">Outbox: 한 트랜잭션에 같이</text>
+      <rect class="box" x="100" y="30" width="120" height="40" rx="8" />
+      <text x="160" y="50" style="font-weight:700">주문 서버</text>
+      <rect class="frame" x="10" y="96" width="300" height="100" rx="8" />
+      <text class="sub l" x="20" y="112">주문 DB</text>
+      <rect class="box" x="20" y="126" width="132" height="58" rx="6" />
+      <text class="mono" x="86" y="143">orders</text>
+      <text x="86" y="167">주문 #42</text>
+      <rect class="box" x="168" y="126" width="132" height="58" rx="6" />
+      <text class="mono" x="234" y="143">outbox</text>
+      <text x="234" y="167">#42 이벤트</text>
+      <rect class="box" x="168" y="228" width="132" height="40" rx="8" />
+      <text x="234" y="248" style="font-weight:700">릴레이</text>
+      <rect class="box" x="168" y="300" width="132" height="40" rx="8" />
+      <text x="234" y="320" style="font-weight:700">Kafka</text>
+      <rect class="box" x="10" y="300" width="124" height="40" rx="8" />
+      <text x="72" y="320" style="font-weight:700">결제 서비스</text>
+    </g>
+    <g data-id="o-tx" class="hide">
+      <line x1="160" y1="72" x2="160" y2="122" style={acc} marker-end="url(#dwo-a)" />
+      <text class="hi l" x="168" y="86" style={halo}>INSERT 2개</text>
+      <rect class="hl" x="10" y="96" width="300" height="100" rx="8" />
+      <text class="hi" x="230" y="110" style={halo}>커밋은 한 번</text>
+    </g>
+    <g data-id="o-relay" class="hide">
+      <line x1="234" y1="186" x2="234" y2="224" style={acc} marker-end="url(#dwo-a)" />
+      <text class="hi" x="190" y="213" style={halo}>새 행 읽기</text>
+      <text class="sub" x="84" y="240">폴링</text>
+      <text class="sub" x="84" y="260">또는 CDC</text>
+    </g>
+    <g data-id="o-pub" class="hide">
+      <line x1="234" y1="270" x2="234" y2="296" style={acc} marker-end="url(#dwo-a)" />
+      <line x1="166" y1="320" x2="138" y2="320" style={acc} marker-end="url(#dwo-a)" />
+      <text class="sub" x="160" y="364">msg-42 전달</text>
+    </g>
+    <g data-id="o-dup" class="hide">
+      <rect class="err" x="168" y="228" width="132" height="40" rx="8" />
+      <text class="err-t" x="234" y="248">다운 → 재시작</text>
+      <rect class="err" x="10" y="350" width="300" height="44" rx="8" />
+      <text class="err-t" x="160" y="364">msg-42 또 옴</text>
+      <text x="160" y="384" style="font-size:14px">→ 처리한 ID라 건너뜀</text>
+    </g>
+  </svg>
+</Stepper>

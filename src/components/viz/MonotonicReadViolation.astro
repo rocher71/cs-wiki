@@ -1,0 +1,77 @@
+---
+// 새로고침마다 다른 레플리카에서 읽어 댓글 수가 줄어드는 단조 읽기 위반과 해결(사용자별 레플리카 고정).
+import Stepper from '../Stepper.astro';
+const notes = [
+  '① 리더: 댓글 5개',
+  '② A는 받음, B는 아직',
+  '③ 새로고침 1 → A → 5개',
+  '④ 새로고침 2 → B → 4개 (줄었다!)',
+  '해결: 항상 같은 레플리카(A)',
+];
+const base = ['ld', 'A', 'B', 'user', 'scr'];
+const steps = [
+  { caption: '누군가 새 댓글을 달아 리더에는 댓글이 5개가 됐어요. 레플리카 A·B는 아직 4개예요.', show: [...base, 'A4', 'B4', 'hl-ld', 'n1'] },
+  { caption: '변경이 레플리카 A에는 이미 도착했지만, B는 더 늦어서 아직 못 받았어요. 레플리카마다 늦는 정도가 달라요.', show: [...base, 'A5', 'B4', 'repA', 'pktB', 'hl-A', 'n2'] },
+  { caption: '사용자가 새로고침하자 이번 조회는 레플리카 A로 갔어요. 댓글 5개가 보여요.', show: [...base, 'A5', 'B4', 'pktB', 'toA', 'lb1', 'r1', 'n3'] },
+  { caption: '다시 새로고침했더니 이번엔 레플리카 B로 갔어요. 댓글이 4개로 줄어 보여요. 방금 본 댓글이 사라진 것처럼, 시간이 거꾸로 간 느낌이에요.', show: [...base, 'A5', 'B4', 'pktB', 'toB', 'lb2', 'r1', 'r2', 'hl-B', 'n4'] },
+  { caption: '해결(단조 읽기): 사용자 ID 해시로 레플리카를 정해 이 사용자는 항상 A에서 읽어요. 최신이 아닐 수는 있어도 본 것보다 과거로 돌아가진 않아요.', show: [...base, 'A5', 'B4', 'pktB', 'toA', 'lb-h', 'r1', 'r2ok', 'hl-A', 'n5'] },
+];
+---
+<Stepper title="새로고침마다 댓글 수가 바뀌는 이유" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 320" role="img" aria-label="레플리카 A는 새 댓글을 받았고 B는 못 받은 상태에서, 새로고침마다 다른 레플리카로 읽으면 댓글 수가 5개에서 4개로 줄어 보이고, 사용자를 한 레플리카에 고정하면 해결되는 과정">
+    <defs>
+      <marker id="mr-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0,0 L10,5 L0,10 z" style="fill:var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+    <g data-id="ld">
+      <rect class="box" x="100" y="8" width="120" height="52" rx="8" />
+      <text x="160" y="24" style="font-weight:700">리더</text>
+      <text class="hi" x="160" y="45">댓글 5</text>
+    </g>
+    <rect data-id="hl-ld" class="hl" x="97" y="5" width="126" height="58" rx="10" />
+    <!-- 복제 -->
+    <line class="line" x1="120" y1="62" x2="78" y2="106" marker-end="url(#mr-arrow)" style="stroke-dasharray:4 3" />
+    <line class="line" x1="200" y1="62" x2="242" y2="106" marker-end="url(#mr-arrow)" style="stroke-dasharray:4 3" />
+    <text data-id="repA" class="sub hide" x="70" y="78">도착</text>
+    <g data-id="pktB" class="hide">
+      <rect class="chip" x="226" y="70" width="46" height="22" rx="4" />
+      <text x="249" y="81" style="font-size:14px">변경</text>
+      <text class="sub" x="295" y="81">늦음</text>
+    </g>
+
+    <!-- 레플리카 -->
+    <g data-id="A">
+      <rect class="box" x="10" y="112" width="130" height="58" rx="8" />
+      <text x="75" y="129" style="font-weight:700">레플리카 A</text>
+    </g>
+    <text data-id="A4" class="sub hide" x="75" y="152">댓글 4</text>
+    <text data-id="A5" class="hi hide" x="75" y="152">댓글 5</text>
+    <g data-id="B">
+      <rect class="box" x="180" y="112" width="130" height="58" rx="8" />
+      <text x="245" y="129" style="font-weight:700">레플리카 B</text>
+    </g>
+    <text data-id="B4" class="sub" x="245" y="152">댓글 4</text>
+    <rect data-id="hl-A" class="hl" x="7" y="109" width="136" height="64" rx="10" />
+    <rect data-id="hl-B" class="hl" x="177" y="109" width="136" height="64" rx="10" />
+
+    <!-- 사용자 → 레플리카 -->
+    <line data-id="toA" class="line hide" x1="130" y1="212" x2="82" y2="176" marker-end="url(#mr-arrow)" />
+    <line data-id="toB" class="line hide" x1="190" y1="212" x2="238" y2="176" marker-end="url(#mr-arrow)" />
+    <text data-id="lb1" class="hi hide" x="70" y="196">새로고침 1</text>
+    <text data-id="lb2" class="hi hide" x="250" y="196">새로고침 2</text>
+    <text data-id="lb-h" class="hi hide" x="62" y="196">늘 A로</text>
+    <g data-id="user">
+      <rect class="box" x="110" y="214" width="100" height="34" rx="6" />
+      <text x="160" y="232" style="font-weight:700">사용자</text>
+    </g>
+
+    <!-- 화면에 보인 댓글 수 -->
+    <rect data-id="scr" class="frame" x="10" y="256" width="300" height="30" rx="6" />
+    <text data-id="r1" class="hide" x="85" y="272">1번: 5개</text>
+    <text data-id="r2" class="err-t hide" x="235" y="272">2번: 4개 ↓</text>
+    <text data-id="r2ok" class="hi hide" x="235" y="272">2번: 5개 유지</text>
+
+    {notes.map((t, i) => <text data-id={`n${i + 1}`} class="hi hide" x="160" y="304" style="font-size:14px">{t}</text>)}
+  </svg>
+</Stepper>

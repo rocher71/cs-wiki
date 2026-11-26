@@ -1,0 +1,104 @@
+---
+// 시계 스큐 때문에 LWW(마지막 쓰기 승리)가 나중 쓰기를 버리는 과정. DDIA 8장 다중 리더 예시를 다시 그림.
+// 위: 클라이언트 A·B / 가운데: 노드1·노드3과 복제 / 아래: 두 쓰기를 모두 받는 노드2.
+import Stepper from '../Stepper.astro';
+const base = ['A', 'B', 'N1', 'N3', 'N2'];
+const steps = [
+  { caption: '노드1 시계는 42.004초, 노드3 시계는 약 3ms 느려요. 노드2는 두 노드의 쓰기를 모두 받아 합치는 복제본이에요.', show: [...base, 'c1', 'c3a', 'slow', 'r1'] },
+  { caption: '클라이언트 A가 노드1에 x = 1을 저장해요. 노드1 시계로 타임스탬프 42.004가 붙어요.', show: [...base, 'c1', 'c3a', 'aw', 'n1v', 'hl1', 'r2'] },
+  { caption: '노드1이 이 쓰기를 노드3으로 복제해요. 이제 노드3도 x = 1이에요.', show: [...base, 'c1', 'c3a', 'n1v', 'rep', 'n3a', 'hl3', 'r3'] },
+  { caption: '그 뒤 클라이언트 B가 노드3에서 x를 1 올려 x = 2가 돼요. 실제로는 더 나중 쓰기인데, 느린 노드3 시계로 42.003이 붙어요.', show: [...base, 'c1', 'c3b', 'n1v', 'bw', 'n3b', 'hl3', 'r4'] },
+  { caption: '노드2가 두 쓰기를 모두 받아요. 42.004(x = 1)와 42.003(x = 2) 중 하나를 골라야 해요.', show: [...base, 'c1', 'c3b', 'n1v', 'n3b', 'to2a', 'to2b', 'w1', 'w2', 'hl2', 'r5'] },
+  { caption: 'LWW는 타임스탬프가 큰 쪽을 남겨요. 그래서 x = 1이 남고, B가 올린 +1은 오류 하나 없이 조용히 사라져요.', show: [...base, 'c1', 'c3b', 'n1v', 'n3b', 'w1', 'w2x', 'res', 'hl2'] },
+];
+---
+<Stepper title="시계가 3ms 어긋나 쓰기가 사라지는 과정" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 340" role="img" aria-label="노드3 시계가 3ms 느려서, 실제로는 나중에 한 x=2 쓰기가 더 작은 타임스탬프를 받고, 마지막 쓰기 승리 규칙 때문에 노드2에서 버려지는 과정">
+    <defs>
+      <marker id="lww-a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0,0 L10,5 L0,10 z" style="fill:var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+
+    <!-- 클라이언트 -->
+    <g data-id="A">
+      <rect class="box" x="25" y="6" width="100" height="32" rx="6" />
+      <text x="75" y="23">클라이언트 A</text>
+    </g>
+    <g data-id="B">
+      <rect class="box" x="195" y="6" width="100" height="32" rx="6" />
+      <text x="245" y="23">클라이언트 B</text>
+    </g>
+    <g data-id="aw" class="hide">
+      <line class="line" x1="75" y1="40" x2="75" y2="66" marker-end="url(#lww-a)" />
+      <text class="hi l" x="82" y="54">x = 1</text>
+    </g>
+    <g data-id="bw" class="hide">
+      <line class="line" x1="245" y1="40" x2="245" y2="66" marker-end="url(#lww-a)" />
+      <text class="hi l" x="252" y="54">x += 1</text>
+    </g>
+
+    <!-- 노드1 / 노드3 -->
+    <g data-id="N1">
+      <rect class="box" x="10" y="70" width="130" height="96" rx="8" />
+      <text x="75" y="88" style="font-weight:700">노드1</text>
+    </g>
+    <text data-id="c1" class="sub" x="75" y="112">시계 42.004</text>
+    <g data-id="n1v" class="hide">
+      <rect class="chip" x="18" y="128" width="114" height="28" rx="4" />
+      <text x="75" y="142">x=1 · 42.004</text>
+    </g>
+    <g data-id="N3">
+      <rect class="box" x="180" y="70" width="130" height="96" rx="8" />
+      <text x="245" y="88" style="font-weight:700">노드3</text>
+    </g>
+    <text data-id="c3a" class="sub hide" x="245" y="112">시계 42.001</text>
+    <text data-id="c3b" class="sub hide" x="245" y="112">시계 42.003</text>
+    <text data-id="slow" class="hi hide" x="245" y="142">3ms 느림</text>
+    <g data-id="n3a" class="hide">
+      <rect class="chip" x="188" y="128" width="114" height="28" rx="4" />
+      <text x="245" y="142">x=1 (복제)</text>
+    </g>
+    <g data-id="n3b" class="hide">
+      <rect class="chip" x="188" y="128" width="114" height="28" rx="4" />
+      <text x="245" y="142">x=2 · 42.003</text>
+    </g>
+    <g data-id="rep" class="hide">
+      <line class="line" x1="142" y1="142" x2="178" y2="142" marker-end="url(#lww-a)" style="stroke-dasharray:4 3" />
+      <text class="sub" x="160" y="124">복제</text>
+    </g>
+    <rect data-id="hl1" class="hl" x="7" y="67" width="136" height="102" rx="10" />
+    <rect data-id="hl3" class="hl" x="177" y="67" width="136" height="102" rx="10" />
+
+    <!-- 노드2로 가는 복제 -->
+    <line data-id="to2a" class="line hide" x1="75" y1="168" x2="122" y2="202" marker-end="url(#lww-a)" style="stroke-dasharray:4 3" />
+    <line data-id="to2b" class="line hide" x1="245" y1="168" x2="198" y2="202" marker-end="url(#lww-a)" style="stroke-dasharray:4 3" />
+
+    <!-- 노드2 -->
+    <g data-id="N2">
+      <rect class="box" x="60" y="206" width="200" height="98" rx="8" />
+      <text x="160" y="222" style="font-weight:700">노드2 (복제본)</text>
+    </g>
+    <g data-id="w1" class="hide">
+      <rect class="chip" x="72" y="236" width="176" height="28" rx="4" />
+      <text x="160" y="250">x=1 · 42.004</text>
+    </g>
+    <g data-id="w2" class="hide">
+      <rect class="chip" x="72" y="270" width="176" height="28" rx="4" />
+      <text x="160" y="284">x=2 · 42.003</text>
+    </g>
+    <g data-id="w2x" class="hide">
+      <rect class="err" x="72" y="270" width="176" height="28" rx="4" />
+      <text class="err-t" x="160" y="284">x=2 · 42.003 ✗ 버림</text>
+    </g>
+    <rect data-id="hl2" class="hl" x="57" y="203" width="206" height="104" rx="10" />
+
+    <!-- 아래 한 줄 요약 -->
+    <text data-id="r1" class="hi hide" x="160" y="324">① 노드3 시계가 3ms 느려요</text>
+    <text data-id="r2" class="hi hide" x="160" y="324">② A의 쓰기 → 42.004</text>
+    <text data-id="r3" class="hi hide" x="160" y="324">③ 노드3도 x = 1</text>
+    <text data-id="r4" class="hi hide" x="160" y="324">④ 더 나중 쓰기인데 42.003</text>
+    <text data-id="r5" class="hi hide" x="160" y="324">⑤ 42.004 vs 42.003, 누가 최신?</text>
+    <text data-id="res" class="err-t hide" x="160" y="324">⑥ 결과 x = 1 · B의 +1 사라짐</text>
+  </svg>
+</Stepper>

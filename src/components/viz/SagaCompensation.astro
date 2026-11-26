@@ -1,0 +1,61 @@
+---
+// Saga 6단계: 주문 생성 → 결제 성공 → 재고 실패 → 보상① 환불 → 보상② 주문 취소 → 역순 강조.
+// 오른쪽 상태 칸·아래 정리 상자는 같은 자리에 번갈아 나오므로 class="hide".
+import Stepper from '../Stepper.astro';
+const steps = [
+  { caption: '주문 서비스가 주문을 만들고 자기 DB에 바로 커밋해요. 아직 확정 전이라 상태는 PENDING이에요.', show: ['oPend'] },
+  { caption: '다음으로 결제 서비스가 결제를 하고 자기 DB에 커밋해요. 결제 성공.', show: ['oPend', 'f1', 'pOk'] },
+  { caption: '재고 서비스가 재고를 빼려는데 재고가 부족해 실패해요. 앞의 주문·결제는 이미 커밋돼 있어서 롤백으로 되돌릴 수 없어요.', show: ['oPend', 'f1', 'pOk', 'f2', 'sFail'] },
+  { caption: '보상 ①: 결제 서비스가 환불을 해요. 결제 기록을 지우는 게 아니라 "환불"이라는 새 작업을 하나 더 하는 거예요.', show: ['oPend', 'f1', 'f2', 'sFail', 'c1', 'pRefund', 'nRefund'] },
+  { caption: '보상 ②: 주문 서비스가 주문 상태를 REJECTED(거절)로 바꿔요. 이제 주문 전체가 "취소"로 일관되게 맞춰졌어요.', show: ['oRej', 'f1', 'f2', 'sFail', 'c1', 'c2', 'pRefund'] },
+  { caption: '정리: 실행은 주문 → 결제 → 재고 순, 보상은 성공한 단계를 거꾸로(결제 → 주문) 되짚어요.', show: ['oRej', 'f1', 'f2', 'sFail', 'c1', 'c2', 'pRefund', 'nOrder'] },
+];
+---
+<Stepper title="Saga: 실패하면 보상 작업을 역순으로" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 372" role="img" aria-label="주문, 결제, 재고 서비스가 위에서 아래로 차례로 실행된다. 주문은 PENDING, 결제는 성공했지만 재고가 부족해 실패한다. 그러자 결제 서비스가 환불하고, 주문 서비스가 주문을 REJECTED로 바꾸는 보상 작업이 아래에서 위로, 역순으로 실행된다.">
+    <defs>
+      <marker id="sgc-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+      <marker id="sgc-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+    </defs>
+
+    <text class="sub" x="80" y="14">실행 ↓</text>
+    <text class="sub" x="240" y="14">상태</text>
+
+    <!-- 서비스 3개 (세로) -->
+    <rect class="box" x="10" y="30" width="140" height="56" rx="8" /><text x="80" y="50"><tspan font-weight="700">주문 서비스</tspan></text><text class="sub" x="80" y="71">주문 생성</text>
+    <rect class="box" x="10" y="130" width="140" height="56" rx="8" /><text x="80" y="150"><tspan font-weight="700">결제 서비스</tspan></text><text class="sub" x="80" y="171">결제</text>
+    <rect class="box" x="10" y="230" width="140" height="56" rx="8" /><text x="80" y="250"><tspan font-weight="700">재고 서비스</tspan></text><text class="sub" x="80" y="271">재고 차감</text>
+
+    <!-- 정방향 실행 -->
+    <line data-id="f1" class="line" x1="80" y1="88" x2="80" y2="127" marker-end="url(#sgc-g)" />
+    <line data-id="f2" class="line" x1="80" y1="188" x2="80" y2="227" marker-end="url(#sgc-g)" />
+
+    <!-- 주문 상태 -->
+    <g data-id="oPend" class="hide"><rect class="box" x="170" y="34" width="140" height="48" rx="8" /><text class="sgc-mono" x="240" y="58">PENDING</text></g>
+    <g data-id="oRej" class="hide"><rect class="chip" x="170" y="34" width="140" height="48" rx="8" /><text class="hi sgc-mono" x="240" y="51">REJECTED</text><text class="sub" x="240" y="71">보상 ②</text></g>
+
+    <!-- 결제 상태 -->
+    <g data-id="pOk" class="hide"><rect class="box" x="170" y="134" width="140" height="48" rx="8" /><text x="240" y="158">결제 완료</text></g>
+    <g data-id="pRefund" class="hide"><rect class="chip" x="170" y="134" width="140" height="48" rx="8" /><text class="hi" x="240" y="151">환불</text><text class="sub" x="240" y="171">보상 ① (새 작업)</text></g>
+
+    <!-- 재고 상태 -->
+    <g data-id="sFail" class="hide"><rect class="err" x="170" y="234" width="140" height="48" rx="8" /><text class="err-t" x="240" y="251">실패</text><text class="sub" x="240" y="271">재고 부족</text></g>
+
+    <!-- 보상 화살표 (아래 → 위) -->
+    <g data-id="c1" class="hide"><line class="sgc-c" x1="240" y1="232" x2="240" y2="186" marker-end="url(#sgc-a)" /><text class="hi l" x="250" y="208">①</text></g>
+    <g data-id="c2" class="hide"><line class="sgc-c" x1="240" y1="132" x2="240" y2="86" marker-end="url(#sgc-a)" /><text class="hi l" x="250" y="108">②</text></g>
+
+    <!-- 아래 정리 상자 -->
+    <g data-id="nRefund" class="hide"><rect class="chip" x="10" y="298" width="300" height="66" rx="8" /><text x="160" y="319">취소 = 지우기가 아님</text><text class="sub" x="160" y="345">결제 기록은 남고 환불이 추가됨</text></g>
+    <g data-id="nOrder" class="hide"><rect class="chip" x="10" y="298" width="300" height="66" rx="8" /><text x="160" y="319">실행: 주문 → 결제 → 재고 ✕</text><text class="hi" x="160" y="345">보상: 결제 → 주문 (역순)</text></g>
+  </svg>
+</Stepper>
+
+<style>
+  .sgc-c { stroke: var(--sl-color-accent); stroke-width: 2.4; fill: none; }
+  .sgc-mono { font-family: var(--sl-font-mono, monospace); }
+</style>

@@ -1,0 +1,89 @@
+---
+// CQRS + 이벤트 소싱: 명령 → 검사 → 이벤트 추가 → (프로젝션 전 조회 = 옛 값) → 프로젝션 → 조회.
+// 왼쪽: 쓰기 모델(명령 핸들러, 이벤트 저장소) / 오른쪽: 읽기 모델(조회 API, 읽기 DB).
+import Stepper from '../Stepper.astro';
+const base = ['client', 'cmd', 'store', 'qry', 'rdb', 'div'];
+const steps = [
+  { caption: '클라이언트가 "3만 원 출금해 줘"라는 명령을 보내요. 명령은 쓰기 쪽 명령 핸들러가 받아요.', show: [...base, 'a-cmd', 'r-old'] },
+  { caption: '명령 핸들러는 이벤트(또는 스냅숏 + 이후 이벤트)로 지금 잔액 120,000원을 재구성하고 규칙을 검사해요. 잔액이 부족했다면 거절하고 이벤트는 남기지 않아요.', show: [...base, 'a-cmd', 'check', 'hl-cmd', 'r-old'] },
+  { caption: '검사를 통과했으니 "출금됨 30,000" 이벤트를 이벤트 저장소 끝에 추가해요. 쓰기는 여기서 끝나요.', show: [...base, 'check', 'a-app', 'ev-new', 'hl-store', 'r-old'] },
+  { caption: '이 순간 잔액을 조회하면? 조회 API는 읽기 DB만 보는데, 읽기 DB는 아직 갱신 전이라 옛 값 120,000원이 보여요(최종 일관성).', show: [...base, 'ev-new', 'a-qry', 'r-old', 'resp-old', 'hl-qry'] },
+  { caption: '프로젝션 핸들러가 새 이벤트를 받아 읽기 DB(잔액 표, 월별 내역)를 90,000원으로 갱신해요.', show: [...base, 'ev-new', 'proj', 'r-new', 'hl-rdb'] },
+  { caption: '이제 조회하면 90,000원이 보여요. 쓰기와 읽기가 따로라서, 갱신이 끝나기 전 잠깐은 옛 값이 보일 수 있어요.', show: [...base, 'ev-new', 'a-qry', 'r-new', 'resp-new', 'hl-qry'] },
+];
+---
+<Stepper title="CQRS: 명령에서 조회까지" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 388" role="img" aria-label="출금 명령이 명령 핸들러에서 검사된 뒤 이벤트 저장소에 이벤트로 추가되고, 프로젝션이 읽기 DB를 갱신하기 전에는 조회 API가 옛 잔액을, 갱신 후에는 새 잔액을 돌려주는 과정">
+    <defs>
+      <marker id="cq-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0,0 L10,5 L0,10 z" style="fill:var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+    <g data-id="client">
+      <rect class="box" x="100" y="8" width="120" height="36" rx="6" />
+      <text x="160" y="27" style="font-weight:700">클라이언트</text>
+    </g>
+    <g data-id="a-cmd">
+      <line class="line" x1="130" y1="46" x2="94" y2="86" marker-end="url(#cq-arrow)" />
+      <text class="hi" x="50" y="62" style="font-size:14px">명령: 출금</text>
+    </g>
+    <g data-id="a-qry">
+      <line class="line" x1="245" y1="86" x2="196" y2="48" marker-end="url(#cq-arrow)" />
+      <text class="hi" x="282" y="62" style="font-size:14px">조회</text>
+    </g>
+    <line data-id="div" class="line" x1="175" y1="90" x2="175" y2="352" style="stroke-dasharray:5 4" />
+
+    <!-- 쓰기 쪽 -->
+    <g data-id="cmd">
+      <rect class="box" x="10" y="90" width="160" height="66" rx="6" />
+      <text x="90" y="108" style="font-weight:700">명령 핸들러</text>
+      <text class="sub" x="90" y="128">이벤트로 잔액 재구성</text>
+      <text class="sub" x="90" y="146">→ 규칙 검사</text>
+    </g>
+    <rect data-id="hl-cmd" class="hl" x="7" y="87" width="166" height="72" rx="8" />
+    <g data-id="check">
+      <rect class="chip" x="10" y="164" width="160" height="46" rx="5" />
+      <text x="90" y="179" style="font-size:14px">120,000 ≥ 30,000</text>
+      <text x="90" y="198" style="font-size:14px"><tspan class="hi">통과</tspan> (부족하면 거절)</text>
+    </g>
+    <line data-id="a-app" class="line" x1="90" y1="212" x2="90" y2="238" marker-end="url(#cq-arrow)" />
+    <g data-id="store">
+      <rect class="box" x="10" y="242" width="160" height="88" rx="6" />
+      <text x="90" y="258" style="font-weight:700">이벤트 저장소</text>
+      <text class="sub" x="90" y="280">… #4 입금 +50,000</text>
+    </g>
+    <g data-id="ev-new" class="hide">
+      <rect class="chip" x="20" y="294" width="140" height="28" rx="4" />
+      <text x="90" y="308" style="font-size:14px">#5 출금됨 30,000</text>
+    </g>
+    <rect data-id="hl-store" class="hl" x="7" y="239" width="166" height="94" rx="8" />
+
+    <!-- 읽기 쪽 -->
+    <g data-id="qry">
+      <rect class="box" x="180" y="90" width="130" height="66" rx="6" />
+      <text x="245" y="108" style="font-weight:700">조회 API</text>
+      <text class="sub" x="245" y="128">읽기 DB만 봄</text>
+    </g>
+    <text data-id="resp-old" class="err-t hide" x="245" y="146" style="font-size:14px">120,000 (옛 값)</text>
+    <text data-id="resp-new" class="hi hide" x="245" y="146" style="font-size:14px">90,000</text>
+    <rect data-id="hl-qry" class="hl" x="177" y="87" width="136" height="72" rx="8" />
+    <line class="line" x1="245" y1="170" x2="245" y2="160" marker-end="url(#cq-arrow)" />
+    <g data-id="rdb">
+      <rect class="box" x="180" y="170" width="130" height="62" rx="6" />
+      <text x="245" y="186" style="font-weight:700">읽기 DB</text>
+    </g>
+    <text data-id="r-old" class="sub hide" x="245" y="212">A 잔액 120,000</text>
+    <g data-id="r-new" class="hide">
+      <rect class="chip" x="188" y="200" width="114" height="26" rx="4" />
+      <text x="245" y="213" style="font-size:14px">A 잔액 90,000</text>
+    </g>
+    <rect data-id="hl-rdb" class="hl" x="177" y="167" width="136" height="68" rx="8" />
+    <g data-id="proj">
+      <path class="line" d="M172,316 H290 V236" marker-end="url(#cq-arrow)" />
+      <text class="hi" x="232" y="300" style="font-size:14px">프로젝션</text>
+    </g>
+
+    <text class="sub" x="90" y="372">쓰기 모델 (Command)</text>
+    <text class="sub" x="245" y="372">읽기 모델 (Query)</text>
+  </svg>
+</Stepper>

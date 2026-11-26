@@ -1,0 +1,62 @@
+---
+// 멱등 키로 결제 재시도: 첫 요청은 처리+응답 저장, 응답 유실 후 같은 키로 재시도하면 저장된 응답을 그대로 돌려줌.
+import Stepper from '../Stepper.astro';
+const steps = [
+  { caption: '앱이 이번 결제 시도용 키 k1(예: UUID)을 만들고, POST /payments 요청 헤더에 Idempotency-Key: k1을 붙여 보내요.', show: ['base', 'gen', 'req'] },
+  { caption: '서버는 k1을 처음 봐요. 결제를 처리하고, 상태코드와 응답 본문을 k1과 함께 저장해 둬요.', show: ['base', 'gen', 'req', 'proc'] },
+  { caption: '응답이 돌아오는 도중 네트워크가 끊겼어요. 앱은 결제가 됐는지 안 됐는지 몰라요.', show: ['base', 'gen', 'req', 'proc', 'lost'] },
+  { caption: '앱은 새 키를 만들지 않고, 같은 k1으로 똑같은 요청을 다시 보내요.', show: ['base', 'gen', 'req', 'proc', 'lost', 'retry'] },
+  { caption: '서버는 k1이 이미 있는 걸 보고 결제를 다시 하지 않아요. 저장해 둔 응답을 그대로 돌려줘요. 두 번 보냈지만 결제는 한 번이에요.', show: ['base', 'gen', 'req', 'proc', 'lost', 'retry', 'replay'] },
+];
+const halo = 'paint-order:stroke;stroke:var(--sl-color-gray-7, var(--sl-color-black));stroke-width:5px;stroke-linejoin:round';
+const acc = 'stroke:var(--sl-color-accent);stroke-width:2.4;fill:none';
+---
+<Stepper title="멱등 키로 안전하게 재시도" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 400" role="img" aria-label="앱이 멱등 키를 붙여 결제를 요청하고, 응답이 끊겨 같은 키로 재시도하면 서버가 저장된 응답을 돌려줘 결제가 한 번만 되는 순서도">
+    <defs>
+      <marker id="ikr-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+    </defs>
+    <g data-id="base">
+      <rect class="box" x="10" y="6" width="100" height="36" rx="8" />
+      <text x="60" y="24" style="font-weight:700">앱</text>
+      <rect class="box" x="210" y="6" width="100" height="36" rx="8" />
+      <text x="260" y="24" style="font-weight:700">결제 서버</text>
+      <line class="line" x1="60" y1="44" x2="60" y2="392" style="stroke-dasharray:4 4" />
+      <line class="line" x1="260" y1="44" x2="260" y2="392" style="stroke-dasharray:4 4" />
+    </g>
+    <g data-id="gen" class="hide">
+      <rect class="chip" x="10" y="52" width="160" height="24" rx="5" />
+      <text class="mono" x="90" y="64">k1 = 3f9a1c2e-…</text>
+    </g>
+    <g data-id="req" class="hide">
+      <line x1="60" y1="104" x2="256" y2="104" style={acc} marker-end="url(#ikr-a)" />
+      <text class="mono" x="160" y="92" style={halo}>POST /payments</text>
+      <text class="hi" x="160" y="118" style={`font-size:14px;${halo}`}>Idempotency-Key: k1</text>
+    </g>
+    <g data-id="proc" class="hide">
+      <rect class="chip" x="130" y="134" width="180" height="50" rx="6" />
+      <text x="220" y="150" style="font-size:14px">k1 처음 → 결제 ✓</text>
+      <text x="220" y="170" style="font-size:14px">응답(200)을 k1에 저장</text>
+    </g>
+    <g data-id="lost" class="hide">
+      <line class="line" x1="258" y1="216" x2="150" y2="216" style="stroke-dasharray:5 4" />
+      <text class="err-t" x="136" y="216">✕</text>
+      <text class="err-t" x="200" y="202" style={`font-size:14px;${halo}`}>응답 도중 끊김</text>
+      <text class="sub" x="60" y="238" style={halo}>결과 몰라요?</text>
+    </g>
+    <g data-id="retry" class="hide">
+      <line x1="60" y1="270" x2="256" y2="270" style={acc} marker-end="url(#ikr-a)" />
+      <text class="hi" x="160" y="258" style={halo}>같은 k1로 재시도</text>
+    </g>
+    <g data-id="replay" class="hide">
+      <rect class="chip" x="130" y="282" width="180" height="50" rx="6" />
+      <text x="220" y="298" style="font-size:14px">k1 있음 → 결제 안 함</text>
+      <text x="220" y="318" style="font-size:14px">저장된 응답 꺼내기</text>
+      <line x1="258" y1="350" x2="64" y2="350" style={acc} marker-end="url(#ikr-a)" />
+      <text class="hi" x="160" y="364" style={`font-size:14px;${halo}`}>같은 200 응답</text>
+      <text x="160" y="386" style="font-weight:700">결제는 딱 한 번</text>
+    </g>
+  </svg>
+</Stepper>

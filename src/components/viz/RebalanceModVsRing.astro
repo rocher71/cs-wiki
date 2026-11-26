@@ -1,0 +1,116 @@
+---
+// 노드 4→5 재배치: hash % N은 대부분 이사, 링(안정 해시)은 새 노드 앞 구간만, 가상 노드는 여러 노드에서 조금씩.
+// 해시값·링 위치는 설명용 예시. 비율 수치(79.6%, 22.5%, 174~4974)는 MD5·키 1만 개로 한 번 재 본 실험 예시.
+import Stepper from '../Stepper.astro';
+
+// 1) mod 표: h%4 == h%5 는 h%20 < 4 일 때뿐이라 10개 중 2개(21, 40)만 그대로
+const hs = [7, 12, 21, 33, 40, 46, 58, 66, 75, 89];
+
+// 2) 링: 해시 공간 0~100을 시계 방향 각도로
+const cx = 160, cy = 168, R = 112;
+const pt = (h: number, r = R) => {
+  const a = (h / 100) * 2 * Math.PI;
+  return [+(cx + r * Math.sin(a)).toFixed(1), +(cy - r * Math.cos(a)).toFixed(1)];
+};
+const arc = (from: number, to: number) => {
+  const len = (to - from + 100) % 100 || 100;
+  const [x1, y1] = pt(from), [x2, y2] = pt(to);
+  return `M${x1} ${y1} A${R} ${R} 0 ${len > 50 ? 1 : 0} 1 ${x2} ${y2}`;
+};
+const color: Record<string, string> = {
+  A: 'var(--sl-color-blue)', B: 'var(--sl-color-green)', C: 'var(--sl-color-orange)',
+  D: 'var(--sl-color-purple)', E: 'var(--sl-color-red)',
+};
+// 점 목록(정렬) → 각 점이 맡는 구간 (앞 점, 자기 점]
+const segs = (pts: [string, number][]) =>
+  pts.map(([n, h], i) => ({ n, h, from: pts[(i - 1 + pts.length) % pts.length][1] }));
+const ring4 = segs([['A', 5], ['B', 15], ['C', 60], ['D', 80]]);
+const ring5 = segs([['A', 5], ['B', 15], ['E', 40], ['C', 60], ['D', 80]]);
+const keys = [3, 12, 22, 31, 38, 47, 55, 66, 74, 90];
+const movedKeys = [22, 31, 38]; // (15, 40] 구간: C → E
+const vn = segs([
+  ['A', 2], ['E', 6], ['B', 12], ['C', 22], ['E', 26], ['D', 29], ['A', 36], ['B', 47],
+  ['C', 58], ['D', 64], ['E', 67], ['A', 70], ['B', 83], ['C', 91], ['D', 97],
+]);
+const mid = (s: { h: number; from: number }) => (s.from + ((s.h - s.from + 100) % 100) / 2) % 100;
+
+const steps = [
+  { caption: '키 10개를 hash % 4로 노드 4대(N0~N3)에 나눠 담았어요.', show: ['mod', 'm4'] },
+  { caption: '노드를 5대로 늘려 hash % 5로 바꾸면 10개 중 8개의 담당 노드가 바뀌어요(강조된 줄). 키 1만 개로 재 본 실험 예시에선 79.6%가 이사했어요.', show: ['mod', 'm4', 'm5', 'mv'] },
+  { caption: '안정 해시: 해시 공간을 링으로 말고 노드 A~D를 점으로 올려요. 키는 시계 방향으로 가다 처음 만나는 노드가 맡아요.', show: ['ring', 'r4', 'own4', 'keys'] },
+  { caption: '새 노드 E가 링에 끼어들면 E 바로 앞 구간(원래 C 몫)의 키 3개만 E로 옮겨요. 나머지 키는 그대로예요.', show: ['ring', 'r5', 'own5', 'keys', 'mk'] },
+  { caption: '하지만 노드당 점이 1개면 구간 길이가 들쭉날쭉해요. C 혼자 45%를 맡는 식으로 쏠려요. 실험 예시에선 노드별 키가 174개~4974개로 벌어졌어요.', show: ['ring', 'r4', 'keys', 'share'] },
+  { caption: '가상 노드: 노드마다 점을 여러 개 올려요. 새 노드 E의 점들이 B·D·A 구간에서 조금씩 가져가 고르게 나뉘어요. 실험 예시(노드당 100점)에선 22.5%만 이동했고 노드별 1856~2250개로 고르게 나뉘었어요.', show: ['vring'] },
+];
+---
+<Stepper title="노드 4대 → 5대: hash % N vs 안정 해시" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 330" role="img" aria-label="키 10개를 hash % 4에서 hash % 5로 바꾸면 8개가 다른 노드로 옮겨진다. 링 방식에서는 새 노드 E가 끼어든 바로 앞 구간의 키만 옮겨지고, 노드당 점이 하나면 구간이 들쭉날쭉하며, 가상 노드를 쓰면 여러 노드에서 조금씩 가져가 고르게 나뉜다.">
+    <!-- 장면 1: mod 표 (강조 띠를 먼저 그려 글자 밑에 깔리게) -->
+    <g data-id="mv" class="hide">
+      {hs.map((h, i) => h % 4 !== h % 5 && <rect class="chip" x="4" y={31 + i * 28} width="312" height="26" rx="5" />)}
+      {hs.map((h, i) => <text class={h % 4 !== h % 5 ? 'sub hi' : 'sub'} x="300" y={44 + i * 28} style="text-anchor:end">{h % 4 !== h % 5 ? '이동' : '그대로'}</text>)}
+    </g>
+    <g data-id="mod" class="hide">
+      <text class="sub" x="60" y="14">키 해시</text>
+      <text class="sub" x="160" y="14">% 4</text>
+      <text class="sub" x="260" y="14">% 5</text>
+      {hs.map((h, i) => <text x="60" y={44 + i * 28}>{h}</text>)}
+    </g>
+    <g data-id="m4" class="hide">
+      {hs.map((h, i) => <text x="160" y={44 + i * 28}>N{h % 4}</text>)}
+    </g>
+    <g data-id="m5" class="hide">
+      {hs.map((h, i) => <text class={h % 4 !== h % 5 ? 'hi' : ''} x="230" y={44 + i * 28}>N{h % 5}</text>)}
+    </g>
+
+    <!-- 장면 2: 링 -->
+    <g data-id="ring" class="hide">
+      <circle cx={cx} cy={cy} r={R} fill="none" stroke="var(--sl-color-gray-5)" stroke-width="2" />
+      <text class="sub" x={cx} y="18">0 (시계 방향 →)</text>
+    </g>
+    {[['r4', ring4], ['r5', ring5]].map(([id, ring]) => (
+      <g data-id={id} class="hide">
+        {(ring as typeof ring4).map((s) => <path d={arc(s.from, s.h)} fill="none" stroke={color[s.n]} stroke-width="9" opacity=".55" />)}
+        {(ring as typeof ring4).map((s) => {
+          const [x, y] = pt(s.h), [lx, ly] = pt(s.h, R + 20);
+          return (<g>
+            <circle cx={x} cy={y} r="9" fill={color[s.n]} stroke="var(--sl-color-bg)" stroke-width="2" />
+            <text x={lx} y={ly} style="font-weight:700">{s.n}</text>
+          </g>);
+        })}
+      </g>
+    ))}
+    {[['own4', ring4, false], ['own5', ring5, false], ['share', ring4, true]].map(([id, ring, pct]) => (
+      <g data-id={id} class="hide">
+        {(ring as typeof ring4).map((s) => {
+          const [x, y] = pt(mid(s), R - 30);
+          return <text class={pct && s.n === 'C' ? 'hi' : 'sub'} x={x} y={y}>{s.n} {pct ? `${(s.h - s.from + 100) % 100}%` : '몫'}</text>;
+        })}
+      </g>
+    ))}
+    <g data-id="keys" class="hide">
+      {keys.map((h) => { const [x, y] = pt(h); return <circle cx={x} cy={y} r="4.5" fill="var(--sl-color-white)" stroke="var(--sl-color-gray-1)" />; })}
+      <text class="sub" x={cx} y={cy - 8}>작은 점 = 키</text>
+    </g>
+    <g data-id="mk" class="hide">
+      {movedKeys.map((h) => { const [x, y] = pt(h); return <circle cx={x} cy={y} r="8" fill="none" stroke="var(--sl-color-accent)" stroke-width="3" />; })}
+      <text class="hi" x={cx} y={cy + 16}>3개만 이동</text>
+    </g>
+
+    <!-- 장면 3: 가상 노드 -->
+    <g data-id="vring" class="hide">
+      <circle cx={cx} cy={cy} r={R} fill="none" stroke="var(--sl-color-gray-5)" stroke-width="2" />
+      {vn.map((s) => <path d={arc(s.from, s.h)} fill="none" stroke={color[s.n]} stroke-width={s.n === 'E' ? 14 : 9} opacity={s.n === 'E' ? 1 : 0.55} />)}
+      {vn.map((s) => {
+        const [x, y] = pt(s.h), [lx, ly] = pt(s.h, R + 18);
+        return (<g>
+          <circle cx={x} cy={y} r={s.n === 'E' ? 8 : 6} fill={color[s.n]} stroke="var(--sl-color-bg)" stroke-width="2" />
+          <text x={lx} y={ly} class={s.n === 'E' ? 'hi' : ''} style="font-weight:700">{s.n}</text>
+        </g>);
+      })}
+      <text x={cx} y={cy - 12}>노드당 점 3개</text>
+      <text class="hi" x={cx} y={cy + 14}>E는 굵은 구간</text>
+      <text class="sub" x={cx} y={cy + 36}>(B·D·A에서 조금씩)</text>
+    </g>
+  </svg>
+</Stepper>

@@ -1,0 +1,70 @@
+---
+// 시간 키 3개를 키 범위 vs 해시로 나눴을 때: 범위는 한 파티션에 몰리고(핫스팟), 해시는 흩어지지만 범위 조회는 전체에 물어야 함.
+// 해시 결과(0·2·1)는 설명용 예시 값.
+import Stepper from '../Stepper.astro';
+const steps = [
+  { caption: '쓰기가 들어와요. 키는 시각이라 "11-27 09:00, 09:01, 09:02"처럼 계속 바로 옆 값이 이어져요.', show: ['keys'] },
+  { caption: '키 범위로 나누면 세 키 모두 "11-27" 구간이라 파티션 하나로 가요. 오늘 쓰기가 전부 한 서버에 몰려요. 이게 핫스팟이에요.', show: ['keys', 'range', 'r-lines', 'r-hot', 'r-hot-t'] },
+  { caption: '해시로 나누면 같은 키들도 해시값이 제각각이라 P0·P2·P1로 흩어져요. 쓰기가 고르게 퍼져요.', show: ['keys', 'range', 'r-hot', 'r-hot-t', 'hash', 'h-keys'] },
+  { caption: '대신 "11-27 하루치 다 주세요"를 하면, 키 범위는 파티션 1곳만 보면 되지만 해시는 어디 있는지 모르니 3곳 모두에 물어봐야 해요.', show: ['range', 'r-hot', 'hash', 'h-keys', 'q-range', 'q-hash'] },
+];
+const col = [5, 110, 215];
+---
+<Stepper title="키 범위 vs 해시: 몰림과 범위 조회" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 330" role="img" aria-label="시간 키 3개를 키 범위로 나누면 11-27 파티션 하나에 몰려 핫스팟이 되고, 해시로 나누면 세 파티션에 흩어진다. 하루치 범위 조회는 키 범위에선 파티션 1곳, 해시에선 3곳 모두를 봐야 한다.">
+    <g data-id="keys">
+      {['09:00', '09:01', '09:02'].map((t, i) => (
+        <g>
+          <rect class="chip" x={col[i]} y="6" width="100" height="32" rx="6" />
+          <text x={col[i] + 50} y="23">11-27 {t}</text>
+        </g>
+      ))}
+    </g>
+
+    <g data-id="range">
+      <text class="sub l" x="5" y="62">키 범위 (날짜 구간으로 나눔)</text>
+      <rect class="box" x={col[0]} y="76" width="100" height="94" rx="7" />
+      <text x={col[0] + 50} y="94">11-25</text>
+      <text class="sub" x={col[0] + 50} y="130">(한가함)</text>
+      <rect class="box" x={col[1]} y="76" width="100" height="94" rx="7" />
+      <text x={col[1] + 50} y="94">11-26</text>
+      <text class="sub" x={col[1] + 50} y="130">(한가함)</text>
+      <rect class="box" x={col[2]} y="76" width="100" height="94" rx="7" />
+      <text x={col[2] + 50} y="94">11-27</text>
+    </g>
+    <g data-id="r-hot" class="hide">
+      <rect class="err" x={col[2]} y="76" width="100" height="94" rx="7" />
+      <text class="err-t" x={col[2] + 50} y="94">11-27</text>
+      <text x={col[2] + 50} y="116">09:00</text>
+      <text x={col[2] + 50} y="136">09:01</text>
+      <text x={col[2] + 50} y="156">09:02</text>
+    </g>
+    <text data-id="r-hot-t" class="err-t hide" x={col[2] + 50} y="186">↑ 핫스팟</text>
+    <g data-id="r-lines" class="hide">
+      <path class="line" d="M55 38 L240 76 M160 38 L258 76 M265 38 L265 76" />
+    </g>
+    <g data-id="q-range" class="hide">
+      <rect class="hl" x={col[2] - 3} y="73" width="106" height="100" rx="9" />
+      <text class="hi" x={col[2] + 50} y="186">↑ 1곳만 조회</text>
+    </g>
+
+    <g data-id="hash">
+      <text class="sub l" x="5" y="196">해시 (키를 섞어서 나눔)</text>
+      {['P0', 'P1', 'P2'].map((p, i) => (
+        <g>
+          <rect class="box" x={col[i]} y="210" width="100" height="70" rx="7" />
+          <text x={col[i] + 50} y="228">{p}</text>
+        </g>
+      ))}
+    </g>
+    <g data-id="h-keys">
+      <text x={col[0] + 50} y="258">09:00</text>
+      <text x={col[1] + 50} y="258">09:02</text>
+      <text x={col[2] + 50} y="258">09:01</text>
+    </g>
+    <g data-id="q-hash" class="hide">
+      {col.map((x) => <rect class="hl" x={x - 3} y="207" width="106" height="76" rx="9" />)}
+      <text class="hi" x="160" y="306">3곳 모두 조회해야 함</text>
+    </g>
+  </svg>
+</Stepper>
