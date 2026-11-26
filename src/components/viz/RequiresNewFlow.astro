@@ -1,0 +1,55 @@
+---
+// REQUIRES_NEW: T1 일시 중단 + T2 새 커넥션(동시 2개) → T2만 롤백, T1 재개 → 바깥 catch 여부로 결과 분기
+import Stepper from '../Stepper.astro';
+const s1 = ['h1', 'col1', 'rowa'];
+const s2 = [...s1, 'a1', 'susp', 'h2', 'col2', 'rowb'];
+const s3 = [...s2, 'resume', 'rb', 'exarr'];
+const steps = [
+  { caption: 'A가 시작되면서 물리 트랜잭션 T1이 열리고 커넥션 c1을 잡아요.', show: [...s1, 'hl-a'] },
+  { caption: 'A가 B(REQUIRES_NEW)를 불러요. T1은 일시 중단되고, B를 위해 새 트랜잭션 T2와 새 커넥션 c2가 열려요. 이 순간 한 요청이 커넥션을 2개 쥐고 있어요.', show: [...s2, 'two', 'hl-two'] },
+  { caption: 'B에서 예외가 나면 T2만 롤백되고 c2는 반납돼요. 중단됐던 T1이 다시 이어지고, 예외는 A로 올라가요.', show: [...s3, 'one', 'hl-rb'] },
+  { caption: 'A가 예외를 catch하면 T1은 정상 커밋돼요. catch하지 않으면 런타임 예외가 A의 프록시까지 올라가 T1도 롤백돼요.', show: [...s3, 'one', 'ok', 'ng', 'hl-out'] },
+];
+---
+<Stepper title="REQUIRES_NEW: 안쪽만 따로 롤백" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 334" role="img" aria-label="왼쪽은 A의 트랜잭션 T1과 커넥션 c1, 오른쪽은 B의 트랜잭션 T2와 커넥션 c2. B 호출 동안 T1은 중단되고 커넥션 2개를 점유하며, B 예외 시 T2만 롤백되고 T1이 재개된 뒤, A가 예외를 잡으면 커밋, 안 잡으면 롤백되는 그림">
+    <defs>
+      <marker id="rqn-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+
+    <text data-id="h1" x="82" y="16">T1 (커넥션 c1)</text>
+    <text data-id="h2" x="238" y="16">T2 (커넥션 c2)</text>
+    <rect data-id="col1" class="frame" x="8" y="32" width="148" height="206" rx="9" />
+    <rect data-id="col2" class="frame" x="164" y="32" width="148" height="206" rx="9" />
+
+    <g data-id="rowa"><rect class="box" x="16" y="42" width="132" height="34" rx="7" /><text x="82" y="59">A 시작</text></g>
+    <line data-id="a1" class="line" x1="82" y1="76" x2="82" y2="87" marker-end="url(#rqn-arr)" />
+    <g data-id="susp"><rect class="bad" x="16" y="88" width="132" height="44" rx="7" /><text x="82" y="110">T1 일시 중단</text></g>
+    <g data-id="rowb">
+      <rect class="chip" x="172" y="88" width="132" height="44" rx="7" />
+      <text x="238" y="102">B 시작</text>
+      <text class="mono" x="238" y="120">REQUIRES_NEW</text>
+    </g>
+
+    <g data-id="two" class="hide"><rect class="err" x="16" y="142" width="288" height="30" rx="7" /><text class="err-t" x="160" y="157">⚠ 커넥션 2개 동시 점유</text></g>
+    <g data-id="one" class="hide"><rect class="box" x="16" y="142" width="288" height="30" rx="7" /><text x="160" y="157">c2 반납 → 다시 1개</text></g>
+
+    <g data-id="resume"><rect class="chip" x="16" y="182" width="132" height="44" rx="7" /><text x="82" y="204">T1 재개</text></g>
+    <g data-id="rb">
+      <rect class="err" x="172" y="182" width="132" height="44" rx="7" />
+      <text class="err-t" x="238" y="196">T2 롤백 ✗</text>
+      <text class="sub" x="238" y="215">B에서 예외</text>
+    </g>
+    <line data-id="exarr" class="line" x1="172" y1="204" x2="150" y2="204" stroke-dasharray="4 3" marker-end="url(#rqn-arr)" />
+
+    <g data-id="ok"><rect class="chip" x="8" y="250" width="304" height="34" rx="7" /><text x="160" y="267">A가 catch → T1 커밋 ✓</text></g>
+    <g data-id="ng"><rect class="err" x="8" y="292" width="304" height="34" rx="7" /><text class="err-t" x="160" y="309">catch 안 함 → T1도 롤백 ✗</text></g>
+
+    <rect data-id="hl-a" class="hl" x="12" y="38" width="140" height="42" rx="9" />
+    <rect data-id="hl-two" class="hl" x="12" y="84" width="296" height="92" rx="9" />
+    <rect data-id="hl-rb" class="hl" x="12" y="178" width="296" height="52" rx="9" />
+    <rect data-id="hl-out" class="hl" x="4" y="246" width="312" height="84" rx="10" />
+  </svg>
+</Stepper>

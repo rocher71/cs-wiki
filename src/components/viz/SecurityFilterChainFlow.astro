@@ -1,0 +1,110 @@
+---
+// 요청 하나가 스프링 시큐리티를 지나는 길: 톰캣 필터 → DelegatingFilterProxy → FilterChainProxy → 체인 하나 선택 → 보안 필터 6칸 → DispatcherServlet, 끝나면 SecurityContextHolder 비움
+import Stepper from '../Stepper.astro';
+const s1 = ['client', 'a0', 'outer', 'thread'];
+const s2 = [...s1, 'dfp', 'a1', 'inner', 'fcp'];
+const s3 = [...s2, 'a2', 'c-api', 'c-all', 'a3'];
+const s4 = [...s3, 'f1'];
+const s5 = [...s4, 'f2'];
+const s6 = [...s5, 'f3'];
+const s7 = [...s6, 'f4'];
+const s8 = [...s7, 'f5'];
+const s9 = [...s8, 'f6', 'a4', 'ds'];
+const s10 = [...s9, 'clear'];
+const steps = [
+  { caption: '클라이언트가 GET /api/orders를 보내요. 톰캣이 워커 스레드 하나에 이 요청을 맡기고, 요청은 서블릿 필터 체인으로 들어가요.', show: [...s1, 'hl-client'] },
+  { caption: '톰캣은 스프링 빈을 몰라요. 그래서 컨테이너에 등록된 평범한 필터 DelegatingFilterProxy가 스프링 빈 FilterChainProxy에게 일을 넘겨요.', show: [...s2, 'hl-dfp'] },
+  { caption: 'FilterChainProxy가 RequestMatcher로 체인을 골라요. 처음 맞는 체인 하나만 실행되고, 나머지 체인은 건너뛰어요.', show: [...s3, 'hl-chain'] },
+  { caption: 'SecurityContextHolderFilter가 세션 등에서 SecurityContext를 꺼내 이 스레드에 올려요(로드만 하고, 저장은 따로 해야 해요).', show: [...s4, 'hl-f1'] },
+  { caption: 'HeaderWriterFilter가 보안 헤더를 붙이고, CsrfFilter가 CSRF 토큰을 검사해요. 토큰이 틀리면 여기서 403으로 끝나요.', show: [...s5, 'hl-f2'] },
+  { caption: '인증 필터(폼 로그인은 UsernamePasswordAuthenticationFilter, JWT는 BearerTokenAuthenticationFilter)가 자격 증명이 있으면 인증을 시도해요.', show: [...s6, 'hl-f3'] },
+  { caption: '여기까지 와도 아무도 아니면 AnonymousAuthenticationFilter가 "익명 사용자"로 채워요. 그래서 뒤 필터는 항상 누군가를 보게 돼요.', show: [...s7, 'hl-f4'] },
+  { caption: 'ExceptionTranslationFilter는 뒤에서 터질 인증·인가 예외를 잡아 HTTP 응답(로그인 요구 또는 거부)으로 바꿀 준비를 해요.', show: [...s8, 'hl-f5'] },
+  { caption: '맨 끝의 AuthorizationFilter가 "이 사람이 이 URL을 써도 되나" 규칙을 검사해요. 통과하면 드디어 DispatcherServlet과 컨트롤러로 가요.', show: [...s9, 'hl-f6'] },
+  { caption: '응답이 끝나면 FilterChainProxy가 SecurityContextHolder를 비워요. 스레드가 풀로 돌아가 재사용될 때 앞사람 정보가 새지 않게요.', show: [...s10, 'hl-clear'] },
+];
+---
+<Stepper title="요청이 스프링 시큐리티 필터 체인을 지나는 길" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 616" role="img" aria-label="톰캣 워커 스레드가 받은 요청이 DelegatingFilterProxy를 거쳐 스프링 빈 FilterChainProxy로 위임되고, /api/** 체인과 나머지 체인 중 처음 맞는 체인 하나가 골라져 SecurityContextHolderFilter, 헤더·CSRF 필터, 인증 필터, 익명 필터, 예외 번역 필터, 인가 필터를 차례로 지난 뒤 DispatcherServlet에 도착하고, 응답 후 SecurityContextHolder를 비우는 그림">
+    <defs>
+      <marker id="sec-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+
+    <g data-id="client"><rect class="box" x="8" y="4" width="304" height="32" rx="7" /><text x="160" y="20">클라이언트 · <tspan class="mono">GET /api/orders</tspan></text></g>
+    <line data-id="a0" class="line" x1="160" y1="36" x2="160" y2="48" marker-end="url(#sec-arr)" />
+
+    <g data-id="outer">
+      <rect class="frame" x="8" y="50" width="304" height="562" rx="10" />
+      <text class="sub l" x="16" y="65">서블릿 컨테이너(톰캣)</text>
+    </g>
+    <g data-id="thread"><rect class="chip" x="192" y="54" width="112" height="22" rx="6" /><text x="248" y="65" style="font-size:14px">워커 스레드 1개</text></g>
+
+    <g data-id="dfp">
+      <rect class="box" x="18" y="82" width="284" height="44" rx="7" />
+      <text class="mono" x="160" y="97">DelegatingFilterProxy</text>
+      <text class="sub" x="160" y="116">톰캣에 등록된 필터 · 위임만 함</text>
+    </g>
+    <line data-id="a1" class="line" x1="160" y1="126" x2="160" y2="136" marker-end="url(#sec-arr)" />
+
+    <g data-id="inner">
+      <rect class="frame" x="14" y="138" width="292" height="386" rx="9" />
+      <text class="sub l" x="22" y="152">스프링 시큐리티(빈)</text>
+    </g>
+    <g data-id="fcp">
+      <rect class="chip" x="22" y="160" width="276" height="44" rx="7" />
+      <text class="mono" x="160" y="175">FilterChainProxy</text>
+      <text class="sub" x="160" y="194">RequestMatcher로 체인 1개 선택</text>
+    </g>
+    <g data-id="a2">
+      <line class="line" x1="130" y1="204" x2="92" y2="214" marker-end="url(#sec-arr)" />
+      <line class="line" x1="190" y1="204" x2="228" y2="214" marker-end="url(#sec-arr)" />
+    </g>
+    <g data-id="c-api">
+      <rect class="chip" x="22" y="216" width="134" height="40" rx="7" />
+      <text class="mono" x="89" y="229">/api/** 체인</text>
+      <text class="sub" x="89" y="246">✓ 첫 매칭 · 실행</text>
+    </g>
+    <g data-id="c-all">
+      <rect class="bad" x="164" y="216" width="134" height="40" rx="7" />
+      <text class="mono" x="231" y="229">/** 체인</text>
+      <text class="sub" x="231" y="246">✗ 실행 안 함</text>
+    </g>
+    <line data-id="a3" class="line" x1="89" y1="256" x2="89" y2="266" marker-end="url(#sec-arr)" />
+
+    <g data-id="f1"><rect class="box" x="22" y="268" width="276" height="38" rx="7" />
+      <text class="mono" x="160" y="280">SecurityContextHolderFilter</text>
+      <text class="sub" x="160" y="296">컨텍스트 로드 → 스레드에</text></g>
+    <g data-id="f2"><rect class="box" x="22" y="310" width="276" height="38" rx="7" />
+      <text class="mono" x="160" y="322">HeaderWriterFilter · CsrfFilter</text>
+      <text class="sub" x="160" y="338">보안 헤더 · CSRF 검사(실패 403)</text></g>
+    <g data-id="f3"><rect class="box" x="22" y="352" width="276" height="38" rx="7" />
+      <text x="160" y="364">인증 필터 (폼 로그인 · JWT)</text>
+      <text class="sub" x="160" y="380">자격 증명이 있으면 인증 시도</text></g>
+    <g data-id="f4"><rect class="box" x="22" y="394" width="276" height="38" rx="7" />
+      <text class="mono" x="160" y="406">AnonymousAuthenticationFilter</text>
+      <text class="sub" x="160" y="422">아직 아무도 아니면 익명으로</text></g>
+    <g data-id="f5"><rect class="box" x="22" y="436" width="276" height="38" rx="7" />
+      <text class="mono" x="160" y="448">ExceptionTranslationFilter</text>
+      <text class="sub" x="160" y="464">뒤에서 난 예외 → 응답으로</text></g>
+    <g data-id="f6"><rect class="box" x="22" y="478" width="276" height="38" rx="7" />
+      <text class="mono" x="160" y="490">AuthorizationFilter</text>
+      <text class="sub" x="160" y="506">인가 규칙 검사 (맨 끝)</text></g>
+    <line data-id="a4" class="line" x1="160" y1="524" x2="160" y2="534" marker-end="url(#sec-arr)" />
+
+    <g data-id="ds"><rect class="box" x="18" y="536" width="284" height="32" rx="7" /><text x="160" y="552"><tspan class="mono">DispatcherServlet</tspan> → 컨트롤러</text></g>
+    <g data-id="clear"><rect class="chip" x="18" y="574" width="284" height="32" rx="7" /><text x="160" y="590">응답 후 <tspan class="mono">SecurityContextHolder</tspan> 비움</text></g>
+
+    <rect data-id="hl-client" class="hl" x="4" y="0" width="312" height="80" rx="9" />
+    <rect data-id="hl-dfp" class="hl" x="14" y="78" width="292" height="130" rx="9" />
+    <rect data-id="hl-chain" class="hl" x="18" y="156" width="284" height="104" rx="9" />
+    <rect data-id="hl-f1" class="hl" x="18" y="264" width="284" height="46" rx="9" />
+    <rect data-id="hl-f2" class="hl" x="18" y="306" width="284" height="46" rx="9" />
+    <rect data-id="hl-f3" class="hl" x="18" y="348" width="284" height="46" rx="9" />
+    <rect data-id="hl-f4" class="hl" x="18" y="390" width="284" height="46" rx="9" />
+    <rect data-id="hl-f5" class="hl" x="18" y="432" width="284" height="46" rx="9" />
+    <rect data-id="hl-f6" class="hl" x="18" y="474" width="284" height="98" rx="9" />
+    <rect data-id="hl-clear" class="hl" x="14" y="570" width="292" height="40" rx="9" />
+  </svg>
+</Stepper>

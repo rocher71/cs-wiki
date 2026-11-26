@@ -1,0 +1,79 @@
+---
+// 연관관계 주인: 역방향(mappedBy) 컬렉션만 바꾸면 FK는 null, 주인(@ManyToOne) 쪽을 설정해야 UPDATE로 FK가 채워진다. (실험 A: Hibernate 7.4 + H2)
+import Stepper from '../Stepper.astro';
+const base = ['obj', 'team', 'member', 'db', 'tTeam', 'tMember'];
+const s2 = [...base, 'ar1', 'code1'];
+const s3 = [...s2, 'rowT', 'rowM', 'cNull', 'sql1', 'xIgn', 'ign'];
+const s4 = [...base, 'ar1', 'ar2', 'code2', 'rowT', 'rowM', 'cOne', 'fk', 'sql1', 'ign', 'sql2'];
+const steps = [
+  { caption: '객체는 참조가 두 개예요(Team의 members, Member의 team). 테이블은 MEMBER.team_id 외래키 칸 하나로 양쪽을 다 찾아가요. 두 참조 중 누구 값으로 이 칸을 채울지 정해야 해요.', show: [...base, 'ar1', 'ar2', 'hl-col'] },
+  { caption: 'team.getMembers().add(member)만 불러요. 메모리에서는 Team → Member 참조가 생겼지만, Member의 team 필드는 아직 비어 있어요.', show: [...s2, 'hl-ar1'] },
+  { caption: '커밋하면 INSERT Member가 나가는데 team_id는 null이에요. members는 mappedBy 쪽이라 JPA가 FK를 정할 때 보지 않아요(무시 ✗).', show: [...s3, 'hl-sql1'] },
+  { caption: '주인 쪽인 member.setTeam(team)을 설정하면 다음 flush 때 UPDATE Member set team_id=1이 나가고, 그제야 FK가 TEAM을 가리켜요.', show: [...s4, 'hl-sql2'] },
+  { caption: '결론: DB 외래키를 바꾸는 건 @ManyToOne(주인) 하나뿐이에요. 메모리 위 양쪽 객체도 맞추려면 두 쪽을 한 번에 세팅하는 편의 메서드를 둬요.', show: [...s4, 'concl', 'hl-concl'] },
+];
+---
+<Stepper title="연관관계 주인만 외래키를 바꿔요" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 424" role="img" aria-label="Team의 members 컬렉션에만 member를 넣으면 INSERT 때 team_id가 null이고, 주인인 member.team을 설정해야 UPDATE로 team_id가 1이 되는 과정">
+    <defs>
+      <marker id="own-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-2)" />
+      </marker>
+    </defs>
+
+    <text data-id="obj" class="sub l" x="8" y="10">객체 (메모리)</text>
+    <g data-id="team">
+      <rect class="box" x="8" y="22" width="128" height="50" rx="7" />
+      <text x="72" y="37">Team</text>
+      <text class="mono" x="72" y="58">members</text>
+      <text class="sub" x="72" y="84">mappedBy 쪽</text>
+    </g>
+    <g data-id="member">
+      <rect class="box" x="184" y="22" width="128" height="50" rx="7" />
+      <text x="248" y="37">Member</text>
+      <text class="mono" x="248" y="58">team</text>
+      <text class="sub" x="248" y="84">주인 쪽</text>
+    </g>
+    <line data-id="ar1" class="line" x1="137" y1="37" x2="182" y2="37" marker-end="url(#own-arr)" />
+    <line data-id="ar2" class="line" x1="183" y1="58" x2="138" y2="58" marker-end="url(#own-arr)" />
+    <g data-id="xIgn"><circle class="err" cx="160" cy="37" r="9" /><text class="err-t" x="160" y="38" style="font-size:14px">✗</text></g>
+
+    <g data-id="code1" class="hide"><rect class="chip" x="8" y="96" width="304" height="30" rx="7" /><text class="mono" x="160" y="111">team.getMembers().add(member)</text></g>
+    <g data-id="code2" class="hide"><rect class="chip" x="8" y="96" width="304" height="30" rx="7" /><text class="mono" x="160" y="111">member.setTeam(team)</text></g>
+
+    <text data-id="db" class="sub l" x="8" y="142">테이블 (DB)</text>
+    <g data-id="tTeam">
+      <rect class="box" x="8" y="154" width="96" height="28" /><text x="56" y="168">TEAM</text>
+      <rect class="box" x="8" y="182" width="96" height="28" /><text class="mono" x="56" y="196">id</text>
+    </g>
+    <g data-id="tMember">
+      <rect class="box" x="128" y="154" width="184" height="28" /><text x="220" y="168">MEMBER</text>
+      <rect class="box" x="128" y="182" width="80" height="28" /><text class="mono" x="168" y="196">id</text>
+      <rect class="box" x="208" y="182" width="104" height="28" /><text class="mono" x="260" y="196">team_id</text>
+    </g>
+    <g data-id="rowT"><rect class="box" x="8" y="210" width="96" height="28" /><text class="mono" x="56" y="224">1</text></g>
+    <g data-id="rowM"><rect class="box" x="128" y="210" width="80" height="28" /><text class="mono" x="168" y="224">1</text></g>
+    <g data-id="cNull" class="hide"><rect class="err" x="208" y="210" width="104" height="28" /><text class="mono err-t" x="260" y="224">null</text></g>
+    <g data-id="cOne" class="hide"><rect class="chip" x="208" y="210" width="104" height="28" /><text class="mono hi" x="260" y="224">1</text></g>
+    <g data-id="fk">
+      <path class="line" d="M260 238V252H56V240" marker-end="url(#own-arr)" />
+      <text class="sub" x="160" y="264">FK 연결</text>
+    </g>
+
+    <g data-id="sql1"><rect class="box" x="8" y="278" width="304" height="30" rx="7" /><text class="mono" x="160" y="293">INSERT Member(team_id=null)</text></g>
+    <text data-id="ign" class="err-t" x="160" y="320" style="font-size:14px">members 변경은 FK에 반영 안 됨 ✗</text>
+    <g data-id="sql2"><rect class="chip" x="8" y="332" width="304" height="30" rx="7" /><text class="mono" x="160" y="347">UPDATE Member set team_id=1</text></g>
+
+    <g data-id="concl">
+      <rect class="chip" x="8" y="370" width="304" height="50" rx="8" />
+      <text x="160" y="386">DB에 쓰는 건 @ManyToOne(주인)</text>
+      <text class="sub" x="160" y="406">양쪽을 맞추려면 편의 메서드</text>
+    </g>
+
+    <rect data-id="hl-col" class="hl" x="204" y="150" width="112" height="64" rx="6" />
+    <rect data-id="hl-ar1" class="hl" x="4" y="18" width="312" height="112" rx="9" />
+    <rect data-id="hl-sql1" class="hl" x="4" y="206" width="312" height="120" rx="9" />
+    <rect data-id="hl-sql2" class="hl" x="4" y="328" width="312" height="38" rx="9" />
+    <rect data-id="hl-concl" class="hl" x="4" y="366" width="312" height="58" rx="10" />
+  </svg>
+</Stepper>

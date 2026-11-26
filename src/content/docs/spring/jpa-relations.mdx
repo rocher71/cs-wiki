@@ -1,0 +1,387 @@
+---
+title: 연관관계 매핑
+description: "JPA 양방향 연관관계에서 DB 외래키를 실제로 바꾸는 쪽은 연관관계 주인(보통 @ManyToOne) 하나뿐이고, mappedBy 쪽은 읽기 전용이에요. cascade·orphanRemoval, @ManyToMany 대안, 순환 참조까지 정리해요."
+sidebar: { order: 9 }
+tags: [면접빈출, 서술형]
+---
+import { Aside } from '@astrojs/starlight/components';
+import OwningSideFlow from '~/components/viz/OwningSideFlow.astro';
+import UnidirectionalOneToManyUpdate from '~/components/viz/UnidirectionalOneToManyUpdate.astro';
+
+:::tip[한 줄 요약]
+테이블은 외래키 하나로 양쪽을 다 찾아가지만, 객체는 참조가 있는 쪽에서만 갈 수 있어서 "양방향"은 사실 단방향 참조 두 개예요. 그중 **외래키를 실제로 바꾸는 쪽이 연관관계 주인**이고, 일대다에서는 외래키를 가진 **다(N) 쪽, `@ManyToOne`이 주인**이에요. 반대쪽은 `mappedBy`를 달고, DB에는 반영되지 않아요.
+:::
+
+## 쉽게 이해하기
+
+회사 인사 서류를 떠올려 봐요. 직원 카드마다 "소속 팀" 칸이 하나 있어요. 팀이 누구누구인지 알고 싶으면 카드 더미에서 "소속 팀 = 개발팀"인 카드를 찾으면 돼요. 서류(DB)에는 이 칸 하나만 있으면 양쪽을 다 알 수 있어요.
+
+그런데 팀장도 자기 수첩에 "우리 팀원 명단"을 따로 적어 둔다고 해 봐요. 이제 같은 사실이 두 곳에 적혀 있어요. 둘이 다르면 뭘 믿어야 할까요? 회사는 규칙을 정해요. **공식 기록은 직원 카드의 "소속 팀" 칸뿐이고, 팀장 수첩은 참고용**이에요.
+
+JPA도 똑같아요. 직원 카드의 칸이 **외래키**(foreign key, FK, 다른 테이블의 행을 가리키는 컬럼)이고, 그 칸을 책임지는 쪽이 **연관관계 주인**이에요. 팀장 수첩이 `mappedBy`가 붙은 컬렉션이에요.
+
+단, 실제로는 수첩만 고쳐도 아무 경고가 없어요. 그래서 "수첩에 적었는데 왜 DB엔 없지?"라는 버그가 자주 나요.
+
+## 그림으로 보기
+
+<OwningSideFlow />
+
+<UnidirectionalOneToManyUpdate />
+
+## 제대로 알기
+
+### 1. 테이블과 객체는 관계를 다르게 표현해요
+
+| 구분 | 테이블 | 객체 |
+|---|---|---|
+| 관계를 잇는 것 | 외래키 컬럼 하나 | 필드에 담긴 참조 |
+| 방향 | 없음. 조인하면 양쪽 다 조회 | 있음. 참조를 가진 쪽에서만 이동 |
+| "양방향" | 원래 양방향 | 단방향 참조 두 개 |
+
+그래서 객체로 양방향을 만들면 **참조는 두 개, 외래키는 하나**인 상태가 돼요. 두 참조 중 어느 쪽 값을 보고 외래키를 정할지 JPA에게 알려 줘야 해요. 그 답이 연관관계 주인이에요.
+
+### 2. 연관관계 주인과 mappedBy
+
+- **소유 측**(owning side, 연관관계 주인): 외래키 값을 결정하는 쪽. JPA는 이쪽 값만 보고 INSERT·UPDATE를 만들어요.
+- **역방향**(inverse side): 반대쪽. `mappedBy = "소유 측 필드 이름"`을 달아서 "나는 저쪽 필드에 매핑돼 있어"라고 알려요.
+
+일대다·다대일 양방향에서는 **외래키가 있는 테이블 쪽, 즉 `@ManyToOne`이 반드시 주인**이에요. JPA 스펙과 Hibernate 가이드 둘 다 이렇게 정해요.
+
+```java
+@Entity
+class Team {
+    @Id @GeneratedValue Long id;
+    @OneToMany(mappedBy = "team")   // 역방향: Member.team 필드를 가리킴
+    List<Member> members = new ArrayList<>();
+}
+
+@Entity
+class Member {
+    @Id @GeneratedValue Long id;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "team_id")   // 주인: 이 값이 MEMBER.team_id가 됨
+    Team team;
+}
+```
+
+<Aside type="caution" title="주인은 '중요한 쪽'이 아니에요">
+Team이 부모처럼 보여서 Team이 주인일 것 같지만, 주인은 **외래키를 가진 쪽**이에요. 여기선 MEMBER 테이블에 `team_id`가 있으니 Member가 주인이에요.
+</Aside>
+
+일대일(`@OneToOne`)은 외래키를 어느 테이블에 둘지 고를 수 있어요. 어느 쪽이든 **외래키를 가진 쪽이 주인**이라는 규칙은 같아요.
+
+### 3. 역방향만 바꾸면 DB에 안 들어가요
+
+Hibernate 7.4 + H2로 직접 돌려 본 결과예요. `team.members.add(member)`만 하고 커밋했어요.
+
+```sql
+insert into Team (name,id) values (?,?)
+insert into Member (name,team_id,id) values (?,?,?)
+-- 조회해 보면 team_id = null
+```
+
+그다음 주인 쪽인 `member.team = team`을 설정하니 그제야 외래키가 채워졌어요.
+
+```sql
+update Member set name=?,team_id=? where id=?
+-- team_id = 1
+```
+
+DB에는 주인 쪽 값만 반영되고, 메모리 위 두 객체를 서로 맞추는 건 **애플리케이션 책임**이에요. 그래서 Hibernate 가이드는 양방향이면 **항상 양쪽을 같이 설정**하라고 하고, 부모에 `addPhone()`/`removePhone()` 같은 헬퍼 메서드를 두는 예를 보여 줘요. 이런 메서드를 흔히 **연관관계 편의 메서드**라고 불러요.
+
+```java
+// Team 안에 두는 편의 메서드
+public void addMember(Member m) {
+    members.add(m);   // 메모리용(역방향)
+    m.setTeam(this);  // DB용(주인)
+}
+public void removeMember(Member m) {
+    members.remove(m);
+    m.setTeam(null);
+}
+```
+
+<Aside type="note" title="양방향이 기본은 아니에요">
+흔한 설계 조언은 **단방향 `@ManyToOne`으로 시작하고**, 반대 방향으로 조회할 일이 생기면 그때 `mappedBy` 컬렉션을 추가하는 거예요. 양방향은 편하지만 양쪽을 맞추는 비용이 따라와요.
+</Aside>
+
+### 4. 단방향 @OneToMany는 왜 비효율적일까
+
+부모에만 컬렉션이 있고 자식은 부모를 모르는 구조예요. 외래키는 여전히 **자식(N) 테이블**에 있어야 하는데, 자식 엔티티에 그 값을 담을 필드가 없어요. 그래서 두 가지 일이 생겨요.
+
+| 설정 | 결과(실험) |
+|---|---|
+| `@JoinColumn` 없음 | 조인 테이블이 따로 생김. 예: `Board_Reply(Board_id, replies_id)`. JPA 스펙도 단방향 일대다의 기본 매핑을 조인 테이블로 둬요 |
+| `@JoinColumn(name = "post_id")` | 외래키는 자식 테이블에 생기지만, 자식을 INSERT한 뒤 외래키를 채우는 **UPDATE가 자식 수만큼 더** 나감 |
+
+`@JoinColumn`을 붙인 경우의 실제 로그예요. 댓글 2개에 UPDATE 2번이 추가됐어요.
+
+```sql
+insert into Post (id) values (?)
+insert into Comment (body,id) values (?,?)
+insert into Comment (body,id) values (?,?)
+update Comment set post_id=? where id=?
+update Comment set post_id=? where id=?
+```
+
+Hibernate 가이드는 조인 테이블 방식에서 자식 하나를 빼면 flush 때 부모에 연결된 링크 행을 **전부 지우고 남은 것을 다시 넣는다**고 해요. 반대로 양방향(`@ManyToOne`이 주인)이면 자식이 관계를 직접 관리해서 훨씬 효율적이라고 해요.
+
+### 5. cascade와 orphanRemoval
+
+**cascade**(영속성 전이)는 부모에 한 영속성 작업(저장·삭제 등)을 자식에게도 똑같이 해 주는 옵션이에요. 연관관계 주인과는 **별개 개념**이에요.
+
+| 개념 | 정하는 것 |
+|---|---|
+| 연관관계 주인 | 외래키 값을 누가 결정하나 |
+| cascade | 부모에 한 persist·remove 등을 자식에게도 전파하나 |
+
+Jakarta `CascadeType`에는 `ALL`, `PERSIST`, `MERGE`, `REMOVE`, `REFRESH`, `DETACH`가 있어요. Hibernate에서 `ALL`은 Hibernate 전용 작업(LOCK 등)까지 전파해요. Hibernate 가이드는 cascade를 **부모 쪽(`@OneToMany`)에만** 거는 게 말이 된다고 해요.
+
+**orphanRemoval = true**는 부모 컬렉션에서 빠진 자식, 즉 **고아**(orphan, 부모와 관계가 끊긴 엔티티)를 flush 때 삭제해요. 부모 없이는 존재할 수 없는 자식에 쓰는 옵션이에요. 실험에서 `post.comments.remove(0)` 후 커밋하니 이렇게 나갔어요.
+
+```sql
+update Comment set post_id=null where post_id=? and id=?
+delete from Comment where id=?
+```
+
+orphanRemoval이 없으면 위 UPDATE까지만 나가고, 자식 행은 외래키가 NULL인 채로 남아요. 이건 부모 컬렉션이 외래키를 관리하는 단방향 예제라서 그래요. 양방향에서 `mappedBy` 컬렉션에서만 빼면 외래키도 그대로 남아요(실험으로 확인). 관계를 끊으려면 주인 쪽을 `null`로 바꿔야 해요.
+
+| 구분 | cascade REMOVE | orphanRemoval |
+|---|---|---|
+| 자식이 지워지는 때 | 부모를 지울 때 | 부모는 그대로인데 컬렉션에서 뺄 때(부모를 지울 때도 지워짐) |
+| 쓰는 곳 | 부모가 자식의 생명주기를 책임질 때 | 자식이 부모에 "개인 소유"일 때 |
+
+<Aside type="danger" title="공유되는 자식에 cascade REMOVE 금지">
+JPA 스펙은 `cascade = REMOVE`를 `@OneToOne`, `@OneToMany`에만 쓰라고 해요. Hibernate 가이드는 `@ManyToMany`에 REMOVE를 전파하면 링크 테이블 행을 넘어 **상대 엔티티까지 지우려 해서**, 다른 엔티티가 그 상대를 참조 중이면 `ConstraintViolationException`이 날 수 있다고 경고해요. 주문-주문상품처럼 소유 관계가 분명한 곳에만 cascade를 걸어요.
+</Aside>
+
+### 6. @ManyToMany 대신 연결 엔티티
+
+**다대다**(@ManyToMany)는 숨은 링크 테이블(예: `MEMBER_PRODUCT(member_id, product_id)`)로 매핑돼요. 편해 보이지만 한계가 있어요.
+
+- 링크 테이블에 **컬럼을 추가할 수 없어요**. 주문 수량, 등록일 같은 걸 넣을 곳이 없어요.
+- 하나만 빼도 부모에 연결된 링크 행을 **전부 지우고 다시 넣어요**(Hibernate 가이드).
+
+가이드가 권하는 대안은 링크 테이블을 **연결 엔티티**로 드러내는 거예요. `@ManyToMany` 하나를 `@OneToMany`/`@ManyToOne` 양방향 두 개로 쪼개고, 연결 엔티티가 두 `@ManyToOne`을 소유해요.
+
+| 전 | 후 |
+|---|---|
+| Member ⇄ Product (`@ManyToMany`) | Member 1 : N **Order** N : 1 Product |
+| 링크 테이블에 member_id, product_id만 | Order가 member_id, product_id + 수량, 주문일을 가짐 |
+
+### 7. 엔티티의 equals/hashCode
+
+일반 규약은 [equals와 hashCode](../../java/equals-hashcode/)에서 다뤄요. 엔티티에는 특별한 함정이 있어요.
+
+- Hibernate는 **같은 세션 안에서는 같은 행 = 같은 Java 인스턴스**를 보장해요. 문제는 세션 밖이나 다른 세션에서 온 인스턴스를 `Set`에 섞을 때 생겨요.
+- `@GeneratedValue` ID로 hashCode를 만들면, 저장 전엔 id가 null이었다가 저장 후 값이 생겨 **hashCode가 바뀌어요**. 이미 `HashSet`에 넣은 객체를 다시 못 찾아요.
+
+Hibernate 가이드가 권하는 방법이에요.
+
+| 방법 | 내용 |
+|---|---|
+| 자연 키 사용(권장) | ISBN, 전화번호처럼 처음부터 정해진 **비즈니스 키**로 비교 |
+| ID밖에 없을 때 | hashCode는 **상수로 고정**, equals는 id가 null이 아닐 때만 id로 비교 |
+| 오버라이드 안 함 | 이것도 선택지로 언급돼요 |
+
+### 8. toString·JSON 순환 참조
+
+양방향에서 `toString`이나 JSON 변환이 양쪽 필드를 다 따라가면 Team → members → Member → team → … 으로 끝없이 돌아서 `StackOverflowError`가 나요. 지연 로딩 컬렉션을 건드려 쿼리가 더 나가거나 `LazyInitializationException`이 나기도 해요. 지연 로딩은 [N+1 문제](../jpa-n-plus-one/)에서 다뤄요.
+
+흔히 쓰는 해결책이에요.
+- **API 응답은 엔티티 대신 DTO**로 돌려줘요. 가장 많이 권하는 방법이에요.
+- `toString`에서 연관 필드를 빼요. Lombok이라면 `@ToString.Exclude`를 쓰고, 엔티티에 `@Data`는 피해요(모든 필드로 toString·equals·hashCode를 만들어요).
+- Jackson의 `@JsonIgnore`, `@JsonManagedReference`/`@JsonBackReference`로 한쪽 직렬화를 끊어요.
+
+### 9. 기본 fetch 전략(짧게)
+
+스펙 기본값은 `@ManyToOne`·`@OneToOne`이 **EAGER**(즉시 로딩), `@OneToMany`·`@ManyToMany`가 **LAZY**(지연 로딩)예요. 실무에서는 `@ManyToOne`에도 `fetch = LAZY`를 명시하는 경우가 많아요. 이유는 [N+1 문제](../jpa-n-plus-one/)에서 다뤄요.
+
+## 면접 질문
+
+<details>
+<summary>Q. 연관관계의 주인이란 무엇이고, 왜 필요한가요?</summary>
+
+**답변(30초)** 양방향 연관관계에서 DB 외래키를 실제로 관리하는 쪽이에요. 테이블은 외래키 하나로 양방향이지만, 객체는 참조가 두 개라서 어느 쪽 값으로 외래키를 정할지 하나를 골라야 해요. 일대다에서는 외래키가 있는 다(N) 쪽, `@ManyToOne`이 주인이고, 반대쪽은 `mappedBy`로 주인 필드를 가리켜요. JPA는 주인 쪽 값만 보고 INSERT·UPDATE를 만들어요.
+
+**꼬리질문**
+- Q. 부모인 Team이 주인이 되면 안 되나요? → 일대다 양방향에서는 외래키를 가진 `@ManyToOne` 쪽이 주인이어야 해요. 주인은 비즈니스상 중요도가 아니라 외래키 위치로 정해요.
+- Q. 일대일이면요? → 외래키를 어느 테이블에 둘지 고를 수 있고, 외래키를 가진 쪽이 주인이에요.
+</details>
+
+<details>
+<summary>Q. mappedBy 쪽 컬렉션에만 값을 넣으면 어떻게 되나요?</summary>
+
+**답변(30초)** 외래키가 저장되지 않아요. 역방향 변경은 DB에 반영되지 않기 때문이에요. 직접 실험해 보면 Member는 INSERT되지만 `team_id`는 null이고, 주인인 `member.team`을 설정해야 UPDATE로 채워져요. 그래서 양쪽을 한 번에 설정하는 편의 메서드를 둬요.
+
+**꼬리질문**
+- Q. 주인 쪽만 설정하면 충분한가요? → DB는 맞지만, 같은 트랜잭션 안에서 `team.getMembers()`를 보면 새 멤버가 없을 수 있어요. 메모리 상태를 맞추는 건 애플리케이션 책임이라 양쪽 다 설정해요.
+- Q. cascade = PERSIST를 걸면 해결되나요? → 자식 엔티티 자체는 INSERT되지만 외래키는 여전히 주인 쪽 값으로 정해져서 null일 수 있어요.
+</details>
+
+<details>
+<summary>Q. 단방향 @OneToMany의 문제점은?</summary>
+
+**답변(30초)** 외래키는 자식 테이블에 있는데 자식 엔티티가 그 값을 몰라서 비효율이 생겨요. `@JoinColumn`이 없으면 조인 테이블이 따로 생기고, 있으면 자식 INSERT 후 외래키를 채우는 UPDATE가 자식 수만큼 추가로 나가요. 자식 하나를 빼도 링크 행을 전부 지우고 다시 넣는 경우가 있어요. 그래서 `@ManyToOne` 주인을 둔 양방향이나 단방향 `@ManyToOne`을 권해요.
+
+**꼬리질문**
+- Q. 단방향 @OneToMany + @JoinColumn이면 외래키가 부모 테이블에 생기나요? → 아니요. 여전히 자식 테이블에 생겨요. 그래서 UPDATE가 더 필요해요.
+</details>
+
+<details>
+<summary>Q. cascade와 orphanRemoval의 차이는?</summary>
+
+**답변(30초)** cascade는 부모에 한 영속성 작업을 자식에게 전파하는 거고, orphanRemoval은 부모 컬렉션에서 빠진 자식을 삭제하는 거예요. cascade REMOVE는 부모를 지울 때 자식이 지워지고, orphanRemoval은 부모는 그대로인데 관계만 끊어도 자식이 지워져요. 둘 다 자식이 그 부모에게만 속할 때 써야 하고, 여러 곳에서 공유되는 엔티티에는 걸면 안 돼요.
+
+**꼬리질문**
+- Q. cascade와 연관관계 주인은 무슨 관계죠? → 별개예요. 주인은 외래키를 누가 정하나, cascade는 작업을 전파하나예요.
+- Q. orphanRemoval 없이 컬렉션에서 빼면? → 주인 쪽 외래키가 NULL로 바뀌는 경우(단방향 @OneToMany, 또는 편의 메서드로 `m.setTeam(null)`)엔 자식 행은 남고 외래키만 NULL이 돼요. `mappedBy` 컬렉션에서만 빼면 DB는 아무것도 안 바뀌어요.
+</details>
+
+<details>
+<summary>Q. @ManyToMany를 실무에서 잘 안 쓰는 이유와 대안은?</summary>
+
+**답변(30초)** 숨은 링크 테이블에 수량·날짜 같은 컬럼을 추가할 수 없고, 하나만 빼도 링크 행을 전부 지우고 다시 넣는 비효율이 있어요. cascade REMOVE를 걸면 상대 엔티티까지 지우려 해서 예외가 날 수도 있어요. 대안은 링크 테이블을 연결 엔티티로 만들고 `@OneToMany`/`@ManyToOne` 두 개로 쪼개는 거예요.
+
+**꼬리질문**
+- Q. 연결 엔티티에서 연관관계 주인은? → 외래키 두 개를 가진 연결 엔티티의 두 `@ManyToOne`이 주인이에요.
+</details>
+
+<details>
+<summary>Q. 엔티티의 equals/hashCode는 어떻게 구현하나요?</summary>
+
+**답변(30초)** 자연 키, 즉 처음부터 정해진 비즈니스 키로 구현하는 게 가장 안전해요. 생성되는 ID로 만들면 저장 전엔 null이었다가 저장 후 값이 생겨 hashCode가 바뀌고, 이미 넣은 `HashSet`에서 못 찾아요. ID밖에 없으면 hashCode는 상수로 두고 equals는 id가 null이 아닐 때만 비교해요.
+
+**꼬리질문**
+- Q. 오버라이드 안 하면 안 되나요? → 같은 세션 안에선 Hibernate가 같은 행을 같은 인스턴스로 보장해서 문제가 적고, 가이드도 선택지로 언급해요. 세션 밖(저장 전·준영속) 인스턴스나 다른 세션 인스턴스를 `Set`에 섞을 때 문제가 돼요.
+</details>
+
+<details>
+<summary>Q. 양방향 연관관계 엔티티를 JSON으로 반환하면 왜 무한 루프가 나나요?</summary>
+
+**답변(30초)** 직렬화가 Team의 members를 따라가고, 각 Member의 team을 다시 따라가서 끝없이 돌기 때문이에요. 결국 `StackOverflowError`가 나고, 지연 로딩 컬렉션을 건드려 쿼리가 더 나가기도 해요. 가장 좋은 해결은 엔티티 대신 DTO를 반환하는 거고, 차선으로 `@JsonIgnore`나 `@JsonBackReference`로 한쪽을 끊어요.
+
+**꼬리질문**
+- Q. Lombok @Data를 엔티티에 쓰면? → toString·equals·hashCode가 연관 필드까지 포함해서 같은 순환 문제가 생겨요. `@ToString.Exclude`로 연관 필드를 빼요.
+</details>
+
+## 서술형 연습
+
+<details>
+<summary>상황: 팀에 멤버를 추가하는 API를 만들었는데, DB를 보니 member.team_id가 전부 NULL입니다.</summary>
+
+**상황 파악**
+멤버 행은 저장됐는데 외래키만 비어 있어요. "저장은 됐지만 관계가 반영 안 됨"이라 연관관계 매핑 쪽을 먼저 의심해요.
+
+**원인 후보**
+1. **역방향만 설정**: 코드가 `team.getMembers().add(member)`만 하고 `member.setTeam(team)`을 안 했어요. `mappedBy` 쪽 변경은 DB에 반영되지 않아요. 가장 유력해요.
+2. cascade = PERSIST로 멤버가 저장되긴 했지만, 외래키는 주인 쪽 값(null)으로 들어갔어요. 1과 같은 원인의 다른 모습이에요.
+3. 매핑 실수로 `mappedBy`를 `@ManyToOne` 쪽에 착각해 붙였거나 주인이 뒤바뀌었는지도 확인해요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. 편의 메서드 `team.addMember(m)`에서 양쪽 설정 | 한 곳에서 일관되게 맞춤. 메모리 상태도 정확 | 양방향 유지 비용. 모든 호출부가 편의 메서드를 쓰도록 강제해야 함 |
+| B. 양방향을 없애고 단방향 `@ManyToOne`만 유지, 팀원 조회는 쿼리로 | 맞출 게 하나라 버그가 원천 차단 | `team.getMembers()` 같은 탐색이 사라져 조회 코드를 따로 써야 함 |
+
+**내가 고를 방법**
+팀 화면에서 팀원 목록을 자주 쓴다면 A를 골라요. 컬렉션 필드를 외부에 직접 노출하지 않고 편의 메서드로만 바꾸게 막아요. 팀원 목록이 거의 필요 없다면 B가 더 단순해요. 어느 쪽이든 저장 후 외래키를 확인하는 테스트를 추가해요.
+
+**채점 포인트**: 연관관계 주인, mappedBy 쪽은 DB 미반영, 외래키는 @ManyToOne 쪽, 편의 메서드로 양쪽 동기화, 단방향 대안과 트레이드오프.
+</details>
+
+<details>
+<summary>상황: 게시글을 댓글과 함께 대량 저장하는 배치가 느립니다. SQL 로그를 보니 댓글 수만큼 UPDATE가 추가로 나갑니다.</summary>
+
+**상황 파악**
+INSERT 외에 UPDATE가 댓글 수만큼 더 나가요. 외래키를 INSERT 때 못 넣고 나중에 채우는 패턴이에요.
+
+**원인 후보**
+1. **단방향 @OneToMany + @JoinColumn**: Comment가 Post를 모르니 INSERT 때 `post_id`를 못 넣고, Post 쪽에서 UPDATE로 채워요. 가장 유력해요.
+2. `@JoinColumn`이 없다면 조인 테이블에 INSERT가 따로 나가는 형태일 수도 있어요. 같은 계열 문제예요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. Comment에 `@ManyToOne Post post`를 추가해 주인으로, Post는 `mappedBy` | INSERT 한 번에 외래키까지 들어가 UPDATE가 사라짐 | 양방향 동기화(편의 메서드) 필요. 엔티티 구조 변경 |
+| B. Post의 컬렉션을 없애고 단방향 `@ManyToOne`만, 댓글은 직접 저장 | 가장 단순하고 효율적 | 게시글에서 댓글 컬렉션 탐색이 사라짐. cascade로 한 번에 저장하던 코드 수정 필요 |
+
+**내가 고를 방법**
+게시글과 댓글을 함께 다루는 화면이 많다면 A를 골라요. cascade와 orphanRemoval은 Post 쪽에 그대로 두고, 외래키 관리만 Comment로 넘겨요. 바꾼 뒤 SQL 로그에서 UPDATE가 사라졌는지 확인해요.
+
+**채점 포인트**: 단방향 @OneToMany의 추가 UPDATE, 외래키는 자식 테이블, @ManyToOne 주인으로 전환, 편의 메서드, SQL 로그로 검증.
+</details>
+
+<details>
+<summary>상황: 회원-상품 @ManyToMany로 '찜하기'를 만들었는데, 찜한 날짜를 저장해 달라는 요구가 왔습니다.</summary>
+
+**상황 파악**
+링크 테이블에 컬럼을 하나 더 넣어야 해요. `@ManyToMany`의 숨은 링크 테이블에는 컬럼을 추가할 방법이 없어요.
+
+**원인 후보**
+1. `@ManyToMany`의 구조적 한계예요. 링크 테이블은 두 외래키만 가져요.
+2. 찜을 하나 취소할 때 링크 행을 전부 지우고 다시 넣는 비효율도 같이 있을 수 있어요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. 연결 엔티티 `Wishlist(member, product, createdAt)`로 승격, 양쪽에 `@OneToMany`/`@ManyToOne` | 컬럼 자유롭게 추가. 찜 하나만 정확히 INSERT·DELETE | 엔티티·코드 변경. 기존 링크 테이블 데이터 마이그레이션 필요 |
+| B. 날짜를 별도 테이블에 따로 저장 | 기존 매핑 유지 | 같은 사실이 두 곳에 흩어져 정합성 관리가 어려움 |
+
+**내가 고를 방법**
+A를 골라요. 찜은 앞으로도 알림 여부, 정렬 순서 같은 속성이 붙기 쉬워서 처음부터 엔티티로 두는 게 맞아요. 기존 테이블에 `id`, `created_at` 컬럼을 추가하는 마이그레이션으로 데이터를 살리고, (member_id, product_id)에 유니크 제약을 걸어 중복 찜을 막아요. cascade REMOVE는 Member 쪽에만 걸고 Product 쪽에는 걸지 않아요.
+
+**채점 포인트**: @ManyToMany 링크 테이블에 컬럼 추가 불가, 연결 엔티티와 두 @ManyToOne, 마이그레이션, 유니크 제약, 공유 엔티티에 cascade REMOVE 금지.
+</details>
+
+<details>
+<summary>상황: 주문 조회 API가 StackOverflowError로 실패합니다. 컨트롤러가 Order 엔티티를 그대로 반환합니다.</summary>
+
+**상황 파악**
+엔티티를 그대로 JSON으로 바꾸다가 스택이 넘쳤어요. 양방향 연관관계 순환을 의심해요.
+
+**원인 후보**
+1. **JSON 직렬화 순환**: Order → orderItems → OrderItem → order → … 를 끝없이 따라가요.
+2. 로그에 엔티티를 찍을 때 Lombok `@Data`/`@ToString`이 연관 필드까지 따라가는 경우도 같은 증상이에요.
+3. 직렬화 중 지연 로딩 컬렉션을 건드려 쿼리가 폭증하거나 `LazyInitializationException`이 같이 날 수 있어요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. 응답 DTO로 변환해서 반환 | 순환·지연 로딩·내부 필드 노출 문제를 한 번에 해결. API 스펙이 엔티티 변경과 분리 | DTO 클래스와 변환 코드가 늘어남 |
+| B. `@JsonIgnore`/`@JsonBackReference`로 한쪽 끊기 | 코드 변경이 작음 | 엔티티가 화면 요구에 묶임. 다른 API에서 반대 방향이 필요하면 꼬임 |
+
+**내가 고를 방법**
+A를 골라요. 엔티티를 API 응답으로 쓰면 이번 순환 말고도 지연 로딩, 민감 필드 노출 문제가 계속 따라와요. 당장 장애를 막아야 하면 B로 끊고 DTO로 옮겨요. 엔티티의 `toString`에서도 연관 필드를 빼요.
+
+**채점 포인트**: 양방향 순환 참조, StackOverflowError, DTO 반환, @JsonIgnore/@JsonBackReference, Lombok @Data·@ToString 주의, 지연 로딩 문제.
+</details>
+
+## 필기 포인트
+
+- 일대다 양방향의 연관관계 주인은 **`@ManyToOne` 쪽**(외래키를 가진 쪽). `mappedBy`는 **주인이 아닌 쪽**에 쓴다.
+- `mappedBy` 값은 소유 측 **필드 이름**이다(컬럼 이름 아님).
+- 역방향만 바꾸면 DB에 반영되지 않는다.
+- 단방향 `@OneToMany`의 기본 매핑은 **조인 테이블**. `@JoinColumn`을 붙여도 외래키는 **자식 테이블**에 있다.
+- `CascadeType`: ALL, PERSIST, MERGE, REMOVE, REFRESH, DETACH.
+- `cascade = REMOVE`는 스펙상 `@OneToOne`, `@OneToMany`에만.
+- orphanRemoval은 컬렉션에서 빠진 자식을 삭제. 없으면 외래키만 NULL.
+- 기본 fetch: `@ManyToOne`·`@OneToOne` EAGER, `@OneToMany`·`@ManyToMany` LAZY.
+
+## 함께 보기
+
+- [JPA 영속성 컨텍스트](../jpa-persistence-context/)
+- [N+1 문제](../jpa-n-plus-one/)
+- [@Transactional 완전 정리](../transactional/)
+- [equals와 hashCode](../../java/equals-hashcode/)
+
+## 출처
+
+- [Jakarta Persistence 3.2 Specification, Entity Relationships](https://jakarta.ee/specifications/persistence/3.2/jakarta-persistence-spec-3.2)
+- [Hibernate ORM 6.6 User Guide, Associations / Implementing equals() and hashCode() / Cascading entity state transitions](https://docs.hibernate.org/orm/6.6/userguide/html_single/Hibernate_User_Guide.html)
+- [Jakarta Persistence 3.2 API Javadoc](https://jakarta.ee/specifications/persistence/3.2/apidocs/)
+- 직접 실험: Hibernate 7.4.1.Final + H2 2.3.232 + JDK 21 SQL 로그

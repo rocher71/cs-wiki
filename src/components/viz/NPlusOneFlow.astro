@@ -1,0 +1,63 @@
+---
+// N+1 발생 과정: findAll() SQL 1번 → 루프에서 팀마다 members 접근 → SQL이 1개씩 추가 → 합계 1+N
+import Stepper from '../Stepper.astro';
+const base = ['code', 'cntl', 't1', 't2', 't3', 'sql1'];
+const steps = [
+  { caption: 'findAll()이 SQL 1번으로 Team 3개를 가져와요. members는 LAZY라서 아직 비어 있는 껍데기(미초기화)예요.', show: [...base, 'cnt1', 'm1o', 'm2o', 'm3o', 'hl-l1', 'hl-rows'] },
+  { caption: '루프 1회차에서 team1.getMembers().size()를 부르는 순간, team1의 멤버를 읽는 SQL이 하나 더 나가요.', show: [...base, 'cnt2', 'm1n', 'm2o', 'm3o', 'sql2', 'hl-loop', 'hl-r1'] },
+  { caption: '2회차도 똑같아요. team2의 members에 처음 접근하니까 SQL이 또 하나 나가요.', show: [...base, 'cnt3', 'm1n', 'm2n', 'm3o', 'sql2', 'sql3', 'hl-loop', 'hl-r2'] },
+  { caption: '3회차에 team3까지 채우면 멤버를 읽는 SQL만 3개(N개)가 나간 상태예요.', show: [...base, 'cnt4', 'm1n', 'm2n', 'm3n', 'sql2', 'sql3', 'sql4', 'hl-loop', 'hl-r3'] },
+  { caption: '합계는 목록 1번 + 팀마다 1번(N) = 4번이에요. 팀이 1000개면 1001번이 나가요.', show: [...base, 'cnt4', 'm1n', 'm2n', 'm3n', 'sql2', 'sql3', 'sql4', 'total', 'hl-total'] },
+];
+const rows = [1, 2, 3].map((n, k) => ({ n, y: 132 + k * 42 }));
+const sqls = [2, 3, 4].map((n, k) => ({ n, team: n - 1, y: 298 + k * 48 }));
+---
+<Stepper title="N+1: SQL이 1 + N번 나가는 과정" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 498" role="img" aria-label="findAll로 Team 3개를 SQL 1번에 가져온 뒤, 루프에서 팀마다 members에 접근할 때마다 member 조회 SQL이 하나씩 나가 합계 4번이 되는 그림">
+    <g data-id="code">
+      <rect class="box" x="8" y="4" width="304" height="70" rx="7" />
+      <text class="mono l" x="18" y="22">teams = teamRepo.findAll();</text>
+      <text class="mono l" x="18" y="40">for (Team t : teams)</text>
+      <text class="mono l" x="34" y="58">t.getMembers().size();</text>
+    </g>
+
+    <g data-id="cntl"><rect class="box" x="8" y="84" width="304" height="38" rx="7" /><text class="l" x="18" y="103">지금까지 나간 SQL</text></g>
+    {[1, 2, 3, 4].map((n) => (
+      <g data-id={`cnt${n}`} class="hide">
+        <rect class="badge" x="236" y="89" width="70" height="28" rx="14" />
+        <text class="on-badge" x="271" y="103">{n}번</text>
+      </g>
+    ))}
+
+    {rows.map(({ n, y }) => (
+      <>
+        <g data-id={`t${n}`}><rect class="box" x="8" y={y} width="104" height="34" rx="7" /><text x="60" y={y + 17}>Team {n}</text></g>
+        <g data-id={`m${n}o`} class="hide"><rect class="bad" x="120" y={y} width="192" height="34" rx="7" /><text class="sub" x="216" y={y + 17}>members: 미초기화</text></g>
+        <g data-id={`m${n}n`} class="hide"><rect class="chip" x="120" y={y} width="192" height="34" rx="7" /><text x="216" y={y + 17}>members: 2명 로딩됨</text></g>
+      </>
+    ))}
+
+    <g data-id="sql1"><rect class="box" x="8" y="262" width="304" height="30" rx="7" /><text class="mono l" x="18" y="277">① select * from team</text></g>
+    {sqls.map(({ n, team, y }) => (
+      <g data-id={`sql${n}`}>
+        <rect class="box" x="8" y={y} width="304" height="42" rx="7" />
+        <text class="mono l" x="18" y={y + 13}>{'①②③④'[n - 1]} select * from member</text>
+        <text class="mono l" x="38" y={y + 30}>where team_id = {team}</text>
+      </g>
+    ))}
+
+    <g data-id="total">
+      <rect class="err" x="8" y="446" width="304" height="46" rx="7" />
+      <text class="err-t" x="160" y="461">합계 1 + N(3) = 4번</text>
+      <text x="160" y="480">팀 1000개면 1 + 1000 = 1001번</text>
+    </g>
+
+    <rect data-id="hl-l1" class="hl" x="12" y="12" width="232" height="20" rx="4" />
+    <rect data-id="hl-loop" class="hl" x="12" y="30" width="216" height="38" rx="4" />
+    <rect data-id="hl-rows" class="hl" x="4" y="128" width="312" height="168" rx="9" />
+    {rows.map(({ n, y }) => (
+      <rect data-id={`hl-r${n}`} class="hl" x="116" y={y - 4} width="200" height="42" rx="9" />
+    ))}
+    <rect data-id="hl-total" class="hl" x="4" y="442" width="312" height="54" rx="9" />
+  </svg>
+</Stepper>

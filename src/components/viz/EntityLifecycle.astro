@@ -1,0 +1,57 @@
+---
+// 엔티티 4상태(비영속·영속·준영속·삭제 예정)와 전이. merge는 넘긴 A가 아니라 복사본 B가 영속이 됨을 객체 칩으로 구분한다.
+import Stepper from '../Stepper.astro';
+const base = ['s-new', 's-m', 's-d', 's-r'];
+const t1 = [...base, 'p1'];
+const t2 = [...t1, 'det'];
+const t3 = [...t2, 'mer'];
+const t4 = [...t3, 'rem', 'fl', 'db'];
+const steps = [
+  { caption: 'new로 막 만든 객체 A는 비영속(new)이에요. 영속성 컨텍스트와 아무 관계가 없어서, 값을 바꿔도 JPA는 몰라요.', show: [...base, 'a-new', 'hl-new'] },
+  { caption: 'em.persist(A)를 부르면 A가 영속(managed)이 돼요. 이제 1차 캐시에 들어가 변경 감지와 쓰기 지연의 대상이 돼요.', show: [...t1, 'a-m', 'hl-m'] },
+  { caption: 'detach(A), clear(), close()를 부르거나 트랜잭션 범위 컨텍스트가 끝나면 A는 준영속(detached)이 돼요. 객체와 id는 그대로인데, 더는 관리받지 않아 값을 바꿔도 UPDATE가 안 나가요.', show: [...t2, 'a-d', 'd-note', 'hl-d'] },
+  { caption: 'em.merge(A)는 A를 영속으로 바꾸지 않아요. 같은 id의 영속 객체 B를 찾거나 새로 만들고, A의 값을 B에 복사해 B를 돌려줘요. A는 여전히 준영속이라, 이후엔 반환된 B를 써야 해요.', show: [...t3, 'a-d', 'b-m', 'm-note', 'hl-mer'] },
+  { caption: 'em.remove(B)를 부르면 B는 삭제 예정(removed)이 돼요. 바로 지워지는 게 아니라 flush나 commit 때 DB로 DELETE가 나가요.', show: [...t4, 'a-d', 'b-r', 'hl-r'] },
+  { caption: '삭제 예정인 B에 flush 전에 다시 persist를 부르면, 삭제가 취소되고 B는 다시 영속(managed)으로 돌아와요.', show: [...t4.filter((x) => x !== 'db' && x !== 'fl'), 'p2', 'a-d', 'b-m', 'hl-p2'] },
+];
+---
+<Stepper title="엔티티 생명주기 4상태" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 396" role="img" aria-label="비영속에서 persist로 영속, detach로 준영속, merge로 복사본이 영속, remove로 삭제 예정, flush 때 DB DELETE, 삭제 예정에서 persist로 다시 영속이 되는 상태도">
+    <defs>
+      <marker id="elc-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+
+    <g data-id="s-new"><rect class="box" x="8" y="8" width="304" height="46" rx="8" /><text class="l" x="18" y="24">비영속 (new)</text><text class="sub l" x="18" y="42">컨텍스트와 무관</text></g>
+    <g data-id="s-m"><rect class="box" x="8" y="100" width="304" height="50" rx="8" /><text class="l" x="18" y="117">영속 (managed)</text><text class="sub l" x="18" y="136">컨텍스트가 관리</text></g>
+    <g data-id="s-d"><rect class="box" x="8" y="250" width="148" height="72" rx="8" /><text x="82" y="266">준영속</text><text class="sub mono" x="82" y="284">detached</text></g>
+    <g data-id="s-r"><rect class="box" x="164" y="250" width="148" height="72" rx="8" /><text x="238" y="266">삭제 예정</text><text class="sub mono" x="238" y="284">removed</text></g>
+
+    <!-- 객체 칩: A = 내가 만든 객체, B = merge가 돌려준 복사본 -->
+    <g data-id="a-new" class="hide"><rect class="chip" x="200" y="17" width="48" height="28" rx="6" /><text x="224" y="31">A</text></g>
+    <g data-id="a-m" class="hide"><rect class="chip" x="200" y="111" width="48" height="28" rx="6" /><text x="224" y="125">A</text></g>
+    <g data-id="b-m" class="hide"><rect class="chip" x="256" y="111" width="48" height="28" rx="6" /><text x="280" y="125">B</text></g>
+    <g data-id="a-d" class="hide"><rect class="chip" x="58" y="295" width="48" height="22" rx="5" /><text x="82" y="306">A</text></g>
+    <g data-id="b-r" class="hide"><rect class="chip" x="214" y="295" width="48" height="22" rx="5" /><text x="238" y="306">B</text></g>
+
+    <g data-id="p1"><line class="line" x1="160" y1="54" x2="160" y2="98" marker-end="url(#elc-arr)" /><text class="mono l" x="170" y="76">persist</text></g>
+    <g data-id="det"><line class="line" x1="44" y1="150" x2="44" y2="248" marker-end="url(#elc-arr)" /><rect class="box" x="9" y="188" width="70" height="24" rx="5" /><text class="mono" x="44" y="200">detach</text></g>
+    <g data-id="mer"><line class="line" x1="122" y1="250" x2="122" y2="152" marker-end="url(#elc-arr)" /><rect class="box" x="87" y="188" width="70" height="24" rx="5" /><text class="mono" x="122" y="200">merge</text></g>
+    <g data-id="rem"><line class="line" x1="200" y1="150" x2="200" y2="248" marker-end="url(#elc-arr)" /><rect class="box" x="165" y="188" width="70" height="24" rx="5" /><text class="mono" x="200" y="200">remove</text></g>
+    <g data-id="p2" class="hide"><line class="line" x1="278" y1="250" x2="278" y2="152" marker-end="url(#elc-arr)" /><rect class="box" x="243" y="188" width="70" height="24" rx="5" /><text class="mono" x="278" y="200">persist</text></g>
+
+    <text data-id="d-note" class="sub hide" x="82" y="342"><tspan x="82">clear·close·</tspan><tspan x="82" dy="18">트랜잭션 끝도 같아요</tspan></text>
+    <text data-id="m-note" class="sub hide" x="82" y="342"><tspan x="82">B = A의 복사본</tspan><tspan x="82" dy="18">A는 계속 준영속</tspan></text>
+
+    <g data-id="fl"><line class="line" x1="238" y1="322" x2="238" y2="352" marker-end="url(#elc-arr)" /><text class="sub l" x="248" y="331"><tspan x="248">flush·</tspan><tspan x="248" dy="16">commit 때</tspan></text></g>
+    <g data-id="db"><rect class="err" x="164" y="354" width="148" height="34" rx="7" /><text class="err-t" x="238" y="371">DB에서 DELETE</text></g>
+
+    <rect data-id="hl-new" class="hl" x="4" y="4" width="312" height="54" rx="10" />
+    <rect data-id="hl-m" class="hl" x="4" y="96" width="312" height="58" rx="10" />
+    <rect data-id="hl-d" class="hl" x="4" y="246" width="156" height="80" rx="10" />
+    <g data-id="hl-mer" class="hl"><rect x="84" y="152" width="76" height="96" rx="8" /><rect x="252" y="107" width="56" height="36" rx="8" /></g>
+    <rect data-id="hl-r" class="hl" x="160" y="246" width="156" height="146" rx="10" />
+    <rect data-id="hl-p2" class="hl" x="240" y="107" width="76" height="141" rx="8" />
+  </svg>
+</Stepper>

@@ -1,0 +1,457 @@
+---
+title: "@Transactional 완전 정리"
+description: "@Transactional은 프록시가 메서드 앞뒤로 트랜잭션을 열고 닫아 주는 기능이에요. 전파·롤백 규칙·readOnly와 rollback-only 함정까지 실무 장애 위주로 정리해요."
+sidebar: { order: 4 }
+tags: [면접빈출, 서술형]
+---
+import { Aside } from '@astrojs/starlight/components';
+import TxProxyFlow from '~/components/viz/TxProxyFlow.astro';
+import RollbackOnlyFlow from '~/components/viz/RollbackOnlyFlow.astro';
+import RequiresNewFlow from '~/components/viz/RequiresNewFlow.astro';
+
+:::tip[한 줄 요약]
+`@Transactional`은 스프링이 만든 **프록시**가 메서드 호출 앞에서 트랜잭션을 시작하고, 끝나면 커밋하거나 롤백해 주는 기능이에요. 트랜잭션은 **스레드에 묶여** 같은 스레드의 DB 작업이 모두 참여하고, 기본 전파는 `REQUIRED`, 기본 롤백은 **런타임 예외와 Error만**이에요.
+:::
+
+## 쉽게 이해하기
+
+은행 창구에서 "A 통장에서 빼서 B 통장에 넣기"를 부탁한다고 해 봐요. 빼기만 되고 넣기가 실패하면 돈이 사라져요. 그래서 창구 직원은 **둘 다 되거나, 둘 다 없던 일로** 처리해요. 이 묶음이 **트랜잭션**(transaction, 여러 DB 작업을 하나로 묶어 전부 성공 또는 전부 취소하는 단위)이에요.
+
+`@Transactional`을 붙이면 이 창구 직원 역할을 스프링이 대신해요. 내 메서드 앞에 **대리인(프록시)**이 서서, 일이 시작되기 전에 "지금부터 한 묶음"이라고 선언하고, 끝나면 "확정(커밋)" 또는 "취소(롤백)"를 외쳐요.
+
+여러 직원이 한 묶음 일을 나눠 할 때가 문제예요. 한 사람이 "이 묶음은 망했어"라고 장부에 표시하면, 다른 사람이 "난 괜찮은데?"라고 해도 묶음 전체가 취소돼요. 이게 뒤에서 볼 **rollback-only** 함정이에요.
+
+단, 실제로는 직원이 "사람"이 아니라 **메서드 호출을 가로채는 객체**라서, 프록시를 거치지 않는 호출(같은 클래스 안 호출 등)에는 아무 일도 안 일어나요.
+
+## 그림으로 보기
+
+<TxProxyFlow />
+
+<RollbackOnlyFlow />
+
+## 제대로 알기
+
+### 1. 왜 필요하고, 어떻게 동작하나
+
+트랜잭션을 손으로 다루면 모든 서비스 메서드에 "커넥션 얻기 → autocommit 끄기 → 성공하면 commit, 실패하면 rollback → 커넥션 반납" 코드가 반복돼요. 핵심 로직보다 이 코드가 더 길어지고, 하나만 빠뜨려도 데이터가 꼬여요. 이런 **반복되는 공통 작업**을 떼어 내는 기술이 [AOP](../aop/)이고, `@Transactional`은 그 대표 사례예요.
+
+동작에 관여하는 부품은 세 가지예요.
+
+| 부품 | 하는 일 |
+|---|---|
+| **AOP 프록시** | 진짜 빈 대신 등록되는 껍데기. 외부 호출을 먼저 받음 |
+| **`TransactionInterceptor`** | 프록시 안에서 `@Transactional` 속성을 읽고 트랜잭션 시작·종료를 지휘 |
+| **`PlatformTransactionManager`** | 실제로 트랜잭션을 여닫는 구현체. JDBC는 `DataSourceTransactionManager`, JPA는 `JpaTransactionManager` |
+
+여기서 중요한 성질이 **스레드에 묶인**(thread-bound) 트랜잭션이에요. 트랜잭션 매니저는 시작한 트랜잭션(과 커넥션)을 현재 스레드에 붙여 둬요. 그래서 같은 스레드에서 실행되는 Repository들은 따로 말하지 않아도 같은 트랜잭션에 참여해요.
+
+뒤집어 말하면, **메서드 안에서 새로 띄운 스레드에는 트랜잭션이 전파되지 않아요.** 스레드 풀(executor), `@Async`, `CompletableFuture.runAsync`로 넘긴 작업은 바깥 트랜잭션과 무관하게 실행돼요. 바깥이 롤백돼도 그 작업은 되돌아가지 않아요.
+
+<Aside type="note" title="활성화는 누가 하나요">
+순수 스프링에서는 `@EnableTransactionManagement`로 켜고, Spring Boot는 자동 설정이 켜 줘요. 리액티브 코드(`Mono`/`Flux` 반환)는 `ReactiveTransactionManager`를 쓰고 스레드 대신 Reactor Context에 트랜잭션을 둬요.
+</Aside>
+
+### 2. 기본값과 속성
+
+| 속성 | 기본값 | 의미 |
+|---|---|---|
+| `propagation` | `REQUIRED` | 이미 트랜잭션이 있을 때 어떻게 할지 |
+| `isolation` | `DEFAULT` | 격리 수준. DEFAULT는 DB 기본값을 따름 |
+| `readOnly` | `false` | 읽기 전용 최적화 힌트 |
+| `timeout` | 하부 시스템 기본값 | 초 단위 제한 시간 |
+| `rollbackFor` / `noRollbackFor` | 없음 | 롤백 규칙 추가·제외 |
+| `transactionManager`(`value`) | 기본 매니저 | DB가 여러 개일 때 매니저 지정 |
+
+<Aside type="caution" title="isolation·timeout·readOnly는 새 트랜잭션에서만 먹어요">
+이 세 속성은 `REQUIRED`(새로 시작할 때)나 `REQUIRES_NEW`처럼 **물리 트랜잭션을 새로 시작할 때만** 적용돼요. 이미 있는 트랜잭션에 참여하는 안쪽 메서드에 다르게 적어도 **조용히 무시**돼요. 트랜잭션 매니저의 `validateExistingTransaction`을 true로 켜면 이런 불일치를 예외로 거부할 수 있어요.
+</Aside>
+
+**어디에 붙이나요?** 인터페이스, 클래스, 메서드 어디든 붙일 수 있지만 스프링 팀은 **구체 클래스의 메서드**에 붙이라고 권해요. AspectJ 모드에서는 인터페이스에 붙인 애너테이션이 인식되지 않기 때문이에요(자바 애너테이션은 인터페이스에서 상속되지 않아요). 클래스와 메서드에 둘 다 있으면 더 구체적인 메서드 쪽이 이겨요.
+
+### 3. @Transactional이 안 먹는 경우
+
+모두 "프록시를 안 거치거나, 프록시가 가로챌 수 없다"는 한 가지 원인에서 나와요. 프록시와 자기 호출의 기본 원리는 [구조 패턴: 프록시](../../oop/patterns-structural/)에서 그림과 함께 다뤄요.
+
+| 경우 | 이유 |
+|---|---|
+| 같은 클래스 안에서 `this.inner()` 호출 | **자기 호출**(self-invocation). `this`는 프록시가 아니라 진짜 객체라 프록시를 건너뜀 |
+| `private` 메서드 | 공식 `@Transactional` 문서가 private을 직접 언급하진 않지만, **AOP 프록시 제약상** CGLIB은 private·final 메서드를 오버라이드할 수 없어 끼어들 수 없음. 보통 같은 클래스 안에서 부르니 자기 호출 문제와도 겹침 |
+| CGLIB 프록시의 `final` 메서드 | 하위 클래스가 오버라이드 불가 |
+| JDK(인터페이스) 프록시에서 public이 아니거나 인터페이스에 없는 메서드 | 인터페이스 메서드만 프록시됨 |
+| `@PostConstruct` 같은 초기화 코드 | 프록시가 완전히 준비되기 전이라 기대면 안 됨 |
+| 새 스레드·`@Async`로 넘긴 작업 | 트랜잭션은 스레드에 묶여 있어 전파 안 됨 |
+
+`protected`·package-private 메서드는 **Spring 6.0부터 클래스 기반(CGLIB) 프록시에서 기본으로 적용**돼요. Spring Boot는 `spring.aop.proxy-target-class=true`가 기본이라 인터페이스가 있어도 CGLIB을 쓰니, Boot 3.x 앱에서는 동작해요. 5.3까지는 public만 기본이었어요.
+
+### 4. 전파(Propagation) 7종
+
+**전파**(propagation)는 "이미 진행 중인 트랜잭션이 있을 때 이 메서드는 어떻게 할까"를 정하는 규칙이에요.
+
+| 전파 | 진행 중 트랜잭션이 **있으면** | **없으면** |
+|---|---|---|
+| `REQUIRED`(기본) | 참여 | 새로 만듦 |
+| `REQUIRES_NEW` | 바깥을 **일시 중단**하고 새로 만듦 | 새로 만듦 |
+| `NESTED` | **세이브포인트**를 두고 중첩 실행 | REQUIRED처럼 새로 만듦 |
+| `SUPPORTS` | 참여 | 트랜잭션 없이 실행 |
+| `MANDATORY` | 참여 | **예외** |
+| `NOT_SUPPORTED` | 바깥을 일시 중단하고 트랜잭션 없이 실행 | 트랜잭션 없이 실행 |
+| `NEVER` | **예외** | 트랜잭션 없이 실행 |
+
+면접에서는 위 세 개를 비교하라는 질문이 거의 전부예요.
+
+| 구분 | REQUIRED | REQUIRES_NEW | NESTED |
+|---|---|---|---|
+| 물리 트랜잭션 | 바깥과 **하나** | 바깥과 **별개**(2개) | 바깥과 **하나** |
+| 안쪽이 실패하면 | 전체가 rollback-only | 안쪽만 롤백 | 세이브포인트까지만 롤백 |
+| 바깥이 롤백되면 | 같이 롤백 | 안쪽은 이미 커밋돼서 남음 | 같이 롤백 |
+| 커넥션 | 1개 | 동시에 **2개** 점유 | 1개 |
+| 제약 | 없음 | 풀 고갈·데드락 주의 | 기본 제공은 JDBC `DataSourceTransactionManager`에서만. JPA 매니저에선 기본으로 안 됨 |
+
+`REQUIRES_NEW`의 안쪽 트랜잭션은 끝나는 즉시 자기 락을 풀고, 자기만의 격리 수준·타임아웃·readOnly를 가질 수 있어요. 그래서 "바깥이 실패해도 남겨야 하는 감사 로그" 같은 곳에 써요.
+
+<Aside type="danger" title="REQUIRES_NEW는 커넥션을 2개 써요">
+바깥 트랜잭션의 커넥션은 묶인 채로, 안쪽이 커넥션을 하나 **더** 얻어요. 여러 스레드가 바깥 커넥션을 쥔 채 안쪽 커넥션을 기다리면 풀이 바닥나고 서로 영원히 기다리는 **데드락**에 빠질 수 있어요. 스프링 문서는 **커넥션 풀 크기가 동시 스레드 수보다 최소 1 이상 크지 않으면 REQUIRES_NEW를 쓰지 말라**고 해요.
+</Aside>
+
+### 5. 논리 트랜잭션, 물리 트랜잭션, rollback-only
+
+여기가 실무 장애가 가장 많이 나는 곳이에요.
+
+스프링은 두 가지 트랜잭션을 구분해요.
+- **물리 트랜잭션**: 실제 DB에서 열린 트랜잭션. 커밋·롤백은 결국 이것 하나로 일어나요.
+- **논리 트랜잭션**: `@Transactional` 메서드마다 생기는 범위. REQUIRED로 이어지면 논리 범위는 여러 개지만 모두 **같은 물리 트랜잭션 하나**에 매핑돼요.
+
+문제는 이 순서로 터져요.
+
+1. 바깥 서비스 A(`@Transactional`)가 다른 빈 B(`@Transactional`, REQUIRED)를 불러요.
+2. B에서 런타임 예외가 나요. B의 프록시는 "이 물리 트랜잭션은 커밋하면 안 됨"이라고 **rollback-only** 표시를 하고 예외를 던져요.
+3. A는 "B 실패는 괜찮아"라며 try-catch로 예외를 삼키고 정상 종료해요.
+4. A의 프록시가 커밋을 시도해요. 그런데 물리 트랜잭션은 이미 rollback-only예요.
+5. 스프링은 **실제로는 롤백**하고 `UnexpectedRollbackException`을 던져요. A가 저장한 것도 전부 사라져요.
+
+```java
+@Transactional
+public void placeOrder(Order order) {
+    orderRepository.save(order);
+    try {
+        pointService.addPoint(order.userId()); // 다른 빈, REQUIRED
+    } catch (RuntimeException e) {
+        log.warn("포인트 실패, 주문은 진행"); // 삼켰지만 이미 rollback-only
+    }
+}   // 커밋 시도 → 롤백 + UnexpectedRollbackException
+```
+
+`DataSourceTransactionManager`·`JpaTransactionManager`에서 보는 예외 메시지는 `Transaction rolled back because it has been marked as rollback-only`예요. (JTA처럼 커밋 도중에 rollback-only가 드러나는 경우엔 `Transaction silently rolled back ...`이라는 메시지가 나와요.) 스프링이 굳이 예외를 던지는 이유는, 호출한 쪽이 "커밋됐다"고 착각하지 않게 하려는 거예요. 바깥은 롤백을 결정한 적이 없으니 예상 못 한 롤백인 셈이에요.
+
+안쪽 예외 때 공유 트랜잭션 전체를 rollback-only로 만드는 건 트랜잭션 매니저의 `globalRollbackOnParticipationFailure` 설정(기본 true) 동작이에요.
+
+**고치는 방법**
+
+| 방법 | 효과 | 주의 |
+|---|---|---|
+| 안쪽을 `REQUIRES_NEW`로 | 안쪽만 롤백, 바깥은 커밋 가능 | 바깥이 예외를 **catch해야** 함. 안 잡으면 바깥도 런타임 예외로 롤백. 커넥션 2개 |
+| `NESTED`(JDBC 한정) | 세이브포인트까지만 롤백 | JPA 매니저에선 기본 지원 안 됨 |
+| 안쪽이 예외 대신 결과를 반환하게 설계, 또는 안쪽 `@Transactional` 제거 | rollback-only 표시 자체가 안 생김 | 설계 변경 필요 |
+| 커밋 후 이벤트로 분리 | 핵심 트랜잭션과 완전히 분리 | 이벤트 유실 대비 필요 |
+
+<RequiresNewFlow />
+
+### 6. 롤백 규칙: 예외가 나도 커밋될 수 있어요
+
+기본 규칙은 이래요.
+- **`RuntimeException`(과 하위)·`Error`** → 롤백
+- **checked 예외**(`IOException`처럼 `throws`로 선언해야 하는 예외, [예외 처리](../../java/exceptions/) 참고) → 롤백하지 않고 **커밋**
+
+checked 예외를 "호출한 쪽이 복구할 수 있는 비즈니스 예외"로 보는 EJB 시절 관례를 따른 것으로 흔히 설명돼요.
+
+그리고 스프링은 **메서드 밖으로 빠져나온 예외만** 보고 판단해요. 그래서 이런 일이 생겨요.
+
+```java
+@Transactional
+public void save() {
+    try {
+        repo.save(a);
+        repo.save(b);           // 여기서 예외
+    } catch (Exception e) {
+        log.error("실패", e);   // 삼킴 → 프록시는 예외를 못 봄
+    }
+}   // 정상 종료로 보고 커밋 → a만 저장됨
+```
+
+롤백이 필요하면 예외를 다시 던지거나, catch 안에서 `TransactionAspectSupport.currentTransactionStatus().setRollbackOnly()`를 불러요. 다만 후자는 코드가 스프링에 강하게 묶여서 문서는 선언적 방식을 권해요.
+
+**규칙 바꾸기**
+
+| 방법 | 예 | 비고 |
+|---|---|---|
+| `rollbackFor` | `@Transactional(rollbackFor = Exception.class)` | checked 예외도 롤백. 지정한 타입과 하위 타입에 적용 |
+| `noRollbackFor` | `noRollbackFor = DuplicateKeyException.class` | 이 예외는 롤백 안 함 |
+| 전역 변경(Spring 6.2+) | `@EnableTransactionManagement(rollbackOn = ALL_EXCEPTIONS)` | 모든 예외에 롤백. 문서가 일관성을 위해 권장 |
+
+규칙이 겹치면 **가장 구체적으로 맞는 규칙**이 이겨요. `rollbackForClassName`처럼 이름으로 지정하면 부분 문자열로 매칭돼서, `CustomException`이 `CustomExceptionV2`까지 잡을 수 있으니 주의해요.
+
+### 7. readOnly = true는 무엇을 해 주나
+
+`readOnly`는 "읽기만 할 테니 **최적화**해 줘"라는 **힌트**예요. 쓰기를 반드시 막아 주는 잠금장치가 아니에요. 하부 시스템이 이해하지 못하면 예외 없이 무시돼요.
+
+JPA(Hibernate)와 쓰면 효과가 분명해요.
+- **flush 모드가 `MANUAL`**로 바뀌어요. **flush**는 메모리의 변경 내용을 DB로 SQL로 보내는 일이에요. MANUAL이면 자동으로 안 보내요.
+- 그래서 **변경 감지**(dirty checking, 조회한 엔티티의 처음 모습과 지금 모습을 비교해 바뀐 걸 UPDATE하는 기능)를 건너뛰어요. 큰 목록을 조회할 때 성능이 눈에 띄게 좋아져요. 변경 감지는 [영속성 컨텍스트](../jpa-persistence-context/)에서 자세히 다뤄요.
+- 엔티티를 읽기 전용으로 불러와 비교용 스냅샷도 유지하지 않아요.
+- JDBC `Connection.setReadOnly(true)`로도 전달돼 드라이버·DB가 각자 최적화할 수 있어요.
+
+DB 쪽에서는 예를 들어 MySQL 8.0 InnoDB가 읽기 전용으로 인식한 트랜잭션에는 트랜잭션 ID 할당을 생략해 내부 부담을 줄여요. 읽기 전용으로 시작한 트랜잭션에서 쓰기를 하면 `ERROR 1792`로 거부해요. 스프링이 트랜잭션 시작 때 `SET TRANSACTION READ ONLY` 문을 직접 실행하게 하려면 `DataSourceTransactionManager`의 `enforceReadOnly`(기본 false)를 켜요.
+
+<Aside type="caution" title="readOnly 함정 두 가지">
+1. **수정이 조용히 사라질 수 있어요.** readOnly 트랜잭션에서 엔티티 값을 바꿔도 flush가 안 돼서 UPDATE가 안 나갈 수 있어요. 바깥이 readOnly이고 안쪽 쓰기 메서드가 REQUIRED로 참여하면, 안쪽의 `readOnly=false`는 무시되니 같은 일이 생겨요.
+2. **직접 쓴 쿼리는 막힌다는 보장이 없어요.** DB와 드라이버에 따라 거부되기도 하고 그냥 실행되기도 해요.
+</Aside>
+
+참고로 Spring Data JPA의 기본 Repository(`SimpleJpaRepository`)는 조회 메서드에 `readOnly = true`, 나머지에 일반 `@Transactional`이 붙어 있어요. 직접 선언한 쿼리 메서드에는 기본 트랜잭션 설정이 없어요.
+
+### 8. 격리 수준과 timeout
+
+**격리 수준**(isolation, 동시에 실행되는 트랜잭션끼리 서로의 중간 결과를 얼마나 보게 할지)은 `isolation` 속성으로 정해요.
+
+| 옵션 | 막아 주는 이상 현상 |
+|---|---|
+| `DEFAULT` | DB 기본값을 따름 |
+| `READ_UNCOMMITTED` | 없음 |
+| `READ_COMMITTED` | dirty read |
+| `REPEATABLE_READ` | dirty read, non-repeatable read |
+| `SERIALIZABLE` | dirty read, non-repeatable read, phantom read |
+
+위 정의는 표준(ANSI) 기준이에요. 실제 DB 구현은 조금씩 달라서, 예를 들어 MySQL InnoDB의 REPEATABLE READ는 팬텀을 상당 부분 막아요. 자세한 건 DB 섹션에서 다뤄요. JPA에서 기본값이 아닌 격리 수준을 쓰려면 `HibernateJpaDialect`의 `prepareConnection`이 켜져 있어야 하고(기본 true), 꺼져 있으면 `InvalidIsolationLevelException`이 나요.
+
+`timeout`(초)도 REQUIRED·REQUIRES_NEW로 새로 시작할 때만 적용되고, 하부 시스템이 지원해야 해요.
+
+### 9. 트랜잭션 안에서 외부 API를 부르면
+
+트랜잭션이 열려 있는 동안 그 스레드는 **DB 커넥션 하나를 계속 쥐고** 있어요. 그 안에서 결제사(PG)·메일·다른 서비스 HTTP를 부르면, 응답을 기다리는 내내 커넥션과 DB 락을 쥔 채 멈춰 있어요. 외부가 느려지면 요청마다 커넥션이 묶여서 **커넥션 풀이 바닥나고**, DB를 쓰는 다른 API까지 같이 멈춰요.
+
+또 외부 호출은 **DB 롤백으로 되돌릴 수 없어요.** DB는 롤백됐는데 결제나 메일은 이미 나갔을 수 있고, 반대로 결제는 성공했는데 커밋이 실패할 수도 있어요.
+
+일반적으로 쓰는 대책이에요.
+- **외부 호출을 트랜잭션 밖으로 빼요.** "조회 → 외부 호출 → 짧은 트랜잭션으로 저장"처럼 범위를 최소화해요. 필요한 부분만 감쌀 땐 프로그래밍 방식인 `TransactionTemplate`을 써요.
+- 외부 호출에 **타임아웃**을 꼭 걸어요.
+- 결과가 어긋날 수 있으니 `PENDING` 같은 상태값을 두고, 재조회나 **보상 트랜잭션**(이미 확정된 작업을 반대 작업으로 되돌리는 것)으로 맞춰요.
+
+### 10. 커밋된 뒤에 할 일: @TransactionalEventListener
+
+"주문이 **확정된 다음에만** 알림을 보내고 싶다"면 `@TransactionalEventListener`를 써요. 이벤트를 트랜잭션 단계에 묶어 주는 리스너예요.
+
+- phase: `BEFORE_COMMIT`, `AFTER_COMMIT`(기본), `AFTER_ROLLBACK`, `AFTER_COMPLETION`
+- 트랜잭션이 없으면 기본적으로 호출되지 않아요(`fallbackExecution = true`로 바꿀 수 있어요).
+- 기본은 **같은 스레드에서 동기 실행**이에요. 비동기가 아니에요. 느린 작업이면 `@Async`를 함께 써요.
+- AFTER_COMMIT 리스너에서 DB에 쓰면 원 트랜잭션은 이미 커밋된 뒤라 반영이 안 될 수 있어요. 쓰기가 필요하면 `REQUIRES_NEW`로 새 트랜잭션을 열어요.
+- 리스너에서 예외가 나도 이미 커밋된 원 트랜잭션은 되돌아가지 않아요.
+
+스프링 이벤트 자체의 구조는 [행위 패턴: 옵저버](../../oop/patterns-behavioral/)에서 다뤄요. 이벤트를 절대 잃으면 안 되는 경우엔 이벤트를 같은 트랜잭션에서 테이블에 함께 저장해 두고 나중에 발행하는 **아웃박스 패턴**을 쓰기도 해요.
+
+## 면접 질문
+
+<details>
+<summary>Q. @Transactional은 어떻게 동작하나요?</summary>
+
+**답변(30초)** 스프링 AOP 프록시로 동작해요. `@Transactional`이 붙은 빈은 프록시로 감싸져 등록되고, 외부에서 메서드를 부르면 프록시 안의 `TransactionInterceptor`가 먼저 받아요. 트랜잭션 매니저로 커넥션을 얻어 트랜잭션을 시작하고 현재 스레드에 묶은 뒤 진짜 메서드를 실행해요. 정상 종료면 커밋, 런타임 예외나 Error면 롤백해요.
+
+**꼬리질문**
+- Q. 트랜잭션이 스레드에 묶인다는 게 무슨 뜻이죠? → 같은 스레드의 Repository들이 같은 커넥션·트랜잭션을 공유한다는 뜻이에요. 그래서 새 스레드나 `@Async`로 넘긴 작업에는 전파되지 않아요.
+- Q. JPA를 쓰면 어떤 매니저를 쓰나요? → `JpaTransactionManager`예요. 순수 JDBC면 `DataSourceTransactionManager`예요.
+</details>
+
+<details>
+<summary>Q. private 메서드나 같은 클래스 안 메서드에 @Transactional을 붙이면요?</summary>
+
+**답변(30초)** 둘 다 적용되지 않아요. 같은 클래스 안에서 `this`로 부르면 `this`가 프록시가 아닌 진짜 객체라 프록시를 건너뛰어요. private은 AOP 프록시 제약상 CGLIB이 오버라이드할 수 없어 끼어들 수 없어요. 해결은 그 로직을 다른 빈으로 분리해 프록시를 거치게 하는 거예요.
+
+**꼬리질문**
+- Q. protected는요? → Spring 6.0부터 CGLIB 프록시에서는 기본으로 적용돼요. Boot는 CGLIB이 기본이에요.
+- Q. 내부 호출되는 메서드에 REQUIRES_NEW를 붙이면 새 트랜잭션이 열리나요? → 안 열려요. 전파 속성도 프록시가 읽어서 적용하는 거라서요.
+</details>
+
+<details>
+<summary>Q. REQUIRED, REQUIRES_NEW, NESTED의 차이는?</summary>
+
+**답변(30초)** REQUIRED는 기본값으로, 진행 중 트랜잭션이 있으면 참여하고 없으면 새로 만들어요. REQUIRES_NEW는 바깥을 일시 중단하고 완전히 별개의 물리 트랜잭션을 만들어서, 안쪽과 바깥이 따로 커밋·롤백돼요. NESTED는 물리 트랜잭션은 하나인 채로 세이브포인트를 둬서, 안쪽 실패 시 세이브포인트까지만 되돌려요. 바깥이 롤백되면 NESTED 안쪽도 같이 롤백되지만 REQUIRES_NEW 안쪽은 남아요.
+
+**꼬리질문**
+- Q. REQUIRES_NEW의 부작용은? → 커넥션을 동시에 2개 쥐어서 풀 고갈과 데드락 위험이 있어요. 스프링 문서는 풀 크기가 동시 스레드 수보다 최소 1 이상 크지 않으면 쓰지 말라고 해요.
+- Q. JPA에서 NESTED를 쓸 수 있나요? → 기본 제공으로는 JDBC `DataSourceTransactionManager`에서만 동작해요.
+</details>
+
+<details>
+<summary>Q. 안쪽 메서드 예외를 바깥에서 catch했는데 UnexpectedRollbackException이 났어요. 왜죠?</summary>
+
+**답변(30초)** 안쪽과 바깥이 REQUIRED로 같은 물리 트랜잭션을 공유하기 때문이에요. 안쪽에서 런타임 예외가 나면 안쪽 프록시가 공유 트랜잭션에 rollback-only를 표시해요. 바깥이 예외를 삼키고 커밋을 시도해도 이미 커밋할 수 없는 상태라, 스프링은 실제로 롤백하고 "커밋된 줄 착각하지 말라"는 뜻으로 `UnexpectedRollbackException`을 던져요. 그래서 바깥 작업까지 전부 사라져요.
+
+**꼬리질문**
+- Q. 어떻게 고치나요? → 안쪽을 REQUIRES_NEW로 바꾸고 바깥에서 catch하거나, 안쪽이 예외 대신 결과를 돌려주게 설계를 바꾸거나, 커밋 후 이벤트로 분리해요.
+- Q. REQUIRES_NEW로 바꾸면 바깥은 무조건 안전한가요? → 아니요. 트랜잭션 상태는 독립이지만 예외는 호출 스택을 타고 바깥으로 올라와요. 바깥이 catch하지 않으면 바깥도 롤백돼요.
+</details>
+
+<details>
+<summary>Q. checked 예외가 나면 롤백되나요?</summary>
+
+**답변(30초)** 기본으로는 롤백되지 않고 커밋돼요. 스프링 기본 규칙은 런타임 예외와 Error만 롤백이에요. checked 예외도 롤백하려면 `rollbackFor = Exception.class`를 주거나, Spring 6.2부터는 `@EnableTransactionManagement(rollbackOn = ALL_EXCEPTIONS)`로 전역 기본값을 바꿀 수 있어요. 그리고 예외를 catch해서 삼키면 프록시가 예외를 못 봐서 종류와 상관없이 커밋돼요.
+
+**꼬리질문**
+- Q. 왜 이렇게 설계했나요? → checked 예외를 복구 가능한 비즈니스 예외로 보는 EJB 시절 관례를 따른 것으로 흔히 설명돼요.
+- Q. catch하면서 롤백도 하고 싶다면? → 다시 던지거나 `setRollbackOnly()`를 호출해요.
+</details>
+
+<details>
+<summary>Q. readOnly = true는 어떤 효과가 있나요?</summary>
+
+**답변(30초)** 읽기 전용으로 최적화하라는 힌트예요. JPA(Hibernate)에서는 flush 모드가 MANUAL이 되어 변경 감지를 건너뛰고 스냅샷도 안 만들어서, 큰 조회에서 성능이 좋아져요. JDBC 커넥션에도 읽기 전용 힌트가 전달돼 DB가 최적화할 수 있어요. 다만 쓰기를 반드시 막아 주는 장치는 아니에요.
+
+**꼬리질문**
+- Q. readOnly 트랜잭션에서 엔티티를 수정하면요? → flush가 안 돼서 UPDATE가 안 나갈 수 있어요. 직접 쓴 쿼리는 DB에 따라 거부되거나 실행돼요.
+- Q. 안쪽 쓰기 메서드가 REQUIRED로 참여하면 readOnly=false가 적용되나요? → 안 돼요. 참여한 쪽의 readOnly는 무시돼요.
+</details>
+
+<details>
+<summary>Q. 트랜잭션 안에서 외부 API를 호출하면 무엇이 문제인가요?</summary>
+
+**답변(30초)** 두 가지예요. 첫째, 응답을 기다리는 동안 DB 커넥션과 락을 쥐고 있어서, 외부가 느려지면 커넥션 풀이 바닥나 다른 API까지 멈춰요. 둘째, 외부 호출은 DB 롤백으로 되돌릴 수 없어서 정합성이 깨질 수 있어요. 그래서 외부 호출은 트랜잭션 밖으로 빼고, 타임아웃을 걸고, 상태값과 보상 처리로 어긋남을 맞춰요.
+
+**꼬리질문**
+- Q. 커밋된 뒤에만 알림을 보내려면? → `@TransactionalEventListener`의 기본 phase인 AFTER_COMMIT을 써요. 기본은 동기라 느리면 `@Async`를 함께 써요.
+</details>
+
+## 서술형 연습
+
+<details>
+<summary>상황: "포인트 적립이 실패해도 주문은 성공시키자"며 주문 서비스에서 포인트 서비스 예외를 try-catch로 감쌌습니다. 그런데 운영에서 UnexpectedRollbackException과 함께 주문까지 사라졌습니다.</summary>
+
+**상황 파악**
+catch로 예외를 처리했는데도 바깥 트랜잭션이 롤백됐어요. 예외 처리(호출 스택)와 트랜잭션 상태가 따로 움직인다는 신호예요.
+
+**원인 후보**
+1. **REQUIRED 참여 + rollback-only**: 주문(`@Transactional`)과 포인트(`@Transactional`, 기본 REQUIRED)가 같은 물리 트랜잭션이에요. 포인트 쪽 프록시가 예외를 보고 공유 트랜잭션에 rollback-only를 걸었고, 주문 쪽 커밋 시도가 롤백으로 바뀌었어요. 예외 이름이 정확히 이 경우예요.
+2. 포인트 서비스 안에서 또 다른 `@Transactional` 메서드가 같은 방식으로 표시를 걸었을 수도 있어요. 결론은 같아요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. 포인트를 `REQUIRES_NEW` + 바깥 catch | 포인트만 롤백되고 주문은 커밋. 변경이 작음 | 요청마다 커넥션 2개. 풀 크기가 작으면 고갈·데드락. 주문이 나중에 롤백돼도 포인트는 이미 커밋됨 |
+| B. 주문 커밋 후 이벤트(`AFTER_COMMIT`)로 포인트 적립 | 주문 트랜잭션과 완전 분리. `@Async`로 다른 스레드에서 돌리면 커넥션 동시 2개 문제도 없음(동기 리스너에서 `REQUIRES_NEW`로 쓰면 원 커넥션 반납 전이라 잠깐 2개) | 서버가 죽으면 이벤트 유실 가능. 신뢰성이 필요하면 아웃박스나 재시도 필요 |
+| C. 포인트 서비스가 예외 대신 실패 결과를 반환 | rollback-only가 아예 안 생김 | 포인트 서비스 계약을 바꿔야 하고, 다른 호출처도 영향받음 |
+
+**내가 고를 방법**
+B를 골라요. "주문은 성공, 포인트는 나중에"라는 요구 자체가 주문 확정 뒤에 하는 일이라 커밋 후 이벤트가 의도와 맞아요. 주문이 롤백됐는데 포인트만 남는 문제도 없어요. 유실 대비로 실패한 적립은 재시도 대상으로 남겨요. 당장 급한 핫픽스라면 A를 쓰되 커넥션 풀 크기를 먼저 확인해요.
+
+**채점 포인트**: 논리/물리 트랜잭션, rollback-only, 예외 전파와 트랜잭션 상태는 별개, REQUIRES_NEW의 커넥션 2개·풀 크기, 이벤트 유실 대비, 해결책 2개 이상의 트레이드오프.
+</details>
+
+<details>
+<summary>상황: 결제 API(PG) 응답이 느려진 날, 결제와 상관없는 조회 API까지 전부 타임아웃이 났습니다. 결제 서비스 메서드 전체에 @Transactional이 붙어 있고 그 안에서 PG를 호출합니다.</summary>
+
+**상황 파악**
+PG 지연이 DB를 쓰는 모든 API로 번졌어요. 공유 자원인 **커넥션 풀**이 바닥났을 가능성이 커요.
+
+**원인 후보**
+1. **긴 트랜잭션**: 트랜잭션이 열린 동안 스레드가 커넥션을 쥐고 PG 응답을 기다려요. 결제 요청이 몰리면 풀의 커넥션이 전부 대기 상태로 묶여요.
+2. PG 호출에 **타임아웃이 없거나 너무 길어서** 대기가 끝나지 않았어요.
+3. 트랜잭션 안에서 잡은 행 락 때문에 같은 데이터를 쓰는 다른 요청도 줄줄이 기다렸을 수 있어요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. 트랜잭션 분리: "주문 조회·PENDING 저장(짧은 트랜잭션) → PG 호출(트랜잭션 밖) → 결과 저장(짧은 트랜잭션)" | 커넥션을 쥐는 시간이 짧아져 근본 해결 | 한 번에 원자적이지 않음. PG는 성공했는데 결과 저장이 실패하는 경우를 처리해야 함 |
+| B. `TransactionTemplate`으로 DB 부분만 감싸기 | 같은 메서드 안에서 범위를 정밀하게 조절 | 코드가 장황해지고 스프링 API에 묶임 |
+| C. PG 호출 타임아웃 설정 + 풀 크기 증설 | 바로 적용 가능, 피해 범위 축소 | 원인은 남아 있음. 풀을 키워도 DB 부하만 늘 수 있음 |
+
+**내가 고를 방법**
+C로 당장 피해를 줄이고, A로 구조를 고쳐요. 외부 시스템은 DB 롤백으로 되돌릴 수 없으니 어차피 한 트랜잭션으로 묶는 게 정합성을 보장하지 못해요. 그래서 PENDING 상태를 먼저 남기고, PG 결과가 불확실하면 PG에 재조회하거나 결제 취소(보상)로 맞춰요.
+
+**채점 포인트**: 트랜잭션 동안 커넥션 점유, 커넥션 풀 고갈, 외부 시스템은 롤백 불가, 타임아웃, 트랜잭션 범위 최소화, 상태값·보상으로 정합성 확보.
+</details>
+
+<details>
+<summary>상황: 파일을 읽어 여러 행을 저장하는 배치 메서드(@Transactional)에서 IOException이 났는데, 앞부분 데이터만 DB에 반쯤 저장돼 있습니다.</summary>
+
+**상황 파악**
+예외가 났는데 롤백이 안 되고 커밋됐어요. 트랜잭션은 열렸지만 롤백 판단이 "커밋"으로 났다는 뜻이에요.
+
+**원인 후보**
+1. **기본 롤백 규칙**: `IOException`은 checked 예외라 기본 규칙상 롤백하지 않고 커밋해요. 가장 유력해요.
+2. 메서드 안에서 예외를 catch해 로그만 남기고 삼켰다면, 예외 종류와 상관없이 정상 종료로 보고 커밋해요.
+3. 트랜잭션이 아예 안 열렸을 가능성(자기 호출, private 메서드)도 확인해요. 이 경우는 행마다 따로 커밋돼요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. `@Transactional(rollbackFor = Exception.class)` | 해당 메서드만 정확히 고침 | 메서드마다 붙여야 하고 빠뜨리기 쉬움 |
+| B. checked 예외를 런타임 예외로 감싸서 던지기 | 기본 규칙 그대로 롤백, 호출부 `throws` 정리 | 원인 예외를 꼭 cause로 넣어야 추적 가능 |
+| C. Spring 6.2+ `@EnableTransactionManagement(rollbackOn = ALL_EXCEPTIONS)` | 프로젝트 전체가 "예외면 롤백"으로 일관됨 | 6.2 이상 필요. 기존에 checked 예외 후 커밋을 기대한 코드가 있으면 동작이 바뀜 |
+
+**내가 고를 방법**
+버전이 되면 C를 골라요. "예외가 나면 롤백"이 대부분 개발자의 기대라서 규칙을 하나로 맞추는 게 재발 방지에 가장 좋아요. 도입 전에 checked 예외 후 커밋에 기대는 코드가 있는지 검색해요. 버전이 안 되면 B로 감싸고, 예외를 삼키는 catch가 없는지도 같이 점검해요. 롤백 시나리오 테스트를 추가해요.
+
+**채점 포인트**: checked 예외는 기본 커밋, 프록시는 빠져나온 예외만 봄(catch 삼킴 주의), rollbackFor, 런타임 예외로 감싸기, 6.2 전역 설정, 트랜잭션 미적용 가능성 점검.
+</details>
+
+<details>
+<summary>상황: 주문 저장 후 같은 @Transactional 메서드 안에서 @Async로 재고 차감을 맡겼습니다. 주문이 롤백됐는데 재고는 이미 줄어 있었고, 반대로 재고 차감 실패가 주문에 반영되지 않기도 합니다.</summary>
+
+**상황 파악**
+주문과 재고가 따로 놀아요. 두 작업이 같은 트랜잭션에 있지 않다는 뜻이에요.
+
+**원인 후보**
+1. **트랜잭션은 스레드에 묶여요.** `@Async`는 다른 스레드에서 실행되니 바깥 트랜잭션에 참여하지 않아요. 재고 차감은 자기 트랜잭션(또는 트랜잭션 없이)으로 먼저 커밋될 수 있어요.
+2. 비동기라서 재고 쪽 예외가 주문 메서드로 돌아오지 않아요. 주문 쪽은 실패를 몰라요.
+3. 주문이 아직 커밋되기 전에 재고 작업이 실행돼 순서가 꼬일 수도 있어요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. 재고 차감을 같은 스레드·같은 트랜잭션에서 동기 실행 | 원자성 보장. 하나가 실패하면 둘 다 롤백 | 응답이 느려질 수 있고 재고 행 락 경합이 커짐 |
+| B. 주문 커밋 후 `@TransactionalEventListener(AFTER_COMMIT)` + `@Async`로 재고 처리 | 롤백된 주문으로 재고가 줄어드는 일이 없음. 응답 빠름 | 재고 실패 시 주문을 되돌리는 보상 처리가 필요. 이벤트 유실 대비 필요 |
+
+**내가 고를 방법**
+재고는 주문과 반드시 맞아야 하는 데이터라 A를 기본으로 골라요. 트래픽이 커서 비동기가 꼭 필요하면 B로 가되, "재고 부족이면 주문 취소" 보상 흐름과 실패 재시도를 함께 설계해요.
+
+**채점 포인트**: 스레드 바운드 트랜잭션, `@Async`·새 스레드에는 전파 안 됨, 커밋 전 실행 문제, AFTER_COMMIT, 보상 처리, 해결책 2개 이상의 트레이드오프.
+</details>
+
+## 필기 포인트
+
+- 기본 전파 `REQUIRED`, 기본 격리 `DEFAULT`(DB 기본값), 기본 `readOnly=false`.
+- 기본 롤백: `RuntimeException`·`Error`만. checked 예외는 **커밋**.
+- 예외를 catch해서 삼키면 롤백 판단이 없어 커밋.
+- `isolation`·`timeout`·`readOnly`는 새 트랜잭션(REQUIRED 신규, REQUIRES_NEW)에서만 적용. 참여하면 조용히 무시.
+- `MANDATORY`는 없으면 예외, `NEVER`는 있으면 예외.
+- `NESTED`는 세이브포인트, 물리 트랜잭션 1개, 기본은 JDBC 매니저에서만.
+- `REQUIRES_NEW`는 바깥 일시 중단, 커넥션 2개.
+- 안쪽 REQUIRED 예외 → rollback-only → 바깥 커밋 시 `UnexpectedRollbackException`.
+- `readOnly`는 힌트. Hibernate에선 flush MANUAL, 변경 감지 생략.
+- Spring 6.0+: CGLIB 프록시에서 protected·package-private도 적용. private은 불가.
+- Spring 6.2+: `rollbackOn = ALL_EXCEPTIONS`로 전역 롤백 규칙 변경.
+- `@TransactionalEventListener` 기본 phase는 `AFTER_COMMIT`, 기본은 동기.
+
+## 함께 보기
+
+- [AOP](../aop/)
+- [JPA 영속성 컨텍스트](../jpa-persistence-context/)
+- [구조 패턴: 프록시·데코레이터·어댑터](../../oop/patterns-structural/)
+- [예외 처리](../../java/exceptions/)
+
+## 출처
+
+- [Spring Framework Reference, Understanding the Spring Framework's Declarative Transaction Implementation](https://docs.spring.io/spring-framework/reference/data-access/transaction/declarative/tx-decl-explained.html)
+- [Spring Framework Reference, Using @Transactional](https://docs.spring.io/spring-framework/reference/data-access/transaction/declarative/annotations.html)
+- [Spring Framework Reference, Transaction Propagation](https://docs.spring.io/spring-framework/reference/data-access/transaction/declarative/tx-propagation.html)
+- [Spring Framework Reference, Rolling Back a Declarative Transaction](https://docs.spring.io/spring-framework/reference/data-access/transaction/declarative/rolling-back.html)
+- [Spring Framework Reference, Programmatic Transaction Management](https://docs.spring.io/spring-framework/reference/data-access/transaction/programmatic.html)
+- [Spring Framework Javadoc, Propagation](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/transaction/annotation/Propagation.html)
+- [Spring Framework Javadoc, TransactionDefinition](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/transaction/TransactionDefinition.html)
+- [spring-framework 소스, AbstractPlatformTransactionManager](https://github.com/spring-projects/spring-framework/blob/main/spring-tx/src/main/java/org/springframework/transaction/support/AbstractPlatformTransactionManager.java)
+- [spring-framework 소스, HibernateJpaDialect](https://github.com/spring-projects/spring-framework/blob/main/spring-orm/src/main/java/org/springframework/orm/jpa/vendor/HibernateJpaDialect.java)
+- [spring-framework 소스, DataSourceTransactionManager](https://github.com/spring-projects/spring-framework/blob/main/spring-jdbc/src/main/java/org/springframework/jdbc/datasource/DataSourceTransactionManager.java)
+- [Spring Data JPA Reference, Transactionality](https://docs.spring.io/spring-data/jpa/reference/jpa/transactions.html)
+- [MySQL 8.0 Reference Manual, Optimizing InnoDB Read-Only Transactions](https://dev.mysql.com/doc/refman/8.0/en/innodb-performance-ro-txn.html)

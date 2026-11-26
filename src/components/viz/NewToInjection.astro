@@ -1,0 +1,56 @@
+---
+// IoC: OrderService가 직접 new → 생성자 파라미터로 받기 → 컨테이너가 빈을 만들어 넣어 줌
+import Stepper from '../Stepper.astro';
+const steps = [
+  { caption: 'OrderService가 안에서 new KakaoPay()를 해요. 결제하기에 더해 "어떤 결제사를 고르고 만들지"까지 OrderService 몫이에요.', show: ['os', 'code1', 'kakaoIn'] },
+  { caption: '생성자 파라미터 OrderService(Pay pay)로 바꿔요. 이제 Pay가 필요하다고 적어만 두고, 누가 넣어 줄지는 비어 있어요.', show: ['os', 'code2', 'slot', 'hl-slot'] },
+  { caption: '스프링 컨테이너가 TossPay 빈을 만들고, OrderService를 만들 때 생성자로 넣어 줘요. 만들고 연결하는 제어권이 컨테이너로 넘어갔어요(IoC).', show: ['os', 'code2', 'filled', 'container', 'inject', 'hl-fill'] },
+];
+---
+<Stepper title="new에서 주입으로: 제어권이 넘어가는 과정" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 352" role="img" aria-label="OrderService가 KakaoPay를 직접 new 하다가, 생성자 파라미터로 Pay를 받도록 바뀌고, 스프링 컨테이너가 TossPay 빈을 만들어 넣어 주는 그림">
+    <defs>
+      <marker id="nti-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+
+    <g data-id="os">
+      <rect class="box" x="16" y="16" width="288" height="152" rx="10" />
+      <text x="160" y="38" style="font-weight:700">OrderService</text>
+    </g>
+
+    <text data-id="code1" class="mono hide" x="160" y="70">pay = <tspan class="hi">new KakaoPay()</tspan>;</text>
+    <g data-id="kakaoIn" class="hide">
+      <rect class="chip" x="90" y="92" width="140" height="44" rx="8" />
+      <text x="160" y="114">KakaoPay</text>
+      <text class="err-t" x="160" y="152">고르기·만들기도 내 몫</text>
+    </g>
+
+    <text data-id="code2" class="mono hide" x="160" y="70">OrderService(<tspan class="hi">Pay pay</tspan>)</text>
+    <g data-id="slot" class="hide">
+      <rect class="bad" x="90" y="92" width="140" height="44" rx="8" />
+      <text x="160" y="114">Pay = ?</text>
+      <text class="sub" x="160" y="152">누가 넣어 주지?</text>
+    </g>
+    <g data-id="filled" class="hide">
+      <rect class="chip" x="90" y="92" width="140" height="44" rx="8" />
+      <text x="160" y="114">TossPay 빈</text>
+    </g>
+
+    <g data-id="container" class="hide">
+      <rect class="frame" x="16" y="220" width="288" height="120" rx="10" />
+      <text x="160" y="242" style="font-weight:700">스프링 컨테이너</text>
+      <rect class="chip" x="90" y="262" width="140" height="44" rx="8" />
+      <text x="160" y="284">TossPay 빈</text>
+      <text class="sub" x="160" y="324">컨테이너가 new 해요</text>
+    </g>
+    <g data-id="inject" class="hide">
+      <line class="line" x1="160" y1="260" x2="160" y2="140" marker-end="url(#nti-arr)" style="stroke-width:2.4" />
+      <text class="sub l" x="170" y="194">생성자로 주입</text>
+    </g>
+
+    <rect data-id="hl-slot" class="hl" x="84" y="86" width="152" height="56" rx="10" />
+    <rect data-id="hl-fill" class="hl" x="84" y="86" width="152" height="56" rx="10" />
+  </svg>
+</Stepper>

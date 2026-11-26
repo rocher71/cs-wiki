@@ -1,0 +1,46 @@
+---
+// 싱글톤 빈 생명주기 9단계: 정의 읽기 → 생성 → 주입 → Aware → BPP before → 초기화 → BPP after(프록시) → 사용 → 소멸
+import Stepper from '../Stepper.astro';
+const rows = [
+  '빈 정의 읽기 · ${} 치환',
+  '생성자 호출 (주입 전)',
+  '의존성 주입 @Autowired',
+  'Aware 콜백',
+  'BeanPostProcessor before',
+  '초기화 @PostConstruct 등',
+  'BPP after → 프록시로 교체',
+  '사용 (프록시가 주입됨)',
+  '종료 → @PreDestroy 등',
+];
+const captions = [
+  '컨테이너가 시작되며 빈 정의(설계도)를 읽어요. BeanFactoryPostProcessor가 정의 안의 ${...} 같은 값을 실제 설정값으로 바꿔요. 아직 객체는 없어요.',
+  '생성자를 호출해 객체를 만들어요. 생성자 주입이면 여기서 같이 들어오지만, 필드·세터 주입은 아직이에요.',
+  '@Autowired 필드·세터에 다른 빈을 넣어요. 이 일은 AutowiredAnnotationBeanPostProcessor가 해요.',
+  'BeanNameAware, ApplicationContextAware 같은 Aware 콜백으로 빈 이름, 컨테이너 같은 정보를 알려 줘요.',
+  'BeanPostProcessor의 postProcessBeforeInitialization이 불려요. 초기화 직전에 끼어드는 지점이에요.',
+  '초기화 콜백이 @PostConstruct → afterPropertiesSet() → initMethod 순서로 불려요. 주입이 끝난 원본 객체에서 실행돼요.',
+  'postProcessAfterInitialization에서 AOP가 필요한 빈은 프록시로 바뀌어요. 컨테이너에는 원본 대신 이 프록시가 등록돼요.',
+  '다른 빈에는 프록시가 주입되고, 호출은 프록시를 거쳐 원본으로 가요. 싱글톤이면 앱이 끝날 때까지 이 상태예요.',
+  '컨테이너가 종료되면 @PreDestroy → destroy() → destroyMethod 순서로 소멸 콜백이 불려요. prototype 빈은 이 단계가 없어요.',
+];
+const steps = captions.map((caption, k) => ({
+  caption,
+  show: [...rows.slice(0, k + 1).map((_, i) => `r${i}`), `hl${k}`],
+}));
+const y = (i: number) => 8 + i * 46;
+---
+<Stepper title="빈 생명주기 9단계" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 420" role="img" aria-label="빈 정의 읽기부터 생성, 주입, Aware, 후처리기, 초기화, 프록시 교체, 사용, 소멸까지 위에서 아래로 이어지는 9단계 목록">
+    {rows.map((label, i) => (
+      <g data-id={`r${i}`}>
+        <rect class={i === 6 ? 'chip' : 'box'} x="4" y={y(i)} width="312" height="38" rx="8" />
+        <circle class="badge" cx="25" cy={y(i) + 19} r="13" />
+        <text class="on-badge" x="25" y={y(i) + 20}>{i + 1}</text>
+        <text class="l" x="48" y={y(i) + 20}>{label}</text>
+      </g>
+    ))}
+    {rows.map((_, i) => (
+      <rect data-id={`hl${i}`} class="hl" x="2" y={y(i) - 2} width="316" height="42" rx="10" />
+    ))}
+  </svg>
+</Stepper>

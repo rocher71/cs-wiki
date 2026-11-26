@@ -1,0 +1,87 @@
+---
+// DataSource 자동 설정: 내 빈이 없으면 Hikari 등록, 내 빈이 있으면 OnMissingBean 실패로 물러남
+import Stepper from '../Stepper.astro';
+const left = ['hL', 'aL', 'l1', 'l2', 'l3', 'l4'];
+const right = ['hR', 'aR', 'r1', 'r2', 'r3', 'r4'];
+const steps = [
+  { caption: '내가 DataSource를 안 만든 경우: HikariCP가 클래스패스에 있고(OnClass 통과) DataSource 빈이 없으니(OnMissingBean 통과) Hikari DataSource가 자동 등록돼요. 그걸 써서 JdbcTemplate도 따라 등록돼요.', show: [...left, 'hl-l'] },
+  { caption: '내가 @Bean으로 DataSource를 만든 경우: 내 빈이 먼저 등록돼 있어서 OnMissingBean이 실패해요. Hikari 자동 설정은 물러나고(back off) 내 DataSource가 그대로 쓰여요.', show: [...left, ...right, 'hl-r'] },
+  { caption: '정리: 자동 설정은 내 설정을 덮어쓰지 않아요. 내 것이 없을 때만 채워 줘요. 이때 spring.datasource.hikari.* 설정은 자동 설정용이라 내 DataSource에는 안 먹어요. JdbcTemplate은 내 DataSource로 계속 자동 등록돼요.', show: [...left, ...right, 'hl-res'] },
+];
+---
+<Stepper title="DataSource 자동 설정이 물러나는 순간" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 344" role="img" aria-label="왼쪽: 내 DataSource가 없으면 조건 통과로 Hikari DataSource와 JdbcTemplate이 자동 등록. 오른쪽: 내 DataSource 빈이 있으면 OnMissingBean 실패로 자동 설정이 물러나고 내 DataSource를 사용">
+    <defs>
+      <marker id="dsb-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+
+    <g data-id="hL">
+      <text x="86" y="22" style="font-weight:700">내 DataSource</text>
+      <text class="sub" x="86" y="44">없음</text>
+    </g>
+    <g data-id="aL">
+      <line class="line" x1="86" y1="121" x2="86" y2="132" marker-end="url(#dsb-arr)" />
+      <line class="line" x1="86" y1="189" x2="86" y2="200" marker-end="url(#dsb-arr)" />
+      <line class="line" x1="86" y1="257" x2="86" y2="268" marker-end="url(#dsb-arr)" />
+    </g>
+    <g data-id="l1">
+      <rect class="box" x="16" y="64" width="140" height="56" rx="8" />
+      <text x="86" y="83">Hikari 있음</text>
+      <text class="sub" x="86" y="104">OnClass 통과</text>
+    </g>
+    <g data-id="l2">
+      <rect class="box" x="16" y="134" width="140" height="54" rx="8" />
+      <text x="86" y="152">DataSource 없음</text>
+      <text class="sub" x="86" y="172">OnMissingBean 통과</text>
+    </g>
+    <g data-id="l3">
+      <rect class="chip" x="16" y="202" width="140" height="54" rx="8" />
+      <text x="86" y="220">Hikari</text>
+      <text class="sub" x="86" y="240">DataSource 자동 등록</text>
+    </g>
+    <g data-id="l4">
+      <rect class="chip" x="16" y="270" width="140" height="54" rx="8" />
+      <text class="mono" x="86" y="288">JdbcTemplate</text>
+      <text class="sub" x="86" y="308">자동 등록</text>
+    </g>
+
+    <g data-id="hR">
+      <text x="234" y="22" style="font-weight:700">내 DataSource</text>
+      <text class="sub" x="234" y="44">@Bean 있음</text>
+    </g>
+    <g data-id="aR">
+      <line class="line" x1="234" y1="121" x2="234" y2="132" marker-end="url(#dsb-arr)" />
+      <line class="line" x1="234" y1="189" x2="234" y2="200" marker-end="url(#dsb-arr)" />
+      <line class="line" x1="234" y1="257" x2="234" y2="268" marker-end="url(#dsb-arr)" />
+    </g>
+    <g data-id="r1">
+      <rect class="box" x="164" y="64" width="140" height="56" rx="8" />
+      <text x="234" y="83">내 빈</text>
+      <text class="sub" x="234" y="104">먼저 등록됨</text>
+    </g>
+    <g data-id="r2">
+      <rect class="err" x="164" y="134" width="140" height="54" rx="8" />
+      <text x="234" y="152">DataSource 있음</text>
+      <text class="err-t" x="234" y="172" style="font-size:14px">OnMissingBean 실패</text>
+    </g>
+    <g data-id="r3">
+      <rect class="bad" x="164" y="202" width="140" height="54" rx="8" />
+      <text x="234" y="220">자동 설정</text>
+      <text class="sub" x="234" y="240">물러남 (back off)</text>
+    </g>
+    <g data-id="r4">
+      <rect class="chip" x="164" y="270" width="140" height="54" rx="8" />
+      <text x="234" y="288">내 DataSource</text>
+      <text class="sub" x="234" y="308">그대로 사용</text>
+    </g>
+
+    <rect data-id="hl-l" class="hl" x="10" y="58" width="152" height="272" rx="12" />
+    <rect data-id="hl-r" class="hl" x="158" y="128" width="152" height="134" rx="12" />
+    <g data-id="hl-res" class="hide">
+      <rect class="hl" x="10" y="196" width="152" height="134" rx="12" style="opacity:1" />
+      <rect class="hl" x="158" y="264" width="152" height="66" rx="12" style="opacity:1" />
+    </g>
+  </svg>
+</Stepper>

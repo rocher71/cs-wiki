@@ -1,0 +1,455 @@
+---
+title: 스프링 시큐리티 기본
+description: 스프링 시큐리티는 DispatcherServlet 앞의 서블릿 필터 체인에서 동작해요. 인증 필터가 "누구냐"를 확인해 SecurityContextHolder에 담고, 맨 끝의 AuthorizationFilter가 "해도 되냐"를 판단해요.
+sidebar: { order: 10 }
+tags: [면접빈출, 서술형]
+---
+import { Aside } from '@astrojs/starlight/components';
+import SecurityFilterChainFlow from '~/components/viz/SecurityFilterChainFlow.astro';
+import FormLoginAuthFlow from '~/components/viz/FormLoginAuthFlow.astro';
+
+:::tip[한 줄 요약]
+스프링 시큐리티는 DispatcherServlet **앞**의 서블릿 필터 체인에서 동작해요. `DelegatingFilterProxy`가 톰캣과 스프링을 잇고, `FilterChainProxy`가 고른 보안 필터들이 순서대로 인증("누구냐")과 인가("해도 되냐")를 처리하며, 현재 사용자는 스레드마다 따로 있는 `SecurityContextHolder`에 담겨요.
+:::
+
+## 쉽게 이해하기
+
+회사 건물을 떠올려 보세요. 사무실(컨트롤러)에 가려면 1층 보안 게이트를 먼저 지나야 해요. 건물 관리 회사(톰캣)는 보안 업체 직원들을 직접 고용하지 않아서, 게이트 앞에 **연락 창구** 하나만 세워 두고 실제 검사는 보안 업체(스프링)에 넘겨요(**DelegatingFilterProxy**).
+
+보안 업체 팀장(**FilterChainProxy**)은 방문자를 보고 "직원 출입구"인지 "택배 출입구"인지 골라 보내요. 출입구마다 검사원이 줄지어 서 있어요. 사원증을 찍는 사람(인증 필터), 이 층에 들어갈 권한이 있는지 보는 사람(인가 필터)이 순서대로 있죠.
+
+사원증을 확인하면 방문자 목에 **출입 목걸이**를 걸어 줘요(**SecurityContext**). 건물 안 누구든 목걸이만 보면 이 사람이 누군지 알아요. 나갈 때는 목걸이를 반드시 회수해요.
+
+단, 실제로는 목걸이가 사람이 아니라 **요청을 처리하는 스레드**에 걸려요. 톰캣은 스레드를 재사용하기 때문에, 회수를 안 하면 다음 요청이 앞사람 목걸이를 그대로 차고 들어가는 사고가 나요.
+
+## 그림으로 보기
+
+<SecurityFilterChainFlow />
+
+<FormLoginAuthFlow />
+
+## 제대로 알기
+
+### 1. 먼저 용어 몇 개
+
+- **인증**(Authentication, "너 누구니?" 확인): 아이디·비밀번호나 토큰으로 사용자를 알아내는 일이에요.
+- **인가**(Authorization, "이거 해도 돼?" 판단): 이미 누군지 아는 사용자가 이 URL·기능을 쓸 권한이 있는지 보는 일이에요.
+- **서블릿 필터**(Filter, DispatcherServlet 앞에서 요청을 먼저 보는 표준 부품): 필터와 인터셉터 차이는 [스프링 MVC 요청 흐름](../mvc-flow/)에서 다뤄요.
+- **권한**(GrantedAuthority, 사용자가 가진 꼬리표 하나): `ROLE_ADMIN`, `SCOPE_messages` 같은 문자열이에요.
+
+### 2. 왜 필터에서 하나
+
+보안 검사는 컨트롤러에 닿기 **전에** 끝나야 해요. 그래서 시큐리티는 DispatcherServlet 앞의 서블릿 필터 체인에 붙어요. 스프링 공식 문서도 인터셉터는 컨트롤러 경로 매칭과 어긋날 수 있어 보안 계층으로 적합하지 않다고 해요.
+
+메서드 단위 권한 검사(`@PreAuthorize`)는 예외예요. 이건 필터가 아니라 [AOP](../aop/) 프록시로 동작한다고 알려져 있어요.
+
+### 3. DelegatingFilterProxy와 FilterChainProxy
+
+둘 다 이름에 Proxy가 있어서 헷갈려요. 역할이 완전히 달라요.
+
+| | `DelegatingFilterProxy` | `FilterChainProxy` |
+|---|---|---|
+| 한 줄 역할 | 톰캣과 스프링을 잇는 다리 | 보안 필터 묶음의 관리자 |
+| 누가 제공 | 스프링 프레임워크 | 스프링 시큐리티 |
+| 어디에 등록 | 서블릿 컨테이너(톰캣)에 평범한 필터로 | 스프링 빈으로(흔히 빈 이름 `springSecurityFilterChain`) |
+| 하는 일 | 실제 일을 스프링 빈에 위임 | 요청에 맞는 `SecurityFilterChain`을 골라 실행 |
+
+**왜 다리가 필요할까요?** 톰캣은 스프링 빈을 몰라요. 게다가 톰캣은 시작할 때 필터를 먼저 등록해야 하는데, 스프링 빈은 그보다 늦게 만들어져요. 그래서 `DelegatingFilterProxy`는 일단 자리만 차지하고, 위임할 빈은 **나중에 찾아요(지연 조회)**.
+
+`FilterChainProxy`는 시큐리티의 출발점이에요. 문서는 디버깅할 때 여기에 브레이크포인트를 걸라고 권해요. 이 녀석이 항상 해 주는 일도 있어요.
+
+- 요청이 끝나면 `SecurityContext`를 **비워요**. 메모리 누수와 스레드 재사용 사고를 막아요.
+- `HttpFirewall`을 적용해 일부 공격 요청을 막아요.
+
+### 4. SecurityFilterChain은 여러 개, 실행은 하나
+
+톰캣 필터는 URL로만 매칭하지만, `FilterChainProxy`는 `RequestMatcher`로 헤더·HTTP 메서드 등 요청의 무엇이든 보고 체인을 골라요. 체인은 여러 개 둘 수 있고, **처음 맞는 체인 하나만** 실행돼요.
+
+그래서 "`/api/**`는 토큰 인증, 나머지는 폼 로그인"처럼 나눌 수 있어요. 범위가 좁은 체인을 앞 순번에 둬야 해요(보통 `@Order`로 정한다고 알려져 있어요). 넓은 체인이 먼저 매칭되면 좁은 체인은 영영 안 불려요.
+
+### 5. 기본 필터 순서
+
+공식 문서의 디버그 로그 예시에 나온 기본 순서예요. 설정에 따라 넣고 빼지기 때문에 외울 필요는 없고, **큰 흐름**만 기억하면 돼요.
+
+> 컨텍스트 꺼내기 → 보호(헤더·CSRF) → 인증 → 익명 처리 → 예외 번역 → 인가(맨 끝)
+
+| 단계 | 대표 필터 | 하는 일 |
+|---|---|---|
+| 컨텍스트 꺼내기 | `SecurityContextHolderFilter` | 세션 등에 저장된 로그인 정보를 스레드에 올림 |
+| 보호 | `HeaderWriterFilter`, `CsrfFilter` | 보안 응답 헤더, CSRF 토큰 검사 |
+| 인증 | `UsernamePasswordAuthenticationFilter`, `BasicAuthenticationFilter`, `BearerTokenAuthenticationFilter` | 요청에 자격 증명이 있으면 인증 시도 |
+| 익명 처리 | `AnonymousAuthenticationFilter` | 여기까지 아무도 아니면 "익명 사용자"로 채움 |
+| 예외 번역 | `ExceptionTranslationFilter` | 뒤에서 난 보안 예외를 401/403 응답으로 바꿈 |
+| 인가 | `AuthorizationFilter` | 규칙에 따라 통과/거부 |
+
+필터는 `HttpSecurity` 설정이 하나씩 추가해요. `formLogin()`은 `UsernamePasswordAuthenticationFilter`, `httpBasic()`은 `BasicAuthenticationFilter`, `csrf()`는 `CsrfFilter`, `authorizeHttpRequests()`는 `AuthorizationFilter`를 넣어요. JWT 리소스 서버 설정은 `BearerTokenAuthenticationFilter`를 넣어요.
+
+`AuthorizationFilter`가 맨 끝이라, 그 앞의 인증 필터 자체는 인가 검사를 받지 않아요. 직접 필터를 끼울 때 문서 가이드는 이래요. 공격 방어용은 `SecurityContextHolderFilter` 뒤, 인증용은 `LogoutFilter` 뒤, 인가용은 `AnonymousAuthenticationFilter` 뒤예요.
+
+### 6. 현재 사용자는 어디에 있나: SecurityContextHolder
+
+로그인 정보는 3단 상자에 들어 있어요.
+
+```
+SecurityContextHolder   ← 보관함 (기본: 스레드마다 따로)
+ └ SecurityContext      ← 상자
+    └ Authentication    ← 현재 사용자
+       ├ principal      : 누구인지 (보통 UserDetails)
+       ├ credentials    : 비밀번호 등 (인증 후 지움)
+       └ authorities    : 권한 목록 (ROLE_USER 등)
+```
+
+기본 전략은 **ThreadLocal**(스레드마다 따로 갖는 저장 칸)이에요. 스프링 MVC는 요청 하나를 스레드 하나가 처음부터 끝까지 처리하니까, 서비스 깊은 곳에서도 인자 없이 `SecurityContextHolder.getContext()`로 현재 사용자를 꺼낼 수 있어요.
+
+| 모드 | 뜻 | 쓰는 곳 |
+|---|---|---|
+| `MODE_THREADLOCAL` | 스레드마다 따로(기본) | 일반 웹 앱 |
+| `MODE_INHERITABLETHREADLOCAL` | 자식 스레드도 부모의 사용자 정보를 물려받음 | 보안 스레드가 직접 스레드를 만들 때 |
+| `MODE_GLOBAL` | JVM 전체에 하나 | Swing 같은 단독 데스크톱 앱 |
+
+ThreadLocal이 안전한 건 `FilterChainProxy`가 요청 끝에 **항상 비워 주기** 때문이에요. 톰캣은 스레드를 풀에서 재사용해요. 그래서 직접 만든 필터에서 컨텍스트를 넣고 안 비우면 다음 요청에 앞사람 신원이 샐 수 있어요.
+
+직접 넣을 땐 `getContext().setAuthentication()`보다 `createEmptyContext()`로 새 상자를 만들어 `setContext()`하라고 문서가 권해요. 여러 스레드가 같은 상자를 건드리는 경쟁 상황을 피하려는 거예요.
+
+<Aside type="caution" title="@Async에서는 현재 사용자가 비어 있어요">
+ThreadLocal은 **다른 스레드로 넘어가지 않아요**. `@Async`나 직접 만든 스레드 풀에서 `getAuthentication()`을 부르면 `null`이 나오는 게 보통이에요. 흔한 해결책은 `DelegatingSecurityContextExecutor` 같은 래퍼로 컨텍스트를 옮겨 주거나, 필요한 사용자 ID만 메서드 인자로 넘기는 거예요. INHERITABLE 모드는 풀이 스레드를 재사용하면 엉뚱한 사용자가 남을 수 있어 위험하다고 알려져 있어요.
+</Aside>
+
+### 7. 로그인은 누가 처리하나: 인증 아키텍처
+
+인증에는 부품 네 가지가 등장해요. 각자 하나씩만 맡아요.
+
+| 부품 | 맡는 일 |
+|---|---|
+| 인증 필터 | 요청에서 아이디·비번(또는 토큰)을 꺼내 "아직 인증 안 된" `Authentication`을 만듦 |
+| `AuthenticationManager` | 인증을 수행하는 창구. 대표 구현은 `ProviderManager` |
+| `AuthenticationProvider` | 실제 인증 방식 하나. `DaoAuthenticationProvider`(아이디/비번), `JwtAuthenticationProvider`(JWT) |
+| `UserDetailsService` | 아이디로 DB에서 사용자(`UserDetails`)를 찾아옴 |
+
+`ProviderManager`는 Provider 목록에 차례로 물어봐요. 각 Provider는 "성공", "실패", "내 담당 아님" 중 하나로 답해요. 아무도 맡지 않으면 `ProviderNotFoundException`이 나요.
+
+**폼 로그인 순서**는 위 두 번째 그림과 같아요.
+
+1. `UsernamePasswordAuthenticationFilter`가 아이디·비번으로 미인증 토큰을 만들어요.
+2. `ProviderManager`가 `DaoAuthenticationProvider`에 넘겨요.
+3. `UserDetailsService.loadUserByUsername()`으로 사용자를 찾아요.
+4. `PasswordEncoder.matches()`로 비밀번호를 확인해요.
+5. 성공하면 인증된 토큰을 돌려주고, 필터가 `SecurityContextHolder`에 넣어요.
+
+성공 뒤에는 몇 가지가 더 일어나요. 세션 고정 공격(공격자가 미리 심어 둔 세션 ID를 피해자가 그대로 쓰게 만드는 공격)을 막으려고 **세션 ID를 새로 발급**하고, `SecurityContextRepository`로 컨텍스트를 저장해 다음 요청에서도 로그인이 유지되게 해요. 그다음 성공 핸들러가 원래 가려던 페이지로 보내 줘요.
+
+`ProviderManager`는 기본으로 인증 성공 후 비밀번호 같은 credential을 지워요. 그래서 사용자 객체를 캐시해 두고 그대로 재사용하면 다음 인증이 실패할 수 있어요.
+
+<Aside type="note" title="5.x 블로그 코드를 따라 하면 생기는 일">
+6.x부터 `SecurityContextHolderFilter`는 컨텍스트를 **꺼내기만** 하고 자동으로 저장하지 않아요. 로그인 처리를 직접 짜면 `SecurityContextRepository.saveContext()`를 명시적으로 불러야 해요. 안 그러면 "로그인했는데 다음 요청에서 풀려요"가 돼요. 또 옛날 `WebSecurityConfigurerAdapter` 상속 방식은 없어졌고, 지금은 `SecurityFilterChain`을 `@Bean`으로 등록한다고 알려져 있어요.
+</Aside>
+
+### 8. 401과 403은 누가 만드나
+
+인가에서 막히면 `AuthorizationFilter`가 예외를 던지고, 바로 앞의 `ExceptionTranslationFilter`가 잡아서 응답으로 바꿔요.
+
+| 상황 | 처리 | 흔한 응답 |
+|---|---|---|
+| 아직 누군지 모름(익명) 또는 `AuthenticationException` | 원래 요청을 `RequestCache`에 저장 → `AuthenticationEntryPoint`가 로그인 요구(로그인 페이지로 리다이렉트, 또는 `WWW-Authenticate` 헤더) | **401**(폼 로그인은 로그인 페이지로 리다이렉트) |
+| 누군지는 아는데 권한 없음(`AccessDeniedException`) | `AccessDeniedHandler` | **403** |
+
+로그인 후 원래 페이지로 돌아가는 게 `RequestCache` 덕분이에요. 토큰 기반 리소스 서버는 보통 요청을 저장하지 않아요.
+
+CSRF 토큰이 틀려도 `AccessDeniedException` 계열이라 **403**이 나요. 그래서 "권한 문제"로 착각하기 쉬워요.
+
+### 9. 인가 규칙 쓰기
+
+```java
+@Bean
+SecurityFilterChain web(HttpSecurity http) throws Exception {
+    http.authorizeHttpRequests(auth -> auth
+            .requestMatchers("/login", "/public/**").permitAll()
+            .requestMatchers("/admin/**").hasRole("ADMIN") // ROLE_ADMIN 검사
+            .anyRequest().authenticated())                 // 반드시 맨 아래
+        .formLogin(Customizer.withDefaults());
+    return http.build();
+}
+```
+
+- 규칙은 **위에서부터, 처음 맞는 것 하나만** 적용돼요. `anyRequest()`를 위에 두면 아래 규칙은 안 먹어요.
+- `hasRole("ADMIN")`은 `ROLE_`을 자동으로 붙여 `ROLE_ADMIN`을 봐요. `hasAuthority("ADMIN")`은 글자 그대로 `ADMIN`을 봐요. 그래서 `hasRole("ROLE_ADMIN")`이라고 쓰면 안 돼요.
+- 기본은 모든 요청에 인증이 필요하지만, 그래도 규칙을 명시하라고 문서가 권해요. `anyRequest().denyAll()`로 끝내면 허용할 것만 적는 **허용 목록** 방식이 되어 더 안전해요.
+- 지금 버전의 `AuthorizationFilter`는 에러 페이지로 넘어가는 디스패치에도 걸려요. 에러 페이지에서 엉뚱한 403이 나면 `dispatcherTypeMatchers(FORWARD, ERROR).permitAll()`을 검토해요.
+
+부트에 의존성만 넣어도 모든 요청 인증 필요, 기본 로그인 페이지, CSRF가 한꺼번에 켜져요. "의존성 하나 넣었더니 전부 로그인 페이지로 가요"는 정상 동작이에요.
+
+### 10. 로그인 상태 유지: 세션 vs 토큰
+
+요청과 요청 사이에 로그인 상태를 잇는 건 `SecurityContextRepository`예요. 쿠키·세션·JWT 자체의 원리는 웹·네트워크 섹션에서 자세히 다루고, 여기서는 시큐리티에서 무엇이 달라지는지만 봐요.
+
+| | 세션 방식 | 토큰(JWT) 방식 |
+|---|---|---|
+| 로그인 정보 저장 | 서버 `HttpSession`에 SecurityContext 저장 | 서버에 저장 안 함 |
+| 브라우저가 보내는 것 | 세션 쿠키(톰캣 기본 이름 `JSESSIONID`로 알려짐) | 매 요청 `Authorization: Bearer 토큰` 헤더 |
+| 인증 필터 | 폼 로그인 때 `UsernamePasswordAuthenticationFilter` | 매 요청 `BearerTokenAuthenticationFilter` |
+| 검증 | 세션에서 꺼냄 | `JwtDecoder`가 서명과 `exp`·`nbf`·`iss` 검증 |
+| 흔한 설정 | 기본값 | 세션 안 만들기(흔히 `STATELESS` 정책) |
+
+JWT 리소스 서버는 `spring.security.oauth2.resourceserver.jwt.issuer-uri` 하나만 설정하면 돼요. 공개키를 가져오는 작업은 첫 JWT 요청까지 미뤄지기 때문에, 인가 서버가 꺼져 있어도 앱은 떠요.
+
+JWT 요청은 `BearerTokenAuthenticationFilter` → `JwtAuthenticationProvider` → `JwtDecoder` → `JwtAuthenticationConverter` 순으로 처리돼요. 토큰의 `scope` 클레임은 `SCOPE_` 접두사 권한이 돼요(`"scope":"messages"`는 `SCOPE_messages`). 기본값은 서명 알고리즘 RS256, 시계 오차 허용 60초, 공개키(JWK Set) 캐시 5분이고 키 교체도 자동으로 따라가요.
+
+JWT는 서명만 확인하면 되니 DB를 안 봐도 돼서 서버가 상태를 안 가져요. 대신 이미 발급한 토큰을 만료 전에 강제로 무효화하기는 어렵다고 알려져 있어요.
+
+### 11. 비밀번호 저장: 왜 BCrypt인가
+
+비밀번호 저장 방식은 이렇게 발전했어요.
+
+| 단계 | 문제 |
+|---|---|
+| 평문 | DB가 털리면 끝 |
+| 단순 해시(SHA-256) | 미리 계산한 표(레인보우 테이블)로 뚫림. 게다가 너무 빨라서 초당 수십억 번 대입 가능 |
+| 해시 + **솔트**(salt, 사용자마다 다른 랜덤값) | 표 공격은 막지만 여전히 빠름 |
+| **적응형 단방향 함수**(bcrypt, PBKDF2, scrypt, Argon2) | 강도(work factor)를 올려 **일부러 느리게** 만듦 |
+
+**단방향 해시**는 되돌릴 수 없는 변환이에요. 그래서 BCrypt는 "암호화"와 달리 복호화가 안 돼요. 문서는 검증 1번에 **약 1초**가 걸리도록 강도를 맞추라고 권해요. `BCryptPasswordEncoder`의 기본 강도는 10이에요.
+
+bcrypt는 솔트를 해시 문자열 안에 같이 넣어요. 그래서 같은 비밀번호도 저장할 때마다 다른 해시가 나와요. 비교는 `equals`가 아니라 반드시 `matches()`로 해야 해요.
+
+| 알고리즘 | 특징 |
+|---|---|
+| bcrypt | 시큐리티가 새로 인코딩할 때 쓰는 기본 |
+| Argon2 | 비밀번호 해싱 대회 우승. 메모리를 많이 써서 GPU 공격에 강함(BouncyCastle 필요) |
+| PBKDF2 | FIPS(미국 정부 암호 표준) 인증이 필요할 때 |
+
+**DelegatingPasswordEncoder**는 저장값 앞에 `{id}`를 붙여요. `{bcrypt}$2a$10$...`, `{noop}password`처럼요. 이 id를 보고 어떤 인코더로 검증할지 골라요.
+
+왜 그냥 BCrypt 하나로 안 할까요? 옛날 해시가 남은 시스템이 많고, 권장 알고리즘은 시간이 지나면 또 바뀌어요. 접두사가 있으면 옛 형식은 그대로 검증하면서 새 비밀번호만 새 알고리즘으로 저장할 수 있어요. 접두사 없는 해시가 DB에 있으면 `There is no PasswordEncoder mapped for the id "null"` 오류가 나요.
+
+`DaoAuthenticationProvider`는 **없는 사용자**에도 더미 해시와 비교를 해요. 없을 때만 비교를 건너뛰면 응답 시간 차이로 "이 아이디는 있다"가 새어 나가기 때문이에요(타이밍 공격).
+
+### 12. CSRF: 왜 POST만 403이 날까
+
+**CSRF**(Cross-Site Request Forgery, 사이트 간 요청 위조)는 브라우저가 쿠키를 **자동으로 붙이는** 성질을 노려요. 내가 은행에 로그인한 채 악성 사이트에 들어가면, 그 사이트의 숨은 폼이 은행으로 송금 요청을 보내요. 브라우저는 은행 쿠키를 알아서 붙이니 은행은 내가 보낸 줄 알아요.
+
+막는 방법은 **Synchronizer Token Pattern**이에요. 상태를 바꾸는 요청마다 서버가 준 랜덤 토큰을 파라미터(`_csrf`)나 헤더에 넣게 하고 서버가 비교해요. 브라우저가 자동으로 붙이지 않는 자리라서 악성 사이트는 이 값을 못 채워요. 쿠키에 넣으면 자동 전송되니 의미가 없어요. 전제는 GET·HEAD·OPTIONS·TRACE가 상태를 바꾸지 않는다는 거예요. SameSite 쿠키는 보조 방어로는 권장되지만 단독 방어로는 권장되지 않아요.
+
+- 서블릿 앱에서 CSRF 보호는 **기본으로 켜져 있고**, POST 같은 안전하지 않은 메서드에 걸려요.
+- 토큰이 없거나 틀리면 `InvalidCsrfTokenException` → **403**이에요. "GET은 되는데 POST만 403"의 대표 원인이에요.
+- 헤더 이름은 세션 저장소면 `X-CSRF-TOKEN`, 쿠키 저장소면 `X-XSRF-TOKEN`이에요. SPA는 `CookieCsrfTokenRepository.withHttpOnlyFalse()`(JS가 `XSRF-TOKEN` 쿠키를 읽어 헤더로 보냄)나 `csrf.spa()`를 써요.
+- 기본 핸들러는 BREACH 공격(압축된 응답 크기로 토큰을 추측하는 공격)을 막으려고 매 요청 토큰 값을 가려서(마스킹) 내보내요.
+
+**언제 꺼도 되나?** 공식 기준은 단순해요. 사용자가 **브라우저로** 보낼 수 있는 요청이면 켜요. **브라우저가 아닌 클라이언트만** 쓰는 서비스면 꺼도 돼요. 실무에서는 인증을 쿠키가 아닌 `Authorization` 헤더 토큰으로 하면 브라우저가 자동 첨부하지 않으니 끄는 경우가 많아요. 반대로 JWT를 **쿠키에** 담으면 다시 CSRF 대상이에요.
+
+<Aside type="caution" title="공식 문서가 꼽은 오해">
+"stateless라서 안전하다", "JSON API라서 안전하다"는 둘 다 틀려요. 인증 정보를 담은 커스텀 쿠키나 브라우저가 자동 재전송하는 HTTP Basic도 CSRF에 취약해요. `enctype="text/plain"` 폼으로 JSON 본문을 위조할 수도 있어요. 로그인·로그아웃 요청도 보호 대상이에요.
+</Aside>
+
+## 면접 질문
+
+<details>
+<summary>Q. 스프링 시큐리티의 동작 구조를 설명해 주세요.</summary>
+
+**답변(30초)** 스프링 시큐리티는 DispatcherServlet 앞의 서블릿 필터 체인에서 동작해요. 톰캣에 등록된 `DelegatingFilterProxy`가 스프링 빈인 `FilterChainProxy`에 일을 넘기고, `FilterChainProxy`는 요청에 맞는 `SecurityFilterChain` 하나를 골라 실행해요. 체인 안에서는 컨텍스트 로드, CSRF 검사, 인증, 익명 처리, 예외 번역, 인가 순으로 필터가 돌고, 맨 끝 `AuthorizationFilter`를 통과해야 컨트롤러에 닿아요. 요청이 끝나면 `FilterChainProxy`가 SecurityContext를 비워요.
+
+**꼬리질문**
+- Q. SecurityFilterChain이 여러 개면 다 실행되나요? → 아니요, 처음 매칭되는 하나만 실행돼요. 그래서 범위가 좁은 체인을 앞 순번에 둬요.
+- Q. 인터셉터나 AOP로 보안을 하면 안 되나요? → 공식 문서는 인터셉터가 경로 매칭과 어긋날 수 있어 보안 계층으로 적합하지 않다고 해요. 메서드 단위 보안(`@PreAuthorize`)만 AOP 프록시를 써요.
+</details>
+
+<details>
+<summary>Q. DelegatingFilterProxy는 왜 필요한가요?</summary>
+
+**답변(30초)** 톰캣은 스프링 빈을 모르기 때문이에요. `DelegatingFilterProxy`는 톰캣에 평범한 서블릿 필터로 등록되고, 실제 일은 스프링 컨텍스트 안의 필터 빈에 위임해요. 또 톰캣은 시작할 때 필터를 먼저 등록해야 하는데 스프링 빈은 더 늦게 만들어져서, 위임 대상 빈을 나중에 찾는 지연 조회를 해요. 컨테이너 세계와 스프링 세계를 잇는 다리예요.
+
+**꼬리질문**
+- Q. FilterChainProxy와 뭐가 다른가요? → `DelegatingFilterProxy`는 스프링 프레임워크가 주는 다리이고, `FilterChainProxy`는 시큐리티가 주는 보안 필터 묶음의 관리자예요. 다리 뒤에 관리자가 있어요.
+</details>
+
+<details>
+<summary>Q. 인증과 인가의 차이, 시큐리티에서는 각각 어디서 처리되나요?</summary>
+
+**답변(30초)** 인증은 "너 누구니"를 확인하는 거고, 인가는 "이거 해도 되니"를 판단하는 거예요. 인증은 `UsernamePasswordAuthenticationFilter`나 `BearerTokenAuthenticationFilter` 같은 인증 필터가 `AuthenticationManager`에 맡겨 처리하고, 결과를 `SecurityContextHolder`에 담아요. 인가는 필터 체인 맨 끝의 `AuthorizationFilter`가 `AuthorizationManager`에 위임해 결정해요. 인증이 먼저 돼야 인가가 의미가 있어서 순서도 그래요.
+
+**꼬리질문**
+- Q. 401과 403은 각각 언제 나나요? → 누군지 모르면 `AuthenticationEntryPoint`가 로그인을 요구하고 흔히 401이에요. 누군지는 아는데 권한이 없으면 `AccessDeniedHandler`가 처리하고 흔히 403이에요. 둘 다 `ExceptionTranslationFilter`가 갈라 줘요.
+</details>
+
+<details>
+<summary>Q. 폼 로그인 인증 처리 흐름을 설명해 주세요.</summary>
+
+**답변(30초)** `UsernamePasswordAuthenticationFilter`가 아이디·비밀번호로 미인증 토큰을 만들어 `AuthenticationManager`, 즉 `ProviderManager`에 넘겨요. `ProviderManager`는 Provider 목록에 차례로 묻고, `DaoAuthenticationProvider`가 `UserDetailsService`로 사용자를 찾아 `PasswordEncoder.matches()`로 비밀번호를 확인해요. 성공하면 비밀번호를 지운 인증 토큰이 돌아오고, 필터가 `SecurityContextHolder`와 세션에 저장한 뒤 세션 ID를 새로 발급해요. 실패하면 컨텍스트를 비우고 실패 핸들러가 응답해요.
+
+**꼬리질문**
+- Q. 로그인 성공 시 세션 ID를 왜 바꾸나요? → 세션 고정 공격을 막으려고요. 공격자가 미리 심어 둔 세션 ID로 로그인 상태가 이어지지 않게 해요.
+- Q. 아이디가 없으면 바로 실패시키면 되지 않나요? → 응답 시간 차이로 아이디 존재 여부가 새요. 그래서 `DaoAuthenticationProvider`는 없는 사용자도 더미 해시와 비교해요.
+</details>
+
+<details>
+<summary>Q. SecurityContextHolder는 현재 사용자를 어떻게 저장하나요? 스레드 풀 환경에서 문제는 없나요?</summary>
+
+**답변(30초)** 기본 전략이 ThreadLocal이라 스레드마다 따로 저장해요. 스프링 MVC는 요청 하나를 스레드 하나가 끝까지 처리하니, 같은 요청 안이면 어디서든 인자 없이 꺼낼 수 있어요. 톰캣은 스레드를 재사용하기 때문에 안 비우면 다음 요청에 이전 사용자 정보가 남을 수 있는데, `FilterChainProxy`가 요청 끝에 항상 비워 줘서 안전해요. 다만 `@Async`처럼 다른 스레드로 넘어가면 컨텍스트가 전달되지 않아요.
+
+**꼬리질문**
+- Q. 비동기에서 사용자 정보가 필요하면요? → `DelegatingSecurityContextExecutor` 같은 래퍼로 컨텍스트를 옮기거나, 필요한 사용자 ID만 인자로 넘겨요. 후자가 더 단순해요.
+- Q. INHERITABLE 모드를 쓰면 되지 않나요? → 자식 스레드가 물려받긴 하지만, 스레드 풀은 스레드를 재사용해서 이전 사용자가 남을 위험이 있다고 알려져 있어요.
+</details>
+
+<details>
+<summary>Q. 비밀번호는 어떻게 저장하나요? SHA-256 대신 BCrypt를 쓰는 이유는?</summary>
+
+**답변(30초)** 비밀번호는 되돌릴 수 없는 적응형 단방향 함수로 저장해요. SHA-256은 너무 빨라서 요즘 하드웨어로 초당 수십억 번 대입할 수 있어 부적합해요. BCrypt는 강도를 올려 일부러 느리게 만들 수 있고, 사용자마다 다른 솔트를 해시 안에 넣어서 같은 비밀번호도 매번 다른 값이 돼요. 스프링 시큐리티 문서는 검증 1회에 약 1초 걸리도록 맞추라고 권하고, 비교는 `matches()`로 해요.
+
+**꼬리질문**
+- Q. `{bcrypt}` 접두사는 왜 붙나요? → `DelegatingPasswordEncoder`가 이 id로 어떤 인코더로 검증할지 골라요. 옛 해시를 그대로 검증하면서 새 비밀번호만 새 알고리즘으로 저장할 수 있어요.
+- Q. 강도를 높이면 단점은? → 로그인 한 번에 드는 CPU가 늘어나서, 로그인이 몰리면 서버가 버거워질 수 있어요.
+</details>
+
+<details>
+<summary>Q. CSRF란 무엇이고, REST API에서는 왜 끄나요?</summary>
+
+**답변(30초)** CSRF는 로그인한 사용자의 브라우저가 쿠키를 자동으로 붙이는 성질을 이용해, 악성 사이트가 사용자 몰래 상태 변경 요청을 보내게 하는 공격이에요. 스프링 시큐리티는 기본으로 켜 두고, POST 같은 요청마다 브라우저가 자동으로 안 붙이는 파라미터나 헤더에 CSRF 토큰을 넣게 해서 비교해요. 인증을 `Authorization` 헤더 토큰으로 하면 브라우저가 자동 첨부하지 않아서 끄는 경우가 많아요. 공식 기준은 브라우저가 아닌 클라이언트만 쓰는 서비스일 때만 꺼도 된다는 거예요.
+
+**꼬리질문**
+- Q. JWT를 쓰면 무조건 꺼도 되나요? → 아니요. JWT를 쿠키에 담으면 브라우저가 자동으로 보내니 다시 CSRF 대상이에요.
+- Q. CSRF 실패는 몇 번 응답인가요? → `AccessDeniedException` 계열이라 403이에요. 권한 문제로 착각하기 쉬워요.
+</details>
+
+<details>
+<summary>Q. hasRole과 hasAuthority의 차이는?</summary>
+
+**답변(30초)** `hasRole("ADMIN")`은 `ROLE_` 접두사를 자동으로 붙여 `ROLE_ADMIN` 권한을 검사해요. `hasAuthority("ADMIN")`은 글자 그대로 `ADMIN`을 검사해요. 그래서 `hasRole("ADMIN")`과 `hasAuthority("ROLE_ADMIN")`이 같은 뜻이에요. JWT의 scope는 `SCOPE_` 접두사 권한이 되니 보통 `hasAuthority("SCOPE_messages")`로 써요.
+
+**꼬리질문**
+- Q. 인가 규칙 순서는 중요한가요? → 네, 위에서부터 처음 맞는 규칙 하나만 적용돼요. `anyRequest()`는 항상 맨 아래에 둬요.
+</details>
+
+## 서술형 연습
+
+<details>
+<summary>상황: 프론트엔드를 별도 도메인으로 분리한 뒤 GET API는 잘 되는데 POST·PUT 요청이 전부 403으로 실패합니다.</summary>
+
+**상황 파악**
+같은 사용자인데 메서드에 따라 결과가 갈려요. "상태를 바꾸는 요청에만 걸리는 검사"를 먼저 의심해요.
+
+**원인 후보**
+1. CSRF 보호가 기본으로 켜져 있는데 프론트가 CSRF 토큰을 안 보내요. 토큰이 없으면 `InvalidCsrfTokenException` → 403이에요. GET은 안전한 메서드라 검사 대상이 아니에요.
+2. 인가 규칙이 특정 메서드나 경로를 막고 있어요.
+3. 브라우저의 CORS 사전 요청(프리플라이트)이 막혔을 수도 있어요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. 인증을 `Authorization` 헤더 토큰으로 하고 CSRF 비활성화 | 브라우저가 자동으로 안 붙이니 CSRF 위험 자체가 줄어듦, 설정 단순 | 토큰을 JS가 다루므로 저장 위치 설계가 필요, 세션 쿠키 인증을 쓰면 위험 |
+| B. 쿠키 세션 유지 + `CookieCsrfTokenRepository.withHttpOnlyFalse()`, 프론트가 `XSRF-TOKEN` 쿠키 값을 `X-XSRF-TOKEN` 헤더로 전송 | 세션 방식 그대로 CSRF 보호 유지 | 프론트 코드 수정 필요, 쿠키 도메인 설정 주의 |
+| C. `ignoringRequestMatchers("/api/*")`로 일부만 제외 | 빠름 | 그 경로가 쿠키 인증이면 그대로 취약 |
+
+**내가 고를 방법**
+먼저 인증이 쿠키로 되는지 헤더로 되는지 확인해요. 세션 쿠키 인증이면 B를 골라요. 브라우저가 쿠키를 자동으로 보내는 한 CSRF 보호를 끄면 안 되기 때문이에요. 이미 헤더 토큰 인증이고 쿠키에 인증 정보가 없다면 A도 괜찮아요. "stateless니까", "JSON이니까"는 끄는 근거가 아니에요.
+
+**채점 포인트**: CSRF 기본 활성, 안전하지 않은 메서드에만 적용, CSRF 실패 = 403(AccessDeniedException 계열), 쿠키 자동 첨부 원리, 헤더 토큰이면 비활성 가능, 쿠키 세션이면 CookieCsrfTokenRepository + X-XSRF-TOKEN, JWT를 쿠키에 두면 다시 대상, CORS와 구분.
+</details>
+
+<details>
+<summary>상황: 직접 만든 인증 필터를 추가한 뒤, 드물게 A 사용자 화면에 B 사용자 정보가 보인다는 신고가 들어옵니다.</summary>
+
+**상황 파악**
+가끔, 그리고 다른 사람 정보가 보여요. 재현이 불규칙하면 "스레드 재사용"을 의심해요.
+
+**원인 후보**
+1. 커스텀 필터가 `SecurityContextHolder`에 사용자를 넣는데, 시큐리티 체인 밖에 있거나 예외 경로에서 안 비워요. 톰캣이 스레드를 재사용하면서 다음 요청이 앞사람 컨텍스트를 물려받아요.
+2. 사용자 정보를 직접 만든 ThreadLocal 캐시에 넣고 정리하지 않아요.
+3. `getContext().setAuthentication()`으로 공유된 컨텍스트 객체를 고쳐서 다른 스레드와 섞였을 수 있어요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. 커스텀 필터를 `SecurityFilterChain` 안(인증용이면 `LogoutFilter` 뒤)에 넣어 `FilterChainProxy`의 정리를 받게 함 | 요청 끝 정리가 항상 보장됨, 시큐리티 표준 흐름을 따름 | 필터 위치와 체인 구조를 이해해야 함 |
+| B. 필터 안에서 `try/finally`로 직접 `clearContext()` | 변경이 작고 즉시 적용 | 정리 책임이 개발자에게 남아 다른 필터에서 또 실수할 수 있음 |
+| C. `createEmptyContext()`로 새 컨텍스트를 만들어 `setContext()` | 스레드 간 경쟁 상황 제거 | 단독으로는 정리 누락을 못 막음 |
+
+**내가 고를 방법**
+A와 C를 같이 해요. 필터를 시큐리티 체인 안으로 옮기면 정리가 프레임워크 책임이 되어 같은 실수가 반복되지 않아요. 컨텍스트는 항상 새로 만들어 넣어요. 직접 만든 ThreadLocal이 있다면 그건 B처럼 `finally`에서 반드시 지워요.
+
+**채점 포인트**: ThreadLocal 기본 전략, 톰캣 스레드 풀 재사용, FilterChainProxy의 요청 끝 정리, finally 정리, createEmptyContext 권장 이유, 커스텀 필터 위치 가이드.
+</details>
+
+<details>
+<summary>상황: 한 앱에서 모바일 앱용 /api/** 는 JWT로, 관리자 웹 /admin/** 은 폼 로그인으로 보호해야 합니다.</summary>
+
+**상황 파악**
+같은 앱인데 경로마다 인증 방식, 세션 사용 여부, CSRF 필요 여부가 달라요.
+
+**원인 후보(설계 고려점)**
+1. 체인이 하나면 JWT 설정과 폼 로그인 설정이 섞여 서로 간섭해요. 예를 들어 API에도 CSRF가 걸리거나, 관리자 웹이 세션을 못 써요.
+2. 체인을 나눠도 **처음 매칭되는 하나만** 실행되니 순서를 잘못 잡으면 넓은 체인이 다 가져가요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. `SecurityFilterChain` 2개. `/api/**` 체인은 JWT 리소스 서버 + 세션 안 만듦 + CSRF 끔, 나머지 체인은 폼 로그인 + 세션 + CSRF 켬 | 경로별 정책이 분명하고 서로 간섭 없음 | 체인 순서(좁은 범위가 앞)와 매칭 범위를 신경 써야 함 |
+| B. 체인 하나에 경로별 조건 분기 | 설정 파일이 하나 | 인증 방식과 CSRF 같은 체인 단위 설정은 경로별로 깔끔하게 못 나눔, 실수하기 쉬움 |
+| C. API 서버와 관리자 웹을 앱 자체로 분리 | 가장 깔끔한 격리 | 배포·운영 대상이 늘어남 |
+
+**내가 고를 방법**
+A를 골라요. 시큐리티가 원래 이런 용도로 체인을 여러 개 두게 해 줘요. `/api/**` 체인에 `securityMatcher`를 걸고 앞 순번으로 두고, 나머지 체인은 뒤에 둬요. API는 브라우저가 아닌 모바일 앱만 쓰고 헤더 토큰으로 인증하니 CSRF를 꺼도 공식 기준에 맞아요. 관리자 웹은 브라우저 + 세션 쿠키라 CSRF를 반드시 켜 둬요.
+
+**채점 포인트**: 다중 SecurityFilterChain, 첫 매칭 하나만 실행, 좁은 범위 체인을 앞에, JWT는 BearerTokenAuthenticationFilter·세션 미사용, 폼 로그인은 세션·CSRF, CSRF 끄는 공식 기준(브라우저 아닌 클라이언트만).
+</details>
+
+<details>
+<summary>상황: 오래된 서비스의 DB에 비밀번호가 SHA-1 해시로 저장돼 있습니다. 사용자 원래 비밀번호는 모르는 상태에서 BCrypt로 옮겨야 합니다.</summary>
+
+**상황 파악**
+해시는 되돌릴 수 없으니 원래 비밀번호로 다시 인코딩할 수 없어요. 그런데 모든 사용자에게 비밀번호 재설정을 시키기도 어려워요.
+
+**원인 후보(제약)**
+1. 단방향 해시라 일괄 변환이 불가능해요.
+2. SHA-1은 빠른 해시라 DB가 유출되면 대입 공격에 약해서 오래 둘수록 위험해요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. `DelegatingPasswordEncoder` 사용. 기존 값에 옛 형식 id 접두사를 붙여 그대로 검증, 로그인 성공 시 받은 평문으로 `{bcrypt}` 재인코딩 | 사용자 불편 없음, 문서가 설계한 점진 업그레이드 방식 | 한 번도 로그인 안 하는 계정은 계속 SHA-1로 남음 |
+| B. 기존 SHA-1 해시 위에 bcrypt를 한 번 더 씌워 일괄 저장 | 당장 모든 계정이 느린 해시로 보호됨 | 검증 로직이 커스텀이 되고 관리가 복잡해짐 |
+| C. 전원 비밀번호 재설정 | 가장 깨끗함 | 사용자 이탈, 고객 문의 폭증 |
+
+**내가 고를 방법**
+A를 기본으로 하고, 오래 로그인하지 않은 계정은 일정 기간 뒤 B나 C로 마무리해요. 접두사 없이 그대로 두면 `id "null"` 오류가 나니 이관 때 접두사를 꼭 붙여요.
+
+**채점 포인트**: 단방향 해시라 일괄 변환 불가, `{id}` 접두사, DelegatingPasswordEncoder의 점진 업그레이드, 로그인 시 재인코딩, `id "null"` 오류, 빠른 해시의 위험.
+</details>
+
+## 필기 포인트
+
+- 스프링 시큐리티는 **서블릿 필터** 기반, DispatcherServlet **앞**에서 동작. 메서드 보안만 AOP.
+- `DelegatingFilterProxy`(스프링 프레임워크, 톰캣에 등록, 빈 **지연 조회**) → `FilterChainProxy`(스프링 시큐리티, 빈).
+- `SecurityFilterChain`은 여러 개 가능, **첫 매칭 하나만** 실행.
+- 필터 큰 순서: 컨텍스트 로드 → 헤더·CSRF → 인증 → 익명 → `ExceptionTranslationFilter` → `AuthorizationFilter`(**맨 끝**).
+- `SecurityContextHolder` → `SecurityContext` → `Authentication`(principal, credentials, authorities). 기본 **MODE_THREADLOCAL**.
+- `AuthenticationManager`의 대표 구현은 `ProviderManager`, 실제 인증은 `AuthenticationProvider`(아이디/비번은 `DaoAuthenticationProvider`).
+- 미인증 → `AuthenticationEntryPoint`, 권한 없음 → `AccessDeniedHandler`.
+- `hasRole("ADMIN")` = `hasAuthority("ROLE_ADMIN")`. 인가 규칙은 **위에서부터 첫 매칭**.
+- `BCryptPasswordEncoder` 기본 강도 **10**, 권장 검증 시간 약 **1초**. 저장 형식 `{id}encoded`.
+- CSRF는 서블릿 앱에서 **기본 활성**, 실패 시 **403**. 헤더 `X-CSRF-TOKEN`(세션) / `X-XSRF-TOKEN`(쿠키).
+- JWT scope → `SCOPE_` 접두사 권한, 기본 RS256, 시계 오차 60초.
+
+## 함께 보기
+
+- [스프링 MVC 요청 흐름](../mvc-flow/) (필터 vs 인터셉터, thread-per-request)
+- [AOP](../aop/) (메서드 보안이 프록시로 동작하는 원리)
+- [IoC와 DI](../ioc-di/) (필터 빈과 스프링 컨테이너)
+- 쿠키·세션·JWT 원리는 웹·네트워크 섹션에서 자세히 다룰 예정이에요.
+
+## 출처
+
+- [Spring Security Reference, Servlet Architecture](https://docs.spring.io/spring-security/reference/servlet/architecture.html)
+- [Spring Security Reference, Servlet Authentication Architecture](https://docs.spring.io/spring-security/reference/servlet/authentication/architecture.html)
+- [Spring Security Reference, DaoAuthenticationProvider](https://docs.spring.io/spring-security/reference/servlet/authentication/passwords/dao-authentication-provider.html)
+- [Spring Security Reference, Persisting Authentication](https://docs.spring.io/spring-security/reference/servlet/authentication/persistence.html)
+- [Spring Security Reference, Password Storage](https://docs.spring.io/spring-security/reference/features/authentication/password-storage.html)
+- [Spring Security Reference, Authorize HttpServletRequests](https://docs.spring.io/spring-security/reference/servlet/authorization/authorize-http-requests.html)
+- [Spring Security Reference, OAuth 2.0 Resource Server JWT](https://docs.spring.io/spring-security/reference/servlet/oauth2/resource-server/jwt.html)
+- [Spring Security Reference, OAuth 2.0 Resource Server](https://docs.spring.io/spring-security/reference/servlet/oauth2/resource-server/index.html)
+- [Spring Security Reference, CSRF (Exploits)](https://docs.spring.io/spring-security/reference/features/exploits/csrf.html)
+- [Spring Security Reference, CSRF (Servlet)](https://docs.spring.io/spring-security/reference/servlet/exploits/csrf.html)
+- 기준 버전: Spring Security 7.2.0 레퍼런스. 필터 순서는 공식 문서의 디버그 로그 예시 기준(로컬 실행 확인 없음).

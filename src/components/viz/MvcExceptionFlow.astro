@@ -1,0 +1,79 @@
+---
+// 스프링 MVC 예외 흐름: 서비스 예외 → postHandle 생략 → HandlerExceptionResolver → @ExceptionHandler 처리 / 못 풀면 /error, afterCompletion 항상. 비교로 필터 예외는 바로 /error
+import Stepper from '../Stepper.astro';
+const base = ['outer', 'filter', 'a0', 'inner', 'ds', 'a1', 'svc'];
+const s2 = [...base, 'a2', 'post'];
+const s3 = [...s2, 'a3', 'res'];
+const s4 = [...s3, 'a4', 'handled'];
+const s5 = [...s4, 'a5', 'after'];
+const s6 = [...s5, 'unhandled', 'a6', 'errpage'];
+const steps = [
+  { caption: '컨트롤러가 부른 서비스에서 예외가 터졌어요. 예외는 호출을 거슬러 DispatcherServlet까지 올라와요.', show: [...base, 'hl-svc'] },
+  { caption: '정상 흐름이 끊겼으니 인터셉터의 postHandle()은 건너뛰어요.', show: [...s2, 'hl-post'] },
+  { caption: 'DispatcherServlet이 예외를 HandlerExceptionResolver 체인에 넘겨요. 등록된 리졸버에게 차례로 "이 예외 처리할 수 있어?"라고 물어요.', show: [...s3, 'hl-res'] },
+  { caption: '@ControllerAdvice 안의 @ExceptionHandler가 맞는 예외를 잡으면 거기서 응답을 써요. 상태 코드를 따로 안 정하면 200으로 나가니 @ResponseStatus나 ResponseEntity로 정해 줘야 해요.', show: [...s4, 'hl-handled'] },
+  { caption: 'afterCompletion()은 예외가 처리됐든 아니든 항상 불려요. 그래서 정리 작업은 여기에 둬요.', show: [...s5, 'hl-after'] },
+  { caption: '어떤 리졸버도 못 풀면 예외가 DispatcherServlet 밖, 서블릿 컨테이너까지 올라가요. 톰캣은 /error로 다시 디스패치하고, 스프링 부트의 BasicErrorController가 에러 응답을 만들어요.', show: [...s6, 'hl-unhandled'] },
+  { caption: '비교: 필터에서 던진 예외는 DispatcherServlet에 들어가기 전이라 @ControllerAdvice를 거치지 않아요. 곧장 컨테이너로 가서 /error로 처리돼요.', show: ['outer', 'filter', 'fex', 'fpath', 'errpage', 'hl-fex'] },
+];
+---
+<Stepper title="컨트롤러 쪽에서 예외가 나면" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 512" role="img" aria-label="서비스에서 예외가 나면 postHandle을 건너뛰고 DispatcherServlet이 HandlerExceptionResolver 체인에 넘겨 @ExceptionHandler가 응답을 쓰거나, 아무도 못 풀면 afterCompletion 뒤 서블릿 컨테이너가 /error로 다시 디스패치하는 그림. 필터에서 난 예외는 스프링 MVC를 거치지 않고 바로 /error로 간다.">
+    <defs>
+      <marker id="mvce-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+      <marker id="mvce-arr-r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-red)" />
+      </marker>
+    </defs>
+
+    <g data-id="outer">
+      <rect class="frame" x="8" y="4" width="304" height="500" rx="10" />
+      <text class="sub l" x="16" y="19">서블릿 컨테이너(톰캣)</text>
+    </g>
+    <g data-id="filter"><rect class="box" x="40" y="30" width="262" height="34" rx="7" /><text x="120" y="47">필터 체인</text></g>
+    <g data-id="fex"><rect class="err" x="200" y="35" width="96" height="24" rx="6" /><text class="err-t" x="248" y="47" style="font-size:14px">예외 ✗</text></g>
+    <path data-id="fpath" d="M40 47 H24 V475 H38" fill="none" stroke="var(--sl-color-red)" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#mvce-arr-r)" />
+    <line data-id="a0" class="line" x1="170" y1="64" x2="170" y2="76" marker-end="url(#mvce-arr)" />
+
+    <g data-id="inner">
+      <rect class="frame" x="34" y="78" width="272" height="360" rx="9" />
+      <text class="sub l" x="42" y="92">스프링 MVC</text>
+    </g>
+    <g data-id="ds"><rect class="box" x="44" y="104" width="252" height="34" rx="7" /><text class="mono" x="170" y="121">DispatcherServlet</text></g>
+    <line data-id="a1" class="line" x1="170" y1="138" x2="170" y2="148" marker-end="url(#mvce-arr)" />
+    <g data-id="svc"><rect class="err" x="44" y="150" width="252" height="34" rx="7" /><text class="err-t" x="170" y="167">서비스에서 예외 발생 ✗</text></g>
+    <line data-id="a2" class="line" x1="170" y1="184" x2="170" y2="194" marker-end="url(#mvce-arr)" />
+    <g data-id="post"><rect class="bad" x="44" y="196" width="252" height="34" rx="7" /><text class="sub" x="170" y="213"><tspan class="mono">postHandle</tspan> 건너뜀</text></g>
+    <line data-id="a3" class="line" x1="170" y1="230" x2="170" y2="240" marker-end="url(#mvce-arr)" />
+    <g data-id="res">
+      <rect class="box" x="44" y="242" width="252" height="46" rx="7" />
+      <text class="mono" x="170" y="257">HandlerExceptionResolver</text>
+      <text class="sub" x="170" y="276">체인에 차례로 물어봄</text>
+    </g>
+    <line data-id="a4" class="line" x1="170" y1="288" x2="170" y2="298" marker-end="url(#mvce-arr)" />
+    <g data-id="handled">
+      <rect class="chip" x="44" y="300" width="252" height="46" rx="7" />
+      <text x="170" y="315"><tspan class="mono">@ExceptionHandler</tspan> 처리 ✓</text>
+      <text class="sub" x="170" y="334">응답 작성 (상태 미지정 시 200)</text>
+    </g>
+    <g data-id="unhandled"><rect class="err" x="44" y="350" width="252" height="34" rx="7" /><text class="err-t" x="170" y="367">아무도 못 풀면 ✗ 밖으로</text></g>
+    <line data-id="a5" class="line" x1="170" y1="384" x2="170" y2="394" marker-end="url(#mvce-arr)" />
+    <g data-id="after"><rect class="box" x="44" y="396" width="252" height="34" rx="7" /><text x="170" y="413"><tspan class="mono">afterCompletion</tspan> (항상)</text></g>
+    <line data-id="a6" class="line" x1="170" y1="438" x2="170" y2="450" marker-end="url(#mvce-arr)" />
+    <g data-id="errpage">
+      <rect class="box" x="40" y="452" width="262" height="46" rx="7" />
+      <text x="170" y="467"><tspan class="mono">/error</tspan> 로 다시 디스패치</text>
+      <text class="sub" x="170" y="486">BasicErrorController가 응답</text>
+    </g>
+
+    <rect data-id="hl-svc" class="hl" x="40" y="100" width="260" height="88" rx="9" />
+    <rect data-id="hl-post" class="hl" x="40" y="192" width="260" height="42" rx="9" />
+    <rect data-id="hl-res" class="hl" x="40" y="238" width="260" height="54" rx="9" />
+    <rect data-id="hl-handled" class="hl" x="40" y="296" width="260" height="54" rx="9" />
+    <rect data-id="hl-after" class="hl" x="40" y="392" width="260" height="42" rx="9" />
+    <rect data-id="hl-unhandled" class="hl" x="36" y="346" width="270" height="156" rx="9" />
+    <rect data-id="hl-fex" class="hl" x="14" y="26" width="292" height="476" rx="9" />
+  </svg>
+</Stepper>

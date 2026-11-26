@@ -1,0 +1,68 @@
+---
+// 싱글톤에 prototype 주입 시 한 번만 주입되는 문제 → ObjectProvider / 스코프 프록시로 해결
+import Stepper from '../Stepper.astro';
+const base = ['os', 'osT', 'chip'];
+const steps = [
+  { caption: '앱 시작: 싱글톤 OrderService를 만들면서 prototype Counter를 주입해요. 이때 Counter#1이 딱 한 번 만들어져 필드에 들어가요.', show: [...base, 'f1', 'once', 'c1', 'c1n0'] },
+  { caption: '요청1, 요청2가 와도 OrderService는 하나라서 둘 다 같은 Counter#1을 써요. 값이 누적되는 문제가 생겨요.', show: [...base, 'f1', 'once', 'c1', 'c1n2', 'req', 'share', 'hl-c1'] },
+  { caption: '해결①: 필드에 ObjectProvider<Counter>를 두고, 쓸 때마다 getObject()를 불러요. 부를 때마다 새 Counter(#1, #2 ...)가 나와요.', show: [...base, 'f3', 'req', 'split', 'p1', 'p2', 'note3', 'hl-f3'] },
+  { caption: '해결②: 스코프 프록시를 주입해요. 싱글톤은 프록시 하나만 들고, 메서드를 부르는 순간 현재 요청의 진짜 객체(요청1→A, 요청2→B)로 일을 넘겨요.', show: [...base, 'f4', 'req', 'split', 'u1', 'u2', 'note4', 'hl-f4'] },
+];
+---
+<Stepper title="싱글톤 안의 prototype: 문제와 해결" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 262" role="img" aria-label="싱글톤 OrderService에 prototype Counter가 한 번만 주입돼 요청들이 공유하는 문제와, ObjectProvider 또는 스코프 프록시로 요청마다 다른 객체를 쓰게 하는 해결 그림">
+    <defs>
+      <marker id="pis-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+
+    <g data-id="req">
+      <rect class="box" x="4" y="14" width="88" height="36" rx="8" />
+      <text x="48" y="33">요청1</text>
+      <rect class="box" x="4" y="70" width="88" height="36" rx="8" />
+      <text x="48" y="89">요청2</text>
+      <line class="line" x1="94" y1="32" x2="114" y2="32" marker-end="url(#pis-arr)" />
+      <line class="line" x1="94" y1="88" x2="114" y2="88" marker-end="url(#pis-arr)" />
+    </g>
+
+    <rect data-id="os" class="box" x="116" y="6" width="198" height="104" rx="10" />
+    <text data-id="osT" x="215" y="25" style="font-weight:700">OrderService · 싱글톤</text>
+    <rect data-id="chip" class="chip" x="126" y="42" width="178" height="58" rx="8" />
+
+    <g data-id="f1" class="hide"><text x="215" y="61">Counter 필드</text><text class="sub" x="215" y="83">= Counter#1</text></g>
+    <g data-id="f3" class="hide"><text x="215" y="61">ObjectProvider</text><text class="sub" x="215" y="83">&lt;Counter&gt;</text></g>
+    <g data-id="f4" class="hide"><text x="215" y="61">스코프 프록시</text><text class="sub" x="215" y="83">(LoginUser)</text></g>
+    <rect data-id="hl-f3" class="hl" x="122" y="38" width="186" height="66" rx="10" />
+    <rect data-id="hl-f4" class="hl" x="122" y="38" width="186" height="66" rx="10" />
+
+    <!-- 1~2단계: 한 번만 주입된 Counter#1 -->
+    <g data-id="once" class="hide">
+      <line class="line" x1="215" y1="102" x2="215" y2="156" marker-end="url(#pis-arr)" />
+      <text class="sub" x="206" y="130" style="text-anchor:end">1번만 주입</text>
+    </g>
+    <g data-id="c1" class="hide">
+      <rect class="box" x="135" y="158" width="160" height="56" rx="8" />
+      <text x="215" y="176">Counter#1</text>
+    </g>
+    <text data-id="c1n0" class="sub hide" x="215" y="199">count = 0</text>
+    <text data-id="c1n2" class="err-t hide" x="215" y="199">count = 2</text>
+    <g data-id="share" class="hide">
+      <polyline class="line" points="48,108 48,186 131,186" stroke-dasharray="5 4" marker-end="url(#pis-arr)" />
+      <text class="err-t" x="160" y="246">요청1·2가 같은 객체 공유 → 값 누적</text>
+    </g>
+    <rect data-id="hl-c1" class="hl" x="131" y="154" width="168" height="64" rx="10" />
+
+    <!-- 3~4단계: 요청마다 다른 객체 -->
+    <g data-id="split" class="hide">
+      <line class="line" x1="200" y1="102" x2="90" y2="156" marker-end="url(#pis-arr)" />
+      <line class="line" x1="230" y1="102" x2="236" y2="156" marker-end="url(#pis-arr)" />
+    </g>
+    <g data-id="p1" class="hide"><rect class="box" x="6" y="158" width="148" height="56" rx="8" /><text x="80" y="176">Counter#1</text><text class="sub" x="80" y="199">요청1이 꺼냄</text></g>
+    <g data-id="p2" class="hide"><rect class="box" x="166" y="158" width="148" height="56" rx="8" /><text x="240" y="176">Counter#2</text><text class="sub" x="240" y="199">요청2가 꺼냄</text></g>
+    <text data-id="note3" class="hide" x="160" y="246">getObject() 할 때마다 새 객체</text>
+    <g data-id="u1" class="hide"><rect class="box" x="6" y="158" width="148" height="56" rx="8" /><text x="80" y="176">LoginUser A</text><text class="sub" x="80" y="199">요청1 전용</text></g>
+    <g data-id="u2" class="hide"><rect class="box" x="166" y="158" width="148" height="56" rx="8" /><text x="240" y="176">LoginUser B</text><text class="sub" x="240" y="199">요청2 전용</text></g>
+    <text data-id="note4" class="hide" x="160" y="246">호출 순간의 요청 객체로 위임</text>
+  </svg>
+</Stepper>

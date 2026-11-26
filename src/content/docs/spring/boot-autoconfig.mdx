@@ -1,0 +1,395 @@
+---
+title: 스프링 부트와 자동 설정
+description: 스프링 부트는 스프링 위에서 의존성 묶음(스타터), 버전 관리, 내장 서버, 자동 설정을 대신 해 주는 도구이고, 자동 설정은 "라이브러리가 있고 내가 직접 만든 빈이 없을 때만" 기본 빈을 등록해요.
+sidebar: { order: 6 }
+tags: [면접빈출, 서술형]
+---
+import { Aside } from '@astrojs/starlight/components';
+import BootStartupFlow from '~/components/viz/BootStartupFlow.astro';
+import DataSourceBackOff from '~/components/viz/DataSourceBackOff.astro';
+
+:::tip[한 줄 요약]
+스프링 부트는 스프링을 대체하는 게 아니라, 스타터·버전 관리·내장 톰캣·자동 설정으로 "설정 노가다"를 대신 해 주는 도구예요. 자동 설정은 클래스패스에 라이브러리가 있고 내가 같은 빈을 만들지 않았을 때만 조건부로 기본 빈을 등록해서, 내 설정이 항상 이겨요.
+:::
+
+## 쉽게 이해하기
+
+새 집에 이사 간다고 생각해 볼게요. 순수 스프링은 빈 집이에요. 냉장고, 세탁기, 전기 배선을 내가 하나하나 골라 사고 직접 연결해야 해요.
+
+스프링 부트는 **풀옵션 원룸**이에요. "주방 패키지"(스타터)를 고르면 서로 잘 맞는 가전이 한 번에 들어오고, 관리인이 기본 배선까지 해 둬요. 그런데 내가 내 냉장고를 따로 들고 오면? 관리인은 기본 냉장고를 설치하지 않고 물러나요. 이게 자동 설정의 핵심 규칙인 "**내가 만든 게 있으면 기본값은 빠진다**"예요.
+
+단, 실제로는 관리인이 마음대로 판단하는 게 아니에요. 자동 설정 클래스마다 "이 라이브러리가 있으면", "이 설정이 켜져 있으면", "이 빈이 아직 없으면" 같은 **조건**이 코드로 적혀 있고, 부트는 그 조건을 하나씩 검사해서 통과한 것만 등록해요.
+
+## 그림으로 보기
+
+<BootStartupFlow />
+
+<DataSourceBackOff />
+
+## 제대로 알기
+
+<Aside type="note" title="버전 기준">
+이 페이지는 **Spring Boot 4.x** 기준이에요(공식 문서 4.2.0, 로컬 4.1.0 jar로 확인). 면접이나 블로그에서 많이 보는 **3.x** 이름이 다른 곳은 같이 적었어요. 개념은 3.x와 같아요.
+</Aside>
+
+### 1. 스프링 부트가 해 주는 일 4가지
+
+스프링은 [IoC와 DI](../ioc-di/)로 객체를 관리해 주지만, 웹 서버 하나 띄우려면 라이브러리 고르기, 버전 맞추기, 설정 빈 등록, 톰캣 설치를 다 직접 해야 했어요. 부트는 이 반복 작업을 줄여 줘요. DI나 AOP 같은 핵심 기능은 스프링 프레임워크 그대로예요.
+
+| 해 주는 일 | 뜻 | 예 |
+|---|---|---|
+| 스타터 | 자주 같이 쓰는 의존성을 한 번에 가져오는 묶음 | `spring-boot-starter-data-jpa` |
+| 버전 관리 | 부트 버전마다 서로 검증된 라이브러리 버전 목록을 제공 | 라이브러리 버전을 직접 안 적음 |
+| 내장 서버 | 톰캣이 앱 안에 들어 있음 | `java -jar app.jar`로 바로 서버 실행 |
+| 자동 설정 | 조건에 맞으면 기본 빈을 대신 등록 | DataSource, JdbcTemplate, DispatcherServlet |
+
+여기에 운영 기능인 **Actuator**(헬스 체크·지표를 HTTP로 보여 주는 모듈)도 있어요. 아래 8절에서 다뤄요.
+
+### 2. 스타터와 버전 관리
+
+**스타터**(starter, 기능별 의존성 묶음)를 하나 추가하면 그 기능에 필요한 라이브러리가 같이 딸려 와요. 공식 스타터 이름은 `spring-boot-starter-*` 꼴이에요.
+
+**BOM**(Bill of Materials, "이 버전들끼리 맞춰 쓰세요"라는 버전 목록)인 `spring-boot-dependencies` 덕분에 보통 각 라이브러리 버전을 따로 적지 않아요. 부트 버전을 올리면 목록 전체가 일관되게 같이 올라가요. 공식 문서는 스프링 프레임워크 버전을 직접 지정하지 말라고 권해요.
+
+직접 스타터를 만든다면 이름을 `spring-boot`로 시작하면 안 돼요. 그 이름은 공식용이라서 `acme-spring-boot-starter`처럼 회사 이름을 앞에 둬요.
+
+### 3. 내장 톰캣
+
+예전에는 WAR 파일을 만들어 따로 설치한 톰캣에 올렸어요. 부트는 톰캣을 앱 안에 넣어서 jar 하나로 서버가 떠요. 배포물이 하나라 컨테이너 이미지 만들기도 단순해요.
+
+| | 부트 3.x | 부트 4.x |
+|---|---|---|
+| Spring MVC + Tomcat 스타터 | `spring-boot-starter-web` | `spring-boot-starter-webmvc` (`-web`은 deprecated) |
+
+톰캣 대신 Jetty를 쓰고 싶으면 `spring-boot-starter-tomcat`을 의존성에서 빼고(exclude) `spring-boot-starter-jetty`를 넣는 방식이 일반적으로 쓰여요. 톰캣이 요청을 받은 뒤 흐름은 [Spring MVC 요청 흐름](../mvc-flow/)에서 봐요.
+
+### 4. @SpringBootApplication 뜯어보기
+
+메인 클래스에 붙이는 이 어노테이션 하나는 사실 세 개를 합친 거예요(4.1.0 jar에서 직접 확인).
+
+```java
+@SpringBootApplication // 아래 셋을 합친 것
+// = @SpringBootConfiguration   이 클래스가 설정 클래스라는 표시
+// + @EnableAutoConfiguration   자동 설정 켜기
+// + @ComponentScan             내 @Component 계열 찾아서 등록
+public class MyApp {
+    public static void main(String[] args) {
+        SpringApplication.run(MyApp.class, args);
+    }
+}
+```
+
+- `@ComponentScan`은 따로 지정하지 않으면 **이 클래스가 있는 패키지와 그 하위**를 훑는다고 알려져 있어요. 그래서 메인 클래스를 가장 위 패키지에 두는 게 관례예요. 범위를 바꾸려면 `scanBasePackages` 속성을 써요.
+- `@EnableAutoConfiguration` 안에는 `@Import(AutoConfigurationImportSelector.class)`가 들어 있어요. 이 **셀렉터**(selector, 어떤 설정 클래스를 가져올지 고르는 객체)가 자동 설정 후보를 모아 와요.
+- 공식 문서는 `@SpringBootApplication`이나 `@EnableAutoConfiguration`을 앱에 **하나만**, 주 설정 클래스에 붙이라고 권해요.
+
+### 5. 자동 설정은 어떻게 동작하나
+
+#### ① 후보 목록: imports 파일
+
+각 jar 안에 아래 파일이 있고, 자동 설정 클래스 이름이 한 줄에 하나씩 적혀 있어요.
+
+```
+META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports
+```
+
+부트 4는 자동 설정이 모듈별 jar로 쪼개져 있어서 jar마다 자기 imports 파일을 가져요. 예를 들어 DataSource 관련 자동 설정은 `spring-boot-jdbc` jar에, DispatcherServlet 관련은 `spring-boot-webmvc` jar에 있어요(로컬 4.1.0 jar로 확인).
+
+| | 부트 2.x | 부트 3.x | 부트 4.x |
+|---|---|---|---|
+| 등록 파일 | `META-INF/spring.factories` | `...AutoConfiguration.imports` | `...AutoConfiguration.imports` (모듈 jar별) |
+| DataSource 자동 설정 패키지 | `org.springframework.boot.autoconfigure.jdbc` | 같음 | `org.springframework.boot.jdbc.autoconfigure` |
+
+`spring.factories`에서 imports 파일로 넘어간 시점은 "2.7에서 도입, 3.0에서 옛 방식 제거"로 흔히 알려져 있어요. 다만 이 위키에서는 릴리스 노트로 다시 확인하지 못했어요. 3.x 블로그 코드를 부트 4에 붙이면 import 경로가 안 맞을 수 있다는 점은 기억해 두세요.
+
+#### ② 자동 설정 클래스 = 조건이 붙은 평범한 설정 클래스
+
+자동 설정 클래스에는 `@AutoConfiguration`이 붙어요. 이건 `@Configuration(proxyBeanMethods = false)`에 순서 지정 기능을 더한 거예요. 즉 특별한 마법이 아니라, `@Conditional` **조건**(이게 참일 때만 등록하라는 표시)이 달린 설정 클래스예요.
+
+| 조건 어노테이션 | 묻는 것 |
+|---|---|
+| `@ConditionalOnClass` / `OnMissingClass` | 이 클래스(라이브러리)가 클래스패스에 있나/없나? |
+| `@ConditionalOnBean` / `OnMissingBean` | 이 빈이 이미 있나/없나? |
+| `@ConditionalOnProperty` | 이 설정값이 켜져 있나? |
+| `@ConditionalOnWebApplication` | 웹 애플리케이션인가? |
+| `@ConditionalOnResource` | 이 파일이 있나? |
+| `@ConditionalOnExpression` | SpEL(스프링 표현식) 결과가 참인가? |
+
+**클래스패스**(classpath)는 "지금 앱이 쓸 수 있는 라이브러리 목록"이라고 생각하면 돼요. 스타터를 추가하면 거기에 jar가 들어와요.
+
+#### ③ 실제 예: HikariCP가 기본 커넥션 풀이 되는 이유
+
+로컬 4.1.0 jar에서 본 조건을 쉽게 옮기면 이래요.
+
+```java
+// DataSourceAutoConfiguration (요약)
+@AutoConfiguration
+@ConditionalOnClass({DataSource.class, EmbeddedDatabaseType.class})
+class DataSourceAutoConfiguration { ... }
+
+// 그 안의 Hikari 설정 (요약)
+@ConditionalOnClass(HikariDataSource.class)      // Hikari 라이브러리가 있고
+@ConditionalOnMissingBean(DataSource.class)      // 내가 DataSource를 안 만들었고
+@ConditionalOnProperty(name = "spring.datasource.type",
+    havingValue = "com.zaxxer.hikari.HikariDataSource",
+    matchIfMissing = true)                       // 타입을 따로 안 정했으면(없어도 통과)
+class Hikari { ... }
+```
+
+세 조건을 다 통과하면 HikariCP **커넥션 풀**(DB 연결을 미리 여러 개 만들어 두고 돌려 쓰는 것)이 DataSource로 등록돼요. `JdbcTemplate`도 같은 식으로 `@ConditionalOnMissingBean(JdbcOperations.class)`가 붙어 있어서, 내가 직접 등록하면 자동 설정은 물러나요.
+
+#### ④ 왜 "내 설정이 이기나"
+
+빈 조건은 "**지금까지 처리된 빈 정의**"만 보고 판단해요. 부트는 내 빈 정의를 먼저 처리하고 자동 설정을 나중에 처리하기 때문에, `@ConditionalOnMissingBean`이 내 빈을 보고 물러날 수 있어요. 공식 문서도 이 방식을 "비침투적"이라고 설명해요. 원하는 부분만 하나씩 내 설정으로 바꿔 끼우면 돼요.
+
+<Aside type="caution" title="@ConditionalOnMissingBean은 자동 설정 클래스에서만">
+처리 순서에 기대는 조건이라서, 평범한 `@Configuration`에 붙이면 어떤 순서로 처리되느냐에 따라 결과가 달라질 수 있어요. 공식 문서도 자동 설정 클래스에서 쓰라고 권해요.
+</Aside>
+
+그 밖에 헷갈리기 쉬운 규칙이 두 개 있어요.
+
+- `@AutoConfigureBefore/After`, `@AutoConfigureOrder`로 정하는 순서는 빈 **정의 등록** 순서예요. 빈 **생성** 순서가 아니에요.
+- 자동 설정 클래스는 imports 파일로만 불러와야 하고, 컴포넌트 스캔에 걸리면 안 돼요. 커스텀 스타터를 메인 패키지 안에 두면 스캔돼서 조건 순서가 깨질 수 있어요.
+
+#### ⑤ 확인하고 끄는 방법
+
+| 하고 싶은 것 | 방법 |
+|---|---|
+| 무엇이 왜 적용/미적용됐는지 보기 | `--debug`로 실행하면 **조건 평가 리포트**(conditions report)가 콘솔에 찍힘. Actuator `conditions` 엔드포인트로도 볼 수 있음 |
+| 특정 자동 설정 끄기 | `@SpringBootApplication(exclude = DataSourceAutoConfiguration.class)` |
+| 클래스패스에 없는 걸 이름으로 끄기 | `excludeName = "..."` |
+| 설정 파일로 끄기 | `spring.autoconfigure.exclude` 프로퍼티 |
+| 일부만 내 것으로 바꾸기 | 같은 타입 빈을 직접 `@Bean`으로 등록 |
+
+자동 설정 클래스는 public이지만, 공개 API로 보는 건 "제외할 때 쓰는 클래스 이름"뿐이에요. 안쪽 중첩 클래스나 빈 메서드를 직접 가져다 쓰는 건 권하지 않아요.
+
+### 6. 외부 설정 우선순위
+
+같은 설정 키(예: `server.port`)가 여러 곳에 있으면 **우선순위가 높은 쪽이 덮어써요**. 전체 목록은 15단계지만 면접에서는 이 흐름만 기억하면 돼요.
+
+| 순위(위가 더 셈) | 출처 | 예 |
+|---|---|---|
+| 1 | 커맨드라인 인자 | `--server.port=9090` |
+| 2 | `SPRING_APPLICATION_JSON` | JSON 한 덩어리로 넘기는 설정 |
+| 3 | 자바 시스템 프로퍼티 | `-Dserver.port=9090` |
+| 4 | OS 환경변수 | `SERVER_PORT=9090` |
+| 5 | 설정 파일 | `application.yml`, `application.properties` |
+| 6 | `@PropertySource` | 설정 클래스에서 지정한 파일 |
+| 7 | 기본 프로퍼티 | `SpringApplication.setDefaultProperties` |
+
+외우는 요령은 "**파일 → 환경변수 → 시스템 프로퍼티 → 커맨드라인**" 순서로 갈수록 세다예요. 테스트용 설정(`@TestPropertySource` 등)은 이보다 더 위에 있어요.
+
+설정 파일끼리도 순서가 있어요(뒤가 셈).
+
+1. jar 안 `application.yml`
+2. jar 안 `application-prod.yml` (프로파일 전용)
+3. jar 밖 `application.yml`
+4. jar 밖 `application-prod.yml`
+
+즉 **프로파일 전용 파일이 일반 파일을 이기고, jar 밖이 jar 안을 이겨요**. 같은 위치에 `.properties`와 `.yml`이 둘 다 있으면 `.properties`가 이겨요. 그래서 한 형식만 쓰라고 권해요.
+
+환경변수는 점 대신 밑줄과 대문자로 써요. `SPRING_DATASOURCE_URL`이 `spring.datasource.url`로 연결되는 것도 이 규칙이에요. 이렇게 이름 모양이 조금 달라도 맞춰 주는 걸 **완화된 바인딩**(relaxed binding)이라고 해요.
+
+<Aside type="caution" title="@PropertySource는 늦게 들어와요">
+`@PropertySource`는 컨텍스트가 초기화(refresh)될 때 추가돼서, `logging.*`나 `spring.main.*`처럼 그 전에 읽히는 설정에는 효과가 없어요.
+</Aside>
+
+### 7. 프로파일: 환경별로 설정 나누기
+
+**프로파일**(profile, dev·prod처럼 환경 이름표)을 쓰면 환경마다 다른 설정을 켤 수 있어요.
+
+- 켜기: `spring.profiles.active=dev` (설정 파일, 커맨드라인 `--spring.profiles.active=prod`, 환경변수 모두 가능). 아무것도 안 켜면 `default` 프로파일이에요.
+- 빈 단위로 나누기: `@Profile("prod")`를 `@Component`나 `@Configuration`에 붙이면 그 프로파일일 때만 등록돼요.
+- 묶기: `spring.profiles.group`으로 이름 하나에 여러 프로파일을 묶어요. 예를 들어 `prod`를 켜면 `proddb`, `prodmq`가 같이 켜지게 할 수 있어요.
+- 여러 개를 켜면 **뒤에 쓴 게 이겨요**. `prod,live`면 `application-live`가 `application-prod`를 덮을 수 있어요.
+- `spring.profiles.active` 같은 프로파일 지정 키는 `application-prod.yml` 같은 프로파일 전용 파일 안에는 쓸 수 없어요.
+
+### 8. Actuator: 운영용 창구
+
+**Actuator**는 앱 상태를 HTTP나 JMX로 보여 주는 모듈이에요. 기본으로는 `/actuator/health` **하나만** 웹에 열려 있어요.
+
+| 엔드포인트 | 보여 주는 것 |
+|---|---|
+| `health` | 앱이 살아 있는지 (기본 노출, 상세 정보는 기본 숨김) |
+| `info`, `metrics` | 앱 정보, 지표 |
+| `prometheus` | 프로메테우스 수집용 지표 (micrometer-registry-prometheus 필요) |
+| `env`, `configprops` | 설정값 (값은 기본 `******` 마스킹) |
+| `beans`, `conditions`, `mappings` | 등록된 빈, 자동 설정 판단 결과, URL 매핑 |
+| `loggers` | 실행 중에 로그 레벨 바꾸기 |
+| `heapdump`, `threaddump`, `shutdown` | 메모리 덤프, 스레드 상태, 앱 종료 |
+
+더 열려면 `management.endpoints.web.exposure.include=health,info,metrics`처럼 적어요. `*`는 전부예요(YAML에서는 따옴표로 감싸야 해요). `exclude`가 `include`보다 우선해요. `shutdown`과 `heapdump`는 노출해도 기본 접근이 제한돼 있어요. `shutdown`을 켜려면 `management.endpoint.shutdown.access=unrestricted`를 써요(3.4 이후 방식, 그 전엔 `enabled=true`).
+
+<Aside type="danger" title="전부(*) 열고 그대로 배포하면 위험해요">
+`heapdump`에는 메모리 속 데이터가, `env`에는 설정 정보가 들어 있어요. 꼭 필요한 것만 열고 [Spring Security](../spring-security/)로 보호하세요. Security가 있고 내가 `SecurityFilterChain`을 안 만들었으면 `health` 외 Actuator는 자동 보호돼요. 하지만 내가 `SecurityFilterChain`을 만들면 그 자동 설정이 통째로 물러나서, Actuator 규칙도 직접 써야 해요.
+</Aside>
+
+## 면접 질문
+
+<details>
+<summary>Q. 스프링과 스프링 부트의 차이는 무엇인가요?</summary>
+
+**답변(30초)** 스프링 부트는 스프링을 대체하는 게 아니라 스프링 위에서 설정을 대신 해 주는 도구예요. 스타터로 필요한 의존성을 한 번에 가져오고, 부트 버전마다 검증된 라이브러리 버전 목록을 제공해서 버전 충돌을 줄여요. 톰캣이 내장돼 있어 jar 하나로 서버가 뜨고, 자동 설정이 조건에 맞는 기본 빈을 등록해 줘요. 여기에 Actuator 같은 운영 기능도 더해져요. DI와 AOP 같은 핵심은 스프링 프레임워크 그대로예요.
+
+**꼬리질문**
+- Q. 부트 없이 스프링만 쓰면 무엇을 직접 해야 하나요? → 라이브러리와 버전을 고르고, DataSource 같은 설정 빈을 직접 등록하고, 외부 톰캣에 WAR로 배포해야 해요.
+- Q. 내장 톰캣의 장점은? → 배포물이 jar 하나라 실행과 컨테이너 이미지 구성이 단순해요.
+</details>
+
+<details>
+<summary>Q. @SpringBootApplication은 무엇으로 구성되나요?</summary>
+
+**답변(30초)** `@SpringBootConfiguration`, `@EnableAutoConfiguration`, `@ComponentScan` 세 개를 합친 어노테이션이에요. 첫째는 이 클래스가 설정 클래스라는 표시, 둘째는 자동 설정을 켜는 것, 셋째는 이 클래스 패키지와 하위 패키지에서 `@Component` 계열을 찾아 등록하는 거예요. 그래서 메인 클래스를 가장 위 패키지에 둬요.
+
+**꼬리질문**
+- Q. 메인 클래스를 하위 패키지에 두면? → 그 위나 옆 패키지의 클래스는 스캔되지 않아 빈이 등록되지 않아요. `scanBasePackages`로 범위를 넓힐 수 있어요.
+- Q. `@EnableAutoConfiguration`은 실제로 무엇을 하나요? → `AutoConfigurationImportSelector`를 import해서 imports 파일에 적힌 자동 설정 후보를 가져와요.
+</details>
+
+<details>
+<summary>Q. 자동 설정은 어떻게 동작하나요?</summary>
+
+**답변(30초)** 조건부 빈 등록이에요. 부트는 각 jar의 `META-INF/spring/...AutoConfiguration.imports` 파일에서 자동 설정 후보 목록을 읽어요. 후보마다 `@ConditionalOnClass`로 라이브러리가 있는지, `@ConditionalOnProperty`로 설정이 켜졌는지, `@ConditionalOnMissingBean`으로 내가 이미 같은 빈을 만들었는지 검사해요. 통과한 것만 등록돼서, 내가 DataSource를 직접 만들면 자동 설정은 물러나요.
+
+**꼬리질문**
+- Q. 왜 내 빈이 항상 이기나요? → 빈 조건은 지금까지 처리된 빈 정의만 보는데, 내 빈 정의가 자동 설정보다 먼저 처리되기 때문이에요.
+- Q. 어떤 자동 설정이 적용됐는지 어떻게 확인하나요? → `--debug`로 실행해 조건 평가 리포트를 보거나 Actuator `conditions` 엔드포인트를 봐요.
+- Q. 부트 2.x와 달라진 점은? → 2.x는 `spring.factories`에 목록을 적었고, 지금은 imports 파일을 써요.
+</details>
+
+<details>
+<summary>Q. 특정 자동 설정을 끄거나 내 설정으로 바꾸려면 어떻게 하나요?</summary>
+
+**답변(30초)** 일부만 바꾸고 싶으면 같은 타입 빈을 직접 등록하는 게 가장 자연스러워요. 그러면 `@ConditionalOnMissingBean` 때문에 자동 설정이 알아서 물러나요. 아예 끄려면 `@SpringBootApplication(exclude = ...)`를 쓰거나 `spring.autoconfigure.exclude` 프로퍼티를 써요. 클래스패스에 없는 클래스는 `excludeName`으로 이름을 적어요.
+
+**꼬리질문**
+- Q. `@ConditionalOnMissingBean`을 내 일반 설정 클래스에 써도 되나요? → 처리 순서에 따라 결과가 달라질 수 있어서 자동 설정 클래스에서만 쓰라고 권해요.
+- Q. `@AutoConfigureAfter`는 빈 생성 순서를 정하나요? → 아니요. 빈 정의 등록 순서만 정해요.
+</details>
+
+<details>
+<summary>Q. 같은 설정 키가 application.yml과 환경변수에 둘 다 있으면 어느 값이 쓰이나요?</summary>
+
+**답변(30초)** 환경변수 값이 쓰여요. 부트의 외부 설정은 우선순위가 있어서 설정 파일보다 OS 환경변수가, 그보다 자바 시스템 프로퍼티가, 그보다 커맨드라인 인자가 더 세요. 파일끼리는 프로파일 전용 파일이 일반 파일을, jar 밖 파일이 jar 안 파일을 이겨요. 같은 위치에 properties와 yml이 둘 다 있으면 properties가 이겨요.
+
+**꼬리질문**
+- Q. 운영 DB 비밀번호는 어디에 두나요? → jar 안 설정 파일에 넣지 않고, 환경변수나 시크릿으로 주입해요. 우선순위상 파일 값도 덮어써요.
+- Q. 프로파일 두 개를 동시에 켜면? → 뒤에 쓴 프로파일이 이겨요.
+</details>
+
+<details>
+<summary>Q. Actuator의 기본 노출 엔드포인트와 운영 시 주의점은?</summary>
+
+**답변(30초)** 기본으로는 웹에 `health` 하나만 열려 있어요. 필요한 건 `management.endpoints.web.exposure.include`로 하나씩 열어요. `*`로 전부 열면 `env`, `heapdump`처럼 민감한 정보가 나갈 수 있어서 위험해요. 그래서 필요한 것만 노출하고 Spring Security로 보호해요.
+
+**꼬리질문**
+- Q. `env`를 열면 비밀번호가 그대로 보이나요? → 값은 기본으로 `******`로 마스킹돼요. 그래도 노출 자체를 최소화하는 게 원칙이에요.
+- Q. 내가 SecurityFilterChain을 만들면 Actuator는? → 부트의 기본 보안 자동 설정이 물러나서 Actuator 접근 규칙을 직접 써야 해요.
+</details>
+
+## 서술형 연습
+
+<details>
+<summary>상황: DB를 쓰지 않는 배치 모듈인데, 공통 라이브러리를 추가한 뒤 "Failed to configure a DataSource" 오류로 앱이 뜨지 않습니다. 어떻게 해결하겠습니까?</summary>
+
+**상황 파악**
+내 코드는 DB를 안 쓰는데 DataSource 자동 설정이 돌았어요. 공통 라이브러리가 JDBC 관련 jar를 끌고 와서 클래스패스에 `DataSource` 클래스가 생겼고, `@ConditionalOnClass`가 통과한 거예요. 그런데 접속 정보(URL)가 없으니 DataSource를 못 만들어 실패했어요.
+
+**원인 후보**
+1. 공통 라이브러리가 JDBC/JPA 스타터를 전이 의존성(내가 직접 안 넣었는데 딸려 온 의존성)으로 가져옴
+2. 누군가 실수로 `spring-boot-starter-data-jpa`를 추가함
+3. 프로파일 설정이 빠져 DB URL이 안 들어옴(원래 DB를 쓰는 앱이라면)
+
+먼저 `--debug`로 조건 평가 리포트를 보고 `DataSourceAutoConfiguration`이 왜 매칭됐는지 확인해요. 의존성 트리도 같이 봐서 어디서 JDBC jar가 왔는지 찾아요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. `exclude = DataSourceAutoConfiguration.class` | 한 줄로 바로 해결 | 원인 의존성은 그대로 남음. JdbcTemplate 등 관련 자동 설정도 따져 봐야 함 |
+| B. 공통 라이브러리 의존성에서 JDBC 관련 jar 제외 | 필요 없는 라이브러리 자체가 빠져 근본 해결 | 공통 라이브러리가 그 jar를 실제로 쓰면 다른 곳이 깨질 수 있음 |
+| C. 공통 라이브러리 쪽을 고쳐 JDBC를 선택적 의존성으로 바꾸기 | 다른 서비스들도 같은 문제를 안 겪음 | 다른 팀과 협의가 필요하고 시간이 걸림 |
+
+**내가 고를 방법**
+당장은 A로 앱을 살려요. 동시에 의존성 트리를 확인해서 정말 안 쓰는 jar면 B로 빼고, 같은 라이브러리를 쓰는 다른 서비스도 영향을 받을 수 있으니 C를 라이브러리 담당 팀에 요청해요. A만 남기면 나중에 정말 DB가 필요해졌을 때 왜 DataSource가 안 생기는지 헷갈릴 수 있어서, exclude에는 이유를 주석으로 남겨요.
+
+**채점 포인트**: `@ConditionalOnClass`(클래스패스 기반 조건), 전이 의존성, `--debug` 조건 평가 리포트로 원인 확인, exclude / `spring.autoconfigure.exclude`, 의존성 정리로 근본 해결, 임시 조치와 근본 조치 구분.
+</details>
+
+<details>
+<summary>상황: 운영 서버에 배포했는데 application.yml에 적은 포트와 DB 주소가 아니라 다른 값이 적용되어 있습니다. 어떻게 원인을 찾겠습니까?</summary>
+
+**상황 파악**
+yml 값이 틀린 게 아니라, 우선순위가 더 높은 다른 곳에서 같은 키를 덮어쓴 경우가 대부분이에요.
+
+**원인 후보**
+1. 배포 스크립트의 커맨드라인 인자(`--server.port=...`)
+2. 서버나 컨테이너에 설정된 환경변수(`SERVER_PORT`, `SPRING_DATASOURCE_URL`)
+3. jar 밖에 놓인 `application.yml`이나 `config/` 폴더 파일
+4. 활성 프로파일 전용 파일(`application-prod.yml`)
+5. 같은 위치의 `.properties` 파일이 `.yml`을 이김
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. Actuator `env`로 그 키가 어느 PropertySource에서 왔는지 확인 | 실제 적용 경로를 바로 봄 | `env`를 열어야 하므로 보안 설정이 필요. 값은 마스킹됨 |
+| B. 서버에서 실행 명령, 환경변수, jar 밖 파일을 직접 점검 | 추가 노출 없이 확인 | 위치가 많아 놓치기 쉬움 |
+
+**내가 고를 방법**
+내부망에서만 접근할 수 있게 보호된 상태라면 A로 출처를 빠르게 찾고, 그렇지 않으면 B로 우선순위 높은 순(커맨드라인 → 환경변수 → jar 밖 파일 → 프로파일 파일)으로 점검해요. 원인을 찾은 뒤에는 "환경마다 달라지는 값은 환경변수나 시크릿으로, 공통 값은 jar 안 파일로"처럼 설정 위치 규칙을 팀에 정해 둬요. 비밀번호는 jar 안에 두지 않아요.
+
+**채점 포인트**: 외부 설정 우선순위(커맨드라인 > 시스템 프로퍼티 > 환경변수 > 파일), 프로파일 파일과 jar 밖 파일 우선, properties와 yml 충돌, Actuator `env`와 마스킹, 비밀값 관리.
+</details>
+
+<details>
+<summary>상황: 사내 공통 모니터링 기능을 여러 서비스에 붙이고 싶습니다. 각 서비스가 필요하면 설정을 바꿀 수 있어야 합니다.</summary>
+
+**상황 파악**
+여러 서비스가 의존성 하나만 추가하면 기능이 켜지고, 서비스별로 덮어쓸 수도 있어야 해요. 부트 자동 설정 방식과 딱 맞는 문제예요.
+
+**원인 후보(설계 선택지에서 고려할 점)**
+1. 서비스마다 설정 클래스를 복사해 붙이면 버전이 제각각이 됨
+2. 공통 라이브러리를 컴포넌트 스캔으로 잡게 하면 패키지 구조에 묶이고 조건 순서가 깨질 수 있음
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. 커스텀 스타터 + 자동 설정(imports 파일 등록, `@ConditionalOnMissingBean`) | 의존성만 추가하면 켜지고, 서비스가 같은 빈을 만들면 자동으로 물러남 | 스타터 모듈을 따로 관리해야 함 |
+| B. 공통 설정 클래스를 서비스가 `@Import`로 직접 가져오기 | 단순하고 명시적 | 서비스마다 코드 수정이 필요하고 덮어쓰기 규칙을 직접 만들어야 함 |
+
+**내가 고를 방법**
+A를 골라요. 이름은 `acme-spring-boot-starter`처럼 `spring-boot`로 시작하지 않게 짓고, 자동 설정 클래스는 imports 파일에만 등록해서 컴포넌트 스캔에 걸리지 않게 해요. 기본 빈에는 `@ConditionalOnMissingBean`을 붙여 서비스가 덮어쓸 수 있게 하고, `@ConditionalOnProperty`로 끄는 스위치도 둬요.
+
+**채점 포인트**: 스타터 이름 규칙, imports 파일 등록, 컴포넌트 스캔 금지, `@ConditionalOnMissingBean`으로 덮어쓰기 허용, 프로퍼티 스위치.
+</details>
+
+## 필기 포인트
+
+- `@SpringBootApplication` = `@SpringBootConfiguration` + `@EnableAutoConfiguration` + `@ComponentScan`.
+- 자동 설정 후보 목록: `META-INF/spring/...AutoConfiguration.imports`. `spring.factories`는 부트 2.x 방식.
+- 자동 설정은 내 빈을 **덮어쓰지 않아요**. 내 빈이 있으면 자동 설정이 물러나요.
+- `@AutoConfigureAfter`는 빈 **정의 등록** 순서. 생성 순서가 아님.
+- 외부 설정: 커맨드라인 > 시스템 프로퍼티(`-D`) > 환경변수 > 설정 파일.
+- 같은 위치면 `.properties`가 `.yml`을 이김.
+- Actuator 기본 웹 노출은 `health`만.
+- 부트 4에서 `spring-boot-starter-web`은 deprecated, `spring-boot-starter-webmvc`로 대체.
+
+## 함께 보기
+
+- [IoC와 DI (컴포넌트 스캔, @Bean)](../ioc-di/)
+- [Spring MVC 요청 흐름](../mvc-flow/)
+- [@Transactional](../transactional/)
+- [Spring Security](../spring-security/)
+
+## 출처
+
+- [Spring Boot Reference, Auto-configuration](https://docs.spring.io/spring-boot/reference/using/auto-configuration.html)
+- [Spring Boot Reference, Creating Your Own Auto-configuration](https://docs.spring.io/spring-boot/reference/features/developing-auto-configuration.html)
+- [Spring Boot Reference, Build Systems](https://docs.spring.io/spring-boot/reference/using/build-systems.html)
+- [Spring Boot API, SpringBootApplication](https://docs.spring.io/spring-boot/api/java/org/springframework/boot/autoconfigure/SpringBootApplication.html)
+- [Spring Boot Reference, Externalized Configuration](https://docs.spring.io/spring-boot/reference/features/external-config.html)
+- [Spring Boot Reference, Profiles](https://docs.spring.io/spring-boot/reference/features/profiles.html)
+- [Spring Boot Reference, Actuator Endpoints](https://docs.spring.io/spring-boot/reference/actuator/endpoints.html)
+- 로컬 확인: Spring Boot 4.1.0 jar의 imports 파일, `SpringBootApplication`·`DataSourceAutoConfiguration`·`JdbcTemplateAutoConfiguration` 어노테이션

@@ -1,0 +1,76 @@
+---
+// 영속성 컨텍스트: 1차 캐시 · 스냅샷 · 쓰기 지연 SQL 저장소가 find/setName/persist/flush/commit 동안 어떻게 바뀌는지
+import Stepper from '../Stepper.astro';
+const base = ['code-box', 'a0', 'ctx', 'a1', 'db'];
+const steps = [
+  { caption: '트랜잭션이 시작되면 영속성 컨텍스트가 생겨요. 1차 캐시, 스냅샷, 쓰기 지연 SQL 저장소 세 칸이 모두 비어 있어요.', show: [...base, 'c1', 'empty-c', 'empty-s', 'empty-q', 'hl-ctx'] },
+  { caption: 'find(1)을 부르면 먼저 1차 캐시를 봐요. 없으니 DB에 SELECT를 보내고, 받아 온 엔티티를 캐시에 넣으면서 그 순간 상태를 스냅샷으로도 복사해 둬요.', show: [...base, 'c2', 'e1', 'e1-kim', 's1', 'empty-q', 'sql-select', 'hl-e1s1', 'hl-sql'] },
+  { caption: '같은 id로 다시 find하면 캐시에 있으니 SQL을 보내지 않아요. 캐시에 있던 바로 그 객체를 돌려주니 m1 == m2가 true예요.', show: [...base, 'c3', 'e1', 'e1-kim', 's1', 'empty-q', 'same', 'sql-none', 'hl-e1'] },
+  { caption: 'setName("lee")는 메모리 속 객체만 바꿔요. 이 순간엔 SQL이 나가지 않고, 스냅샷은 여전히 kim이에요.', show: [...base, 'c4', 'e1', 'e1-lee', 's1', 'empty-q', 'sql-none', 'hl-e1'] },
+  { caption: '새 Member를 persist해요. SEQUENCE 전략이면 id를 받으려고 시퀀스 조회 SQL만 나가고, INSERT는 쓰기 지연 저장소에 쌓여 기다려요.', show: [...base, 'c5', 'e1', 'e1-lee', 'e2', 's1', 'q1', 'sql-seq', 'hl-e2', 'hl-q1'] },
+  { caption: '커밋 직전에 flush가 일어나요. 캐시의 엔티티를 스냅샷과 비교해 kim ≠ lee를 찾아 UPDATE를 만들고, 기다리던 INSERT와 함께 INSERT → UPDATE 순서로 DB에 보내요.', show: [...base, 'c6', 'e1', 'e1-lee', 'e2', 's1', 'diff', 'q1', 'q2', 'sql-flush', 'hl-diff', 'hl-q2', 'hl-sql'] },
+  { caption: 'DB가 COMMIT하면 트랜잭션이 끝나요. 트랜잭션 범위 영속성 컨텍스트도 닫히고, 그 안에 있던 엔티티 객체는 준영속이 돼요. flush는 전송일 뿐이고 확정은 이 COMMIT이에요.', show: [...base, 'c7', 'e1', 'e1-lee', 'e2', 'empty-q', 'sql-commit', 'end', 'hl-end'] },
+];
+---
+<Stepper title="find · 수정 · persist · flush · commit 동안 영속성 컨텍스트" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 424" role="img" aria-label="코드 한 줄마다 영속성 컨텍스트의 1차 캐시, 스냅샷, 쓰기 지연 SQL 저장소가 어떻게 바뀌고 DB로 어떤 SQL이 나가는지 보여 주는 그림">
+    <defs>
+      <marker id="pcf-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+
+    <rect data-id="code-box" class="box" x="8" y="4" width="304" height="34" rx="7" />
+    <text data-id="c1" class="mono hide" x="160" y="21">tx.begin()</text>
+    <text data-id="c2" class="mono hide" x="160" y="21">m1 = em.find(Member, 1L)</text>
+    <text data-id="c3" class="mono hide" x="160" y="21">m2 = em.find(Member, 1L)</text>
+    <text data-id="c4" class="mono hide" x="160" y="21">m1.setName("lee")</text>
+    <text data-id="c5" class="mono hide" x="160" y="21">em.persist(new Member("park"))</text>
+    <text data-id="c6" class="mono hide" x="160" y="21">tx.commit() → 먼저 flush</text>
+    <text data-id="c7" class="mono hide" x="160" y="21">tx.commit() → DB COMMIT</text>
+    <line data-id="a0" class="line" x1="160" y1="38" x2="160" y2="54" marker-end="url(#pcf-arr)" />
+
+    <g data-id="ctx">
+      <rect class="frame" x="8" y="56" width="304" height="240" rx="10" />
+      <text class="sub l" x="16" y="70">영속성 컨텍스트 (트랜잭션 범위)</text>
+      <text class="sub l" x="18" y="92">1차 캐시 (id → 엔티티)</text>
+      <text class="sub l" x="18" y="154">스냅샷 (처음 읽은 상태 사본)</text>
+      <text class="sub l" x="18" y="216">쓰기 지연 SQL 저장소</text>
+    </g>
+    <text data-id="empty-c" class="sub hide" x="87" y="120">(비어 있음)</text>
+    <text data-id="empty-s" class="sub hide" x="87" y="182">(비어 있음)</text>
+    <text data-id="empty-q" class="sub hide" x="87" y="242">(비어 있음)</text>
+
+    <rect data-id="e1" class="chip hide" x="18" y="104" width="138" height="32" rx="6" />
+    <text data-id="e1-kim" class="mono hide" x="87" y="120">id1 name=kim</text>
+    <text data-id="e1-lee" class="mono hide" x="87" y="120">id1 name=<tspan class="hi">lee</tspan></text>
+    <text data-id="same" class="hi hide" x="233" y="120">m1 == m2 → true</text>
+    <g data-id="e2" class="hide"><rect class="chip" x="164" y="104" width="138" height="32" rx="6" /><text class="mono" x="233" y="120">id2 name=park</text></g>
+
+    <g data-id="s1" class="hide"><rect class="box" x="18" y="166" width="138" height="32" rx="6" /><text class="mono" x="87" y="182">id1 name=kim</text></g>
+    <g data-id="diff" class="hide"><rect class="err" x="164" y="166" width="138" height="32" rx="6" /><text class="err-t" x="233" y="182">kim ≠ lee 변경!</text></g>
+
+    <g data-id="q1" class="hide"><rect class="box" x="18" y="228" width="284" height="28" rx="6" /><text class="mono" x="160" y="242">① INSERT member id=2</text></g>
+    <g data-id="q2" class="hide"><rect class="box" x="18" y="260" width="284" height="28" rx="6" /><text class="mono" x="160" y="274">② UPDATE member id=1</text></g>
+
+    <line data-id="a1" class="line" x1="40" y1="300" x2="40" y2="336" marker-start="url(#pcf-arr)" marker-end="url(#pcf-arr)" />
+    <text data-id="sql-select" class="mono l hide" x="58" y="318">SELECT … where id=1</text>
+    <text data-id="sql-none" class="l hide" x="58" y="318">SQL 없음</text>
+    <text data-id="sql-seq" class="l hide" x="58" y="318">시퀀스 조회 SQL만</text>
+    <text data-id="sql-flush" class="mono l hide" x="58" y="318">INSERT → UPDATE 전송</text>
+    <text data-id="sql-commit" class="mono l hide" x="58" y="318">COMMIT</text>
+    <g data-id="db"><rect class="box" x="8" y="340" width="304" height="34" rx="7" /><text x="160" y="357">DB</text></g>
+
+    <g data-id="end" class="hide"><rect class="chip" x="8" y="384" width="304" height="34" rx="7" /><text x="160" y="401">컨텍스트 닫힘 → 엔티티는 준영속</text></g>
+
+    <rect data-id="hl-ctx" class="hl" x="4" y="52" width="312" height="248" rx="12" />
+    <g data-id="hl-e1s1" class="hl"><rect x="14" y="100" width="146" height="40" rx="8" /><rect x="14" y="162" width="146" height="40" rx="8" /></g>
+    <rect data-id="hl-e1" class="hl" x="14" y="100" width="146" height="40" rx="8" />
+    <rect data-id="hl-e2" class="hl" x="160" y="100" width="146" height="40" rx="8" />
+    <rect data-id="hl-diff" class="hl" x="14" y="162" width="292" height="40" rx="8" />
+    <rect data-id="hl-q1" class="hl" x="14" y="224" width="292" height="36" rx="8" />
+    <rect data-id="hl-q2" class="hl" x="14" y="256" width="292" height="36" rx="8" />
+    <rect data-id="hl-sql" class="hl" x="4" y="298" width="312" height="80" rx="9" />
+    <rect data-id="hl-end" class="hl" x="4" y="380" width="312" height="42" rx="9" />
+  </svg>
+</Stepper>

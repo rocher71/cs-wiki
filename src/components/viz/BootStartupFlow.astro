@@ -1,0 +1,90 @@
+---
+// 부트 시작 흐름: run → 내 빈 먼저 → imports 후보 수집 → exclude/정렬 → 조건 검사 → 통과분 등록 → 톰캣 시작
+import Stepper from '../Stepper.astro';
+const base = ['run'];
+const s2 = [...base, 'a1', 'my'];
+const s3 = [...s2, 'a2', 'imp'];
+const s4 = [...s3, 'a3', 'flt'];
+const s5 = [...s4, 'a4', 'cond'];
+const s6 = [...s5, 'a5', 'pass', 'fail'];
+const steps = [
+  { caption: 'main에서 SpringApplication.run(MyApp.class)을 호출해요. MyApp에 붙은 @SpringBootApplication 하나가 컴포넌트 스캔과 자동 설정을 함께 켜요.', show: [...base, 'hl-run'] },
+  { caption: '먼저 @ComponentScan이 메인 클래스 패키지 아래를 뒤져 내 빈(@Controller, @Service, 내가 쓴 @Bean)을 등록해요. 내 것이 항상 먼저예요.', show: [...s2, 'hl-my'] },
+  { caption: '@EnableAutoConfiguration이 클래스패스의 모든 jar에서 AutoConfiguration.imports 파일을 읽어 자동 설정 후보 목록을 모아요.', show: [...s3, 'hl-imp'] },
+  { caption: 'exclude로 빼라고 한 후보를 지우고, before/after 지정대로 순서를 정렬해요. 이 순서는 빈 "정의 등록" 순서예요.', show: [...s4, 'hl-flt'] },
+  { caption: '후보마다 조건을 검사해요. 라이브러리가 있나(OnClass), 설정이 켜졌나(OnProperty), 내가 같은 빈을 이미 만들었나(OnMissingBean). 하나라도 어긋나면 탈락이에요.', show: [...s5, 'hl-cond'] },
+  { caption: '통과한 자동 설정만 빈을 등록해요(Hikari DataSource, JdbcTemplate, DispatcherServlet, 내장 톰캣). 탈락한 이유는 conditions report에 남고, --debug로 실행하면 볼 수 있어요.', show: [...s6, 'hl-res'] },
+  { caption: '빈 준비가 끝나면 내장 톰캣이 포트를 열고 요청을 받기 시작해요.', show: [...s6, 'a6', 'ready', 'hl-ready'] },
+];
+---
+<Stepper title="스프링 부트가 시작될 때" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 584" role="img" aria-label="run 호출, 내 빈 먼저 등록, imports 파일로 자동 설정 후보 수집, exclude와 정렬, 조건 검사, 통과한 것만 등록하고 탈락은 리포트에 기록, 내장 톰캣 시작으로 이어지는 세로 흐름도">
+    <defs>
+      <marker id="bsf-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+
+    <g data-id="run">
+      <rect class="chip" x="16" y="16" width="288" height="40" rx="8" />
+      <text class="mono" x="160" y="36">SpringApplication.run(MyApp)</text>
+    </g>
+    <g data-id="a1"><line class="line" x1="160" y1="57" x2="160" y2="68" marker-end="url(#bsf-arr)" /></g>
+    <g data-id="my">
+      <rect class="box" x="16" y="70" width="288" height="52" rx="8" />
+      <text x="160" y="88">① 내 빈 먼저 등록</text>
+      <text class="sub" x="160" y="108">@Controller · @Service · 내 @Bean</text>
+    </g>
+    <g data-id="a2"><line class="line" x1="160" y1="123" x2="160" y2="134" marker-end="url(#bsf-arr)" /></g>
+    <g data-id="imp">
+      <rect class="box" x="16" y="136" width="288" height="52" rx="8" />
+      <text x="160" y="154">② 자동 설정 후보 수집</text>
+      <text class="sub" x="160" y="174">모든 jar의 AutoConfiguration.imports</text>
+    </g>
+    <g data-id="a3"><line class="line" x1="160" y1="189" x2="160" y2="200" marker-end="url(#bsf-arr)" /></g>
+    <g data-id="flt">
+      <rect class="box" x="16" y="202" width="288" height="40" rx="8" />
+      <text x="160" y="222">③ exclude 제거 · 순서 정렬</text>
+    </g>
+    <g data-id="a4"><line class="line" x1="160" y1="243" x2="160" y2="254" marker-end="url(#bsf-arr)" /></g>
+    <g data-id="cond">
+      <rect class="frame" x="16" y="256" width="288" height="118" rx="10" />
+      <text x="160" y="274" style="font-weight:700">④ 후보마다 조건 검사</text>
+      <text class="l" x="30" y="300"><tspan class="hi">OnClass</tspan> 라이브러리 있나?</text>
+      <text class="l" x="30" y="324"><tspan class="hi">OnProperty</tspan> 설정 켜졌나?</text>
+      <text class="l" x="30" y="348"><tspan class="hi">OnMissingBean</tspan> 내 빈 없나?</text>
+    </g>
+    <g data-id="a5">
+      <line class="line" x1="100" y1="375" x2="100" y2="388" marker-end="url(#bsf-arr)" />
+      <line class="line" x1="250" y1="375" x2="250" y2="388" marker-end="url(#bsf-arr)" />
+    </g>
+    <g data-id="pass">
+      <rect class="chip" x="16" y="390" width="172" height="120" rx="8" />
+      <text x="102" y="408" style="font-weight:700">통과 → 등록</text>
+      <text class="l mono" x="28" y="432">HikariDataSource</text>
+      <text class="l mono" x="28" y="454">JdbcTemplate</text>
+      <text class="l mono" x="28" y="476">DispatcherServlet</text>
+      <text class="l" x="28" y="498">내장 톰캣</text>
+    </g>
+    <g data-id="fail">
+      <rect class="bad" x="196" y="390" width="108" height="120" rx="8" />
+      <text x="250" y="408" style="font-weight:700">탈락</text>
+      <text class="sub" x="250" y="434">건너뛰고</text>
+      <text class="sub" x="250" y="456">conditions</text>
+      <text class="sub" x="250" y="478">report에 기록</text>
+    </g>
+    <g data-id="a6"><line class="line" x1="102" y1="511" x2="140" y2="522" marker-end="url(#bsf-arr)" /></g>
+    <g data-id="ready">
+      <rect class="chip" x="16" y="524" width="288" height="44" rx="10" />
+      <text x="160" y="546" style="font-weight:700">⑤ 내장 톰캣 시작, 요청 받기</text>
+    </g>
+
+    <rect data-id="hl-run" class="hl" x="12" y="12" width="296" height="48" rx="10" />
+    <rect data-id="hl-my" class="hl" x="12" y="66" width="296" height="60" rx="10" />
+    <rect data-id="hl-imp" class="hl" x="12" y="132" width="296" height="60" rx="10" />
+    <rect data-id="hl-flt" class="hl" x="12" y="198" width="296" height="48" rx="10" />
+    <rect data-id="hl-cond" class="hl" x="12" y="252" width="296" height="126" rx="12" />
+    <rect data-id="hl-res" class="hl" x="12" y="386" width="296" height="128" rx="10" />
+    <rect data-id="hl-ready" class="hl" x="12" y="520" width="296" height="52" rx="12" />
+  </svg>
+</Stepper>

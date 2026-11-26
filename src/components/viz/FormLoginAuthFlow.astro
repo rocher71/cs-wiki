@@ -1,0 +1,96 @@
+---
+// 폼 로그인 인증 흐름: 필터 → ProviderManager → DaoAuthenticationProvider → UserDetailsService / PasswordEncoder → 성공(홀더·세션 저장) 또는 실패
+import Stepper from '../Stepper.astro';
+const s1 = ['req'];
+const s2 = [...s1, 'a0', 'filter', 'a1', 'tok1'];
+const s3 = [...s2, 'a2', 'pm'];
+const s4 = [...s3, 'a3', 'provs'];
+const s5 = [...s4, 'a4', 'uds'];
+const s6 = [...s5, 'a5', 'pe'];
+const s7 = [...s6, 'a6', 'tok2'];
+const s8 = [...s7, 'a7', 'ok'];
+const s9 = [...s6, 'afail', 'fail'];
+const steps = [
+  { caption: '사용자가 로그인 폼을 제출해요. POST /login 요청에 아이디와 비밀번호가 실려 와요.', show: [...s1, 'hl-req'] },
+  { caption: 'UsernamePasswordAuthenticationFilter가 아이디·비밀번호를 꺼내 "아직 인증 안 된" 토큰(UsernamePasswordAuthenticationToken)을 만들어요.', show: [...s2, 'hl-filter'] },
+  { caption: '필터는 직접 검사하지 않고 AuthenticationManager에 토큰을 넘겨요. 대표 구현이 ProviderManager예요.', show: [...s3, 'hl-pm'] },
+  { caption: 'ProviderManager는 Provider 목록을 돌며 이 토큰을 처리할 수 있는 것을 찾아요. 아이디·비밀번호 토큰은 DaoAuthenticationProvider 담당이에요.', show: [...s4, 'hl-provs'] },
+  { caption: 'DaoAuthenticationProvider가 UserDetailsService.loadUserByUsername()으로 DB에서 사용자(해시된 비밀번호, 권한)를 불러와요.', show: [...s5, 'hl-uds'] },
+  { caption: 'PasswordEncoder.matches()로 입력한 비밀번호와 저장된 해시를 비교해요. 비밀번호를 풀어 보는 게 아니라 같은 방식으로 해시해 맞춰 봐요.', show: [...s6, 'hl-pe'] },
+  { caption: '맞으면 "인증된" 토큰을 새로 만들어 돌려줘요. 안에는 UserDetails와 권한이 들어 있고, 비밀번호는 지워요.', show: [...s7, 'hl-tok2'] },
+  { caption: '필터가 SecurityContextHolder에 담고 세션에도 저장해요(세션 ID는 새로 바꿔요). 그다음 원래 가려던 페이지로 보내요.', show: [...s8, 'hl-ok'] },
+  { caption: '다른 갈래: 비밀번호가 틀리거나 사용자가 없으면 SecurityContextHolder를 비우고 실패 핸들러가 로그인 페이지로 돌려보내요.', show: [...s9, 'hl-fail'] },
+];
+---
+<Stepper title="폼 로그인은 이렇게 인증돼요" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 520" role="img" aria-label="POST /login 요청이 UsernamePasswordAuthenticationFilter에서 미인증 토큰이 되고, ProviderManager가 DaoAuthenticationProvider에 맡겨 UserDetailsService로 DB에서 사용자를 불러오고 PasswordEncoder로 비밀번호를 비교한 뒤, 성공하면 인증된 토큰을 SecurityContextHolder와 세션에 저장하고, 실패하면 홀더를 비우고 로그인 페이지로 돌려보내는 그림">
+    <defs>
+      <marker id="fl-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+
+    <g data-id="req"><rect class="box" x="22" y="4" width="276" height="32" rx="7" /><text x="160" y="20"><tspan class="mono">POST /login</tspan> · 아이디 + 비번</text></g>
+    <line data-id="a0" class="line" x1="160" y1="36" x2="160" y2="46" marker-end="url(#fl-arr)" />
+    <g data-id="filter">
+      <rect class="box" x="22" y="48" width="276" height="44" rx="7" />
+      <text class="mono" x="160" y="62">UsernamePassword</text>
+      <text class="mono" x="160" y="79">AuthenticationFilter</text>
+    </g>
+    <line data-id="a1" class="line" x1="160" y1="92" x2="160" y2="100" marker-end="url(#fl-arr)" />
+    <g data-id="tok1"><rect class="bad" x="40" y="102" width="240" height="28" rx="14" /><text x="160" y="116" style="font-size:14px">토큰(미인증): 아이디 + 비번</text></g>
+    <line data-id="a2" class="line" x1="160" y1="130" x2="160" y2="138" marker-end="url(#fl-arr)" />
+    <g data-id="pm">
+      <rect class="box" x="22" y="140" width="276" height="44" rx="7" />
+      <text class="mono" x="160" y="155">ProviderManager</text>
+      <text class="sub" x="160" y="174">AuthenticationManager 구현</text>
+    </g>
+    <line data-id="a3" class="line" x1="160" y1="184" x2="160" y2="192" marker-end="url(#fl-arr)" />
+    <g data-id="provs">
+      <rect class="frame" x="16" y="194" width="288" height="68" rx="9" />
+      <text class="sub l" x="24" y="207">Provider 목록</text>
+      <rect class="bad" x="24" y="216" width="112" height="40" rx="7" />
+      <text class="sub" x="80" y="229">다른 Provider</text>
+      <text class="sub" x="80" y="246">✗ 담당 아님</text>
+      <rect class="chip" x="142" y="216" width="156" height="40" rx="7" />
+      <text class="mono" x="220" y="229">DaoAuthentication</text>
+      <text class="mono" x="220" y="246">Provider ✓</text>
+    </g>
+    <line data-id="a4" class="line" x1="220" y1="262" x2="220" y2="270" marker-end="url(#fl-arr)" />
+    <g data-id="uds">
+      <rect class="box" x="22" y="272" width="276" height="44" rx="7" />
+      <text class="mono" x="160" y="287">UserDetailsService</text>
+      <text class="sub" x="160" y="306">DB에서 해시된 비번·권한 조회</text>
+    </g>
+    <line data-id="a5" class="line" x1="160" y1="316" x2="160" y2="324" marker-end="url(#fl-arr)" />
+    <g data-id="pe">
+      <rect class="box" x="22" y="326" width="276" height="44" rx="7" />
+      <text class="mono" x="160" y="341">PasswordEncoder.matches()</text>
+      <text class="sub" x="160" y="360">입력 비번 vs 저장된 해시</text>
+    </g>
+    <line data-id="a6" class="line" x1="160" y1="370" x2="160" y2="378" marker-end="url(#fl-arr)" />
+    <g data-id="tok2"><rect class="chip" x="22" y="380" width="276" height="28" rx="14" /><text x="160" y="394" style="font-size:14px">토큰(인증됨): 사용자·권한, 비번 지움</text></g>
+    <line data-id="a7" class="line" x1="160" y1="408" x2="160" y2="416" marker-end="url(#fl-arr)" />
+    <g data-id="ok">
+      <rect class="chip" x="22" y="418" width="276" height="44" rx="7" />
+      <text x="160" y="433">✓ 성공: 홀더 + 세션에 저장</text>
+      <text class="sub" x="160" y="452">세션 ID 교체 → 원래 가려던 페이지</text>
+    </g>
+    <path data-id="afail" class="line" d="M22 348 H11 V492 H20" marker-end="url(#fl-arr)" />
+    <g data-id="fail">
+      <rect class="err" x="22" y="470" width="276" height="44" rx="7" />
+      <text class="err-t" x="160" y="485">✗ 실패: 홀더 비움</text>
+      <text class="sub" x="160" y="504">실패 핸들러 → 로그인 페이지</text>
+    </g>
+
+    <rect data-id="hl-req" class="hl" x="18" y="0" width="284" height="40" rx="9" />
+    <rect data-id="hl-filter" class="hl" x="18" y="44" width="284" height="90" rx="9" />
+    <rect data-id="hl-pm" class="hl" x="18" y="136" width="284" height="52" rx="9" />
+    <rect data-id="hl-provs" class="hl" x="138" y="212" width="164" height="48" rx="9" />
+    <rect data-id="hl-uds" class="hl" x="18" y="268" width="284" height="52" rx="9" />
+    <rect data-id="hl-pe" class="hl" x="18" y="322" width="284" height="52" rx="9" />
+    <rect data-id="hl-tok2" class="hl" x="18" y="376" width="284" height="36" rx="16" />
+    <rect data-id="hl-ok" class="hl" x="18" y="414" width="284" height="52" rx="9" />
+    <rect data-id="hl-fail" class="hl" x="18" y="466" width="284" height="52" rx="9" />
+  </svg>
+</Stepper>

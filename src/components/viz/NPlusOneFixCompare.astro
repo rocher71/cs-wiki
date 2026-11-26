@@ -1,0 +1,81 @@
+---
+// 같은 데이터(Team 3 × Member 2)에서 해결 방법별 SQL 개수 비교: 그대로 4 / fetch join 1 / @EntityGraph 1 / batch size 2
+import Stepper from '../Stepper.astro';
+const bars = [
+  { id: 'b1', label: '그대로', n: 4, cls: 'err', tcls: 'err-t' },
+  { id: 'b2', label: 'fetch join', n: 1, cls: 'badge', tcls: 'on-badge' },
+  { id: 'b3', label: '@EntityGraph', n: 1, cls: 'badge', tcls: 'on-badge' },
+  { id: 'b4', label: 'batch size', n: 2, cls: 'badge', tcls: 'on-badge' },
+].map((b, k) => ({ ...b, y: 214 + k * 40 }));
+const steps = [
+  { caption: '그대로 두면 Team 목록 1번 + 팀마다 member 1번씩 3번, 합계 SQL 4개예요.', show: ['p1', 'chart', 'b1', 'hl-b1'] },
+  { caption: 'fetch join은 team과 member를 조인해 SQL 1개로 끝내요. 결과 행은 6개지만 Hibernate 6부터는 같은 Team을 알아서 합쳐 엔티티 3개로 돌려줘요.', show: ['p2', 'chart', 'b1', 'b2', 'hl-b2'] },
+  { caption: '@EntityGraph도 SQL 1개예요. 다만 left join(outer join)이라 멤버가 없는 팀도 결과에 남아요.', show: ['p3', 'chart', 'b1', 'b2', 'b3', 'hl-b3'] },
+  { caption: 'batch size는 조인 대신 IN으로 묶어요. Team 1번 + 아직 안 채운 팀들의 member를 IN 한 번으로, 합계 SQL 2개예요.', show: ['p4', 'chart', 'b1', 'b2', 'b3', 'b4', 'hl-b4'] },
+];
+---
+<Stepper title="해결 방법별 SQL 개수 (Team 3 × Member 2)" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 376" role="img" aria-label="같은 데이터에서 그대로 두면 SQL 4개, fetch join 1개, EntityGraph 1개(left join), batch size 2개(IN 조회)가 나가는 것을 비교한 그림">
+    <g data-id="p1" class="hide">
+      <text class="sub l" x="8" y="16">① 그대로 (LAZY + 루프)</text>
+      <rect class="box" x="8" y="32" width="304" height="30" rx="7" /><text class="mono l" x="18" y="47">select … from team</text>
+      {[1, 2, 3].map((t, k) => (
+        <>
+          <rect class="box" x="8" y={68 + k * 36} width="304" height="30" rx="7" />
+          <text class="mono l" x="18" y={83 + k * 36}>select … from member</text>
+          <text class="mono l" x="200" y={83 + k * 36}>team_id={t}</text>
+        </>
+      ))}
+    </g>
+
+    <g data-id="p2" class="hide">
+      <text class="sub l" x="8" y="16">② fetch join</text>
+      <rect class="chip" x="8" y="32" width="304" height="46" rx="7" />
+      <text class="mono l" x="18" y="47">select t.*, m.* from team t</text>
+      <text class="mono l" x="18" y="65">join member m on …</text>
+      <rect class="box" x="8" y="96" width="120" height="34" rx="7" /><text x="68" y="113">결과 행 6개</text>
+      <line class="line" x1="132" y1="113" x2="182" y2="113" marker-end="url(#np1f-arr)" />
+      <rect class="chip" x="188" y="96" width="124" height="34" rx="7" /><text x="250" y="113">Team 3개</text>
+      <text class="sub" x="160" y="152">같은 Team은 메모리에서 하나로 합침</text>
+    </g>
+
+    <g data-id="p3" class="hide">
+      <text class="sub l" x="8" y="16">③ @EntityGraph</text>
+      <rect class="chip" x="8" y="32" width="304" height="46" rx="7" />
+      <text class="mono l" x="18" y="47">select t.*, m.* from team t</text>
+      <text class="mono l" x="18" y="65">left join member m on …</text>
+      <text class="sub" x="160" y="104">outer join → 멤버 없는 팀도 남음</text>
+    </g>
+
+    <g data-id="p4" class="hide">
+      <text class="sub l" x="8" y="16">④ batch size = 100</text>
+      <rect class="box" x="8" y="32" width="304" height="30" rx="7" /><text class="mono l" x="18" y="47">select … from team</text>
+      <rect class="chip" x="8" y="68" width="304" height="46" rx="7" />
+      <text class="mono l" x="18" y="83">select … from member</text>
+      <text class="mono l" x="18" y="101">where team_id in (1,2,3)</text>
+      <text class="sub" x="160" y="140">@BatchSize 또는</text>
+      <text class="sub" x="160" y="160">default_batch_fetch_size</text>
+    </g>
+
+    <defs>
+      <marker id="np1f-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+
+    <g data-id="chart">
+      <line class="line" x1="8" y1="188" x2="312" y2="188" />
+      <text class="sub l" x="8" y="202">SQL 개수</text>
+    </g>
+    {bars.map((b) => (
+      <g data-id={b.id}>
+        <text class="l" x="8" y={b.y + 15}>{b.label}</text>
+        <rect class={b.cls} x="124" y={b.y} width={b.n * 44} height="30" rx="6" />
+        <text class={b.tcls} x={124 + b.n * 44 - 22} y={b.y + 15}>{b.n}개</text>
+      </g>
+    ))}
+    {bars.map((b) => (
+      <rect data-id={`hl-${b.id}`} class="hl" x="4" y={b.y - 4} width="312" height="38" rx="8" />
+    ))}
+  </svg>
+</Stepper>

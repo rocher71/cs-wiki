@@ -1,0 +1,69 @@
+---
+// REQUIRED 안쪽 예외 → 공유 물리 트랜잭션 rollback-only 표시 → 바깥이 catch해도 커밋 시 롤백 + UnexpectedRollbackException
+import Stepper from '../Stepper.astro';
+const s1 = ['t1', 'ascope', 'rowa'];
+const s2 = [...s1, 'a1', 'bscope', 'rowb'];
+const s3 = [...s2, 'bex', 'flag', 'flagarr'];
+const s4 = [...s3, 'a2', 'catch'];
+const s5 = [...s4, 'commit'];
+const steps = [
+  { caption: 'A(@Transactional)가 시작되면서 물리 트랜잭션 T1이 열려요. A는 먼저 주문을 저장해요.', show: [...s1, 'hl-a'] },
+  { caption: 'A가 다른 빈 B(REQUIRED)를 불러요. B는 새 트랜잭션을 만들지 않고 T1에 참여해요. 논리 범위만 하나 더 생겨요.', show: [...s2, 'hl-b'] },
+  { caption: 'B에서 RuntimeException이 나요. B의 프록시는 공유 중인 T1 전체에 rollback-only 표시를 붙이고 예외를 위로 던져요.', show: [...s3, 'hl-flag'] },
+  { caption: 'A는 try-catch로 예외를 삼키고 아무 일 없던 듯 정상 종료해요. 하지만 T1에 붙은 rollback-only 표시는 그대로 남아 있어요.', show: [...s4, 'hl-catch'] },
+  { caption: 'A의 프록시가 커밋을 시도해요. 그 순간 T1에 rollback-only 표시가 있는 걸 발견해요.', show: [...s5, 'hl-commit', 'hl-flag'] },
+  { caption: '실제로는 롤백되고 UnexpectedRollbackException이 던져져요. A가 저장한 주문도 함께 사라져요.', show: [...s5, 'a3', 'result', 'gone', 'hl-result'] },
+];
+---
+<Stepper title="rollback-only 함정: catch해도 전부 롤백" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 416" role="img" aria-label="물리 트랜잭션 T1 하나 안에 A와 B의 논리 범위가 겹쳐 있고, B의 예외로 T1에 rollback-only 표시가 붙은 뒤, A가 예외를 삼키고 커밋을 시도해도 실제로는 롤백되며 UnexpectedRollbackException이 나는 그림">
+    <defs>
+      <marker id="rbo-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+
+    <g data-id="t1">
+      <rect class="zone-u" x="8" y="6" width="304" height="320" rx="10" />
+      <text class="sub l" x="18" y="25">물리 트랜잭션 T1</text>
+    </g>
+    <g data-id="flag" class="hide">
+      <rect class="err" x="176" y="12" width="128" height="26" rx="6" />
+      <text class="mono err-t" x="240" y="25">rollback-only</text>
+    </g>
+
+    <g data-id="ascope">
+      <rect class="frame" x="16" y="44" width="288" height="230" rx="9" />
+      <text class="sub l" x="24" y="58">A 논리 범위</text>
+    </g>
+    <g data-id="rowa"><rect class="box" x="26" y="68" width="268" height="34" rx="7" /><text x="160" y="85">A: 주문 저장 save()</text></g>
+    <line data-id="gone" class="hide" x1="60" y1="85" x2="260" y2="85" stroke="var(--sl-color-red)" stroke-width="2.5" />
+    <line data-id="a1" class="line" x1="160" y1="102" x2="160" y2="113" marker-end="url(#rbo-arr)" />
+
+    <g data-id="bscope">
+      <rect class="frame" x="26" y="114" width="268" height="104" rx="8" />
+      <text class="sub l" x="34" y="128">B 논리 범위 · T1에 참여</text>
+    </g>
+    <g data-id="rowb"><rect class="box" x="36" y="140" width="248" height="30" rx="7" /><text x="160" y="155">B: 포인트 적립</text></g>
+    <g data-id="bex"><rect class="err" x="36" y="178" width="248" height="30" rx="7" /><text class="mono err-t" x="160" y="193">RuntimeException!</text></g>
+    <polyline data-id="flagarr" class="line hide" points="284,193 299,193 299,42" stroke-dasharray="4 3" marker-end="url(#rbo-arr)" />
+
+    <line data-id="a2" class="line" x1="160" y1="218" x2="160" y2="229" marker-end="url(#rbo-arr)" />
+    <g data-id="catch"><rect class="box" x="26" y="230" width="268" height="34" rx="7" /><text x="160" y="247">A: 예외 catch → 정상 종료</text></g>
+    <g data-id="commit"><rect class="chip" x="16" y="284" width="288" height="34" rx="7" /><text x="160" y="301">A 프록시: 커밋 시도</text></g>
+
+    <line data-id="a3" class="line" x1="160" y1="326" x2="160" y2="341" marker-end="url(#rbo-arr)" />
+    <g data-id="result">
+      <rect class="err" x="8" y="342" width="304" height="68" rx="9" />
+      <text class="err-t" x="160" y="360">실제로는 롤백 ✗ (주문도 사라짐)</text>
+      <text class="mono" x="160" y="388">UnexpectedRollbackException</text>
+    </g>
+
+    <rect data-id="hl-a" class="hl" x="22" y="64" width="276" height="42" rx="9" />
+    <rect data-id="hl-b" class="hl" x="22" y="110" width="276" height="112" rx="10" />
+    <rect data-id="hl-flag" class="hl" x="172" y="8" width="136" height="34" rx="8" />
+    <rect data-id="hl-catch" class="hl" x="22" y="226" width="276" height="42" rx="9" />
+    <rect data-id="hl-commit" class="hl" x="12" y="280" width="296" height="42" rx="9" />
+    <rect data-id="hl-result" class="hl" x="4" y="338" width="312" height="76" rx="11" />
+  </svg>
+</Stepper>

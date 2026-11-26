@@ -1,0 +1,353 @@
+---
+title: JPA 영속성 컨텍스트
+description: "영속성 컨텍스트는 JPA가 엔티티를 담아 두고 관리하는 메모리 속 작업 공간이에요. 1차 캐시, 변경 감지, 쓰기 지연, flush, 엔티티 4상태, save()의 persist/merge 분기까지 정리해요."
+sidebar: { order: 7 }
+tags: [면접빈출, 서술형]
+---
+import { Aside } from '@astrojs/starlight/components';
+import PersistenceContextFlow from '~/components/viz/PersistenceContextFlow.astro';
+import EntityLifecycle from '~/components/viz/EntityLifecycle.astro';
+
+:::tip[한 줄 요약]
+**영속성 컨텍스트**는 JPA가 조회하거나 저장한 엔티티(DB 테이블과 짝지은 자바 객체)를 id별로 **딱 하나씩** 담아 관리하는 메모리 공간이에요. 이 덕분에 **1차 캐시**(같은 id 재조회 시 SQL 생략), **변경 감지**(필드만 바꾸면 UPDATE 자동 생성), **쓰기 지연**(SQL을 모았다가 flush 때 전송)이 가능해요.
+:::
+
+## 쉽게 이해하기
+
+자바 프로그램은 데이터를 **객체**로 다루고, DB는 데이터를 **표(테이블)의 행**으로 다뤄요. 둘 사이를 오가려면 원래는 개발자가 SQL을 직접 쓰고, 결과 행을 객체에 하나하나 옮겨 담아야 해요. 이 번역을 대신해 주는 기술이 **ORM**(Object-Relational Mapping, 객체와 테이블을 서로 짝지어 SQL을 대신 만들어 주는 기술)이에요.
+
+ORM을 쓰면 DB 사이에 **작업용 책상**이 하나 생긴다고 생각하면 쉬워요. 서류(행)를 DB 창고에서 한 번 꺼내 오면 책상 위에 올려 두고, 같은 서류를 또 찾으면 창고에 다시 가지 않고 책상 위 것을 그대로 줘요(1차 캐시). 서류를 꺼낼 때 **복사본(스냅샷)**도 한 장 떠 둬요. 일을 하다가 서류에 펜으로 고쳐 쓰면, 퇴근 직전에 복사본과 비교해서 달라진 서류만 창고에 반영해요(변경 감지). 새 서류도 바로 창고에 넣지 않고 "보낼 함"에 모아 뒀다가 한꺼번에 보내요(쓰기 지연). 이 책상이 **영속성 컨텍스트**예요.
+
+단, 실제로는 "퇴근 직전"에만 반영하는 게 아니에요. 쿼리 직전이나 `flush()`를 부를 때도 반영되고, 반영(flush)했다고 해서 확정(commit)된 것도 아니에요. 아래에서 정확히 짚어요.
+
+## 그림으로 보기
+
+<PersistenceContextFlow />
+
+<EntityLifecycle />
+
+## 제대로 알기
+
+### 1. JPA, Hibernate, Spring Data JPA는 뭐가 다른가
+
+이름이 셋이라 처음엔 헷갈려요. 위에서 아래로 쌓인 층이라고 보면 돼요.
+
+| 이름 | 정체 | 내가 주로 만지는 것 |
+|---|---|---|
+| **JPA**(Jakarta Persistence) | **스펙**. "ORM은 이렇게 동작해야 한다"는 인터페이스 모음 | `@Entity`, `EntityManager`, `persist`·`merge`·`find`·`remove` |
+| **Hibernate** | JPA의 **구현체**. 실제로 SQL을 만들고 실행 | 자체 API `Session` (`em.unwrap(Session.class)`로 꺼낼 수 있음) |
+| **Spring Data JPA** | JPA 위의 편의 계층. Repository 인터페이스만 선언하면 구현을 만들어 줌 | `JpaRepository`, `save()`, `findById()` |
+
+`userRepository.save(user)`를 부르면 기본 구현인 `SimpleJpaRepository`가 안에서 `EntityManager`(JPA에서 엔티티를 저장·조회할 때 쓰는 창구 객체)를 호출하고, 그 뒤에서 Hibernate가 일해요. 그래서 Spring Data JPA를 써도 결국 영속성 컨텍스트 규칙을 그대로 따라요.
+
+### 2. 영속성 컨텍스트와 1차 캐시
+
+**엔티티**(entity, `@Entity`를 붙여 DB 테이블과 짝지은 자바 클래스의 객체)를 JPA가 "관리 중"이라고 부르는 상태가 있어요. 스펙은 영속성 컨텍스트를 **관리 중인 엔티티 객체들의 모음**이라고 정의하고, 같은 id에 대해서는 **객체가 딱 하나만** 있도록 보장해요.
+
+Hibernate는 이걸 **1차 캐시**(first-level cache)라고 불러요. 효과는 두 가지예요.
+
+- **같은 id를 다시 `find`하면 SQL이 안 나가요.** 실험에서 같은 `EntityManager`로 `find(Member.class, 1L)`를 두 번 했더니 SELECT는 한 번만 나갔어요.
+- **같은 객체가 돌아와요.** 두 결과를 `==`로 비교하면 `true`예요. Hibernate는 이를 "애플리케이션 수준의 반복 읽기(repeatable read)"라고 설명해요. 한 트랜잭션 안에서는 같은 id를 몇 번 읽어도 같은 객체라는 뜻이에요.
+
+<Aside type="caution" title="JPQL은 1차 캐시를 먼저 보지 않아요">
+`find(id)`만 캐시를 먼저 봐요. `select m from Member m` 같은 **JPQL**(엔티티 기준으로 쓰는 JPA 쿼리 언어)은 캐시에 이미 있어도 **항상 DB에 SQL을 보내요**. 다만 결과 행은 이미 관리 중인 객체가 있으면 그 객체로 연결돼요(같은 id엔 객체 하나 규칙).
+</Aside>
+
+1차 캐시는 **영속성 컨텍스트 단위**예요. 보통 트랜잭션 하나가 끝나면 같이 사라지고, 다른 요청과 공유되지 않아요. 여러 요청이 공유하는 캐시는 **2차 캐시**라는 별개 기능이에요.
+
+### 3. 엔티티 생명주기 4상태
+
+| 상태 | 뜻 | 언제 |
+|---|---|---|
+| **비영속**(new, Hibernate는 transient) | id도 없고 컨텍스트와 무관 | `new Member()` 직후 |
+| **영속**(managed) | 컨텍스트가 관리 중. 변경 감지 대상 | `persist`, `find`, JPQL 조회 결과 |
+| **준영속**(detached) | id는 있지만 컨텍스트에서 떨어져 나옴 | 커밋·롤백(트랜잭션 범위 컨텍스트), `detach()`, `clear()`, `close()`, 직렬화해 다른 계층으로 전달 |
+| **삭제**(removed) | 아직 컨텍스트에 있지만 DB 삭제 예정 | `remove()` 후 flush·커밋 전 |
+
+몇 가지 짚을 점이에요.
+
+- **영속이어도 DB에 아직 없을 수 있어요.** Hibernate 문서가 명시해요. `persist`는 "관리 시작"이지 "INSERT 실행"이 아니에요.
+- **준영속은 DB와 동기화가 보장되지 않아요.** 필드를 바꿔도 UPDATE가 안 나가요.
+- **준영속에서 쓸 수 있는 값은 이미 불러온 것뿐이에요.** LAZY(필요할 때 나중에 불러오는) 연관을 준영속 상태에서 처음 건드리면 Hibernate는 `LazyInitializationException`을 던져요. 지연 로딩은 [N+1 문제](../jpa-n-plus-one/)와 [연관관계 매핑](../jpa-relations/)에서 더 다뤄요.
+- 롤백되면 엔티티는 준영속이 되고, 버전 값이나 생성된 id가 DB와 어긋난 상태일 수 있어요. 롤백된 객체를 그대로 재사용하지 않는 게 안전해요.
+
+### 4. 변경 감지(dirty checking)
+
+영속 엔티티는 **필드만 바꾸면** 돼요. `update()` 같은 메서드가 JPA에는 따로 없어요.
+
+```java
+@Transactional
+public void rename(Long id, String name) {
+    Member m = em.find(Member.class, id); // SELECT, 스냅샷 저장
+    m.setName(name);                      // 객체만 바뀜, SQL 없음
+}   // 커밋 직전 flush → 스냅샷과 비교 → UPDATE 자동 생성
+```
+
+Hibernate의 기본 방식은 **비교(diff)**예요.
+1. 엔티티를 불러오거나 DB에 쓴 시점의 상태를 따로 보관해요(흔히 **스냅샷**이라고 불러요).
+2. flush 때 컨텍스트에 있는 **모든 엔티티**를 돌며 지금 값과 스냅샷을 비교해요.
+3. 달라진 엔티티에 대해 UPDATE를 만들어요.
+
+flush와 flush 사이에 같은 필드를 여러 번 바꿔도 UPDATE는 **한 번으로 합쳐져요.** 실험에서도 flush가 일어난 시점마다 UPDATE가 한 번씩만 나갔어요.
+
+단점은 **엔티티가 많으면 비교 비용이 커진다**는 거예요. 수만 건을 불러 둔 채 flush하면 그 수만 건을 전부 비교해요. 대안으로 Hibernate는 **바이트코드 향상**(bytecode enhancement, 엔티티 클래스에 코드를 덧붙여 바뀐 속성을 엔티티가 스스로 기록하게 하는 방식)을 제공해요. 조회만 하는 경우엔 `@Transactional(readOnly = true)`로 비교 자체를 건너뛸 수 있어요(7절).
+
+### 5. 쓰기 지연과 flush
+
+Hibernate는 영속성 컨텍스트를 **트랜잭션 쓰기 지연(write-behind) 캐시**라고 설명해요. 변경은 메모리에 먼저 쌓이고, **flush** 때 INSERT·UPDATE·DELETE SQL로 바뀌어 DB에 전송돼요. SQL을 모아 두니 **JDBC 배치**(여러 SQL을 한 번의 왕복으로 묶어 보내기)를 적용하기도 쉬워요.
+
+<Aside type="danger" title="flush는 commit이 아니에요">
+**flush**는 컨텍스트의 변경을 DB에 SQL로 **보내는 동기화**일 뿐이에요. 트랜잭션은 아직 진행 중이라 이후에 **롤백할 수 있어요.** commit이 돼야 확정이에요.
+</Aside>
+
+**flush 모드**
+
+| 모드 | 제공 | 동작 |
+|---|---|---|
+| `AUTO` | JPA 기본값 | 아래 시점에 자동 flush |
+| `COMMIT` | JPA | 커밋 때 flush. 쿼리 전 반영은 스펙상 **정해져 있지 않음** |
+| `ALWAYS` | Hibernate(Session API) | 모든 쿼리 전에 flush |
+| `MANUAL` | Hibernate | 직접 `flush()`를 부를 때만 |
+
+**AUTO에서 flush가 일어나는 시점**(Hibernate 기준)
+1. **커밋 직전**
+2. 쌓인 변경과 **겹치는 테이블을 읽는 JPQL** 실행 전. 실험에서 필드를 바꾼 뒤 JPQL을 실행하니 UPDATE가 SELECT보다 먼저 나갔어요. 그래서 쿼리 결과에 방금 바꾼 값이 보여요.
+3. **네이티브 SQL**(JPQL이 아니라 DB에 그대로 보내는 SQL) 실행 전(`EntityManager` API로 실행하면 항상)
+4. 직접 `em.flush()`를 부를 때
+
+COMMIT 모드에서 실험했더니, 필드를 "choi"로 바꾼 뒤 JPQL로 조회해도 UPDATE 없이 SELECT만 나갔고 결과는 **옛 값**이었어요. 커밋 때 비로소 UPDATE가 나갔어요.
+
+**flush 안의 SQL 순서는 호출 순서가 아니에요.** Hibernate는 대기 작업을 정해진 순서로 실행해요: 고아 삭제 → **INSERT** → **UPDATE** → 컬렉션 작업 → **DELETE**. 그래서 같은 트랜잭션에서 기존 행을 `remove`하고 같은 유니크 키로 새 엔티티를 `persist`하면, INSERT가 DELETE보다 먼저 나가 **중복 키 에러**가 날 수 있어요(서술형 연습 참고).
+
+### 6. ID 전략에 따라 쓰기 지연이 깨져요
+
+| 전략 | id를 언제 아나 | INSERT 시점 | JDBC 배치 |
+|---|---|---|---|
+| **IDENTITY**(DB의 auto increment) | INSERT를 해야 앎 | `persist()` **즉시** | Hibernate가 INSERT 배치를 **자동으로 끔** |
+| **SEQUENCE**(DB가 번호를 차례로 발급하는 객체) | 시퀀스를 먼저 조회 | flush까지 미룰 수 있음 | 가능 |
+
+실험에서 SEQUENCE 엔티티를 `persist`하니 `select next value for Member_SEQ`만 나가고 INSERT는 없었어요. 이어서 IDENTITY 엔티티를 `persist`하자 그 순간 INSERT가 실행됐어요. Hibernate의 기본 시퀀스는 `increment by 50`으로 만들어져서, 시퀀스를 매번 조회하지 않고 50개씩 미리 받아 써요.
+
+대량 저장을 빠르게 하려면 Hibernate 설정 `hibernate.jdbc.batch_size`를 켜고(0 이하면 꺼짐), `hibernate.order_inserts`·`order_updates`로 같은 종류 SQL을 더 많이 묶을 수 있어요(정렬 비용이 있으니 측정해서 판단). Spring Boot에서는 보통 `spring.jpa.properties.` 아래에 이 이름을 그대로 붙여 넘겨요. 또 Hibernate 문서는 일정 개수마다 `flush()` 후 `clear()`해서 1차 캐시 크기를 제한하라고 권해요.
+
+### 7. Spring과 맞물리는 지점
+
+**`save()`는 persist와 merge 중 하나를 골라요**
+
+`SimpleJpaRepository.save()`는 "새 엔티티인가?"(`isNew`)를 먼저 판단해요.
+
+| 새것? | 실행 | 반환값 |
+|---|---|---|
+| 참 | `persist` | **넘긴 객체 그대로** |
+| 거짓 | `merge` | merge가 만든 **영속 객체**(넘긴 객체와 다를 수 있음) |
+
+`isNew` 기본 판정 순서예요.
+1. 래퍼 타입(`Long`, `Integer` 등) `@Version` 필드(수정할 때마다 1씩 올라가는 버전 번호)가 있으면 그 값이 `null`이면 새것.
+2. 없으면 **id가 `null`이면 새것.** id가 기본형(`long`)이면 `0`이면 새것.
+
+**persist와 merge의 차이**
+
+| | `persist(x)` | `merge(x)` |
+|---|---|---|
+| x가 비영속 | x가 영속이 됨 | 새 영속 복사본을 만들어 반환 |
+| x가 준영속 | **`EntityExistsException`** | 같은 id 행을 불러와(SELECT) 값을 복사한 영속 객체 반환 |
+| x가 영속 | 무시 | 무시 |
+| 결과 | **x 자신**이 영속 | **반환값**이 영속, x는 여전히 준영속 |
+
+실험에서 `detach`한 객체를 고친 뒤 `merge`하니 SELECT가 한 번 나갔고, 반환 객체는 넘긴 객체와 달랐어요. `contains(넘긴 객체)`는 `false`, `contains(반환 객체)`는 `true`였고 커밋 때 UPDATE가 나갔어요. 그래서 **`save()`의 반환값을 받아 써야** 안전해요.
+
+<Aside type="caution" title="id를 직접 넣는 엔티티는 save할 때마다 SELECT가 나가요">
+UUID나 주문번호처럼 `@GeneratedValue` 없이 id를 직접 넣으면 id가 처음부터 `null`이 아니에요. 그래서 `isNew`가 거짓이 되고 **항상 merge** 경로를 타서 SELECT 한 번 후 INSERT가 나가요. 엔티티가 `Persistable`을 구현해 `isNew()`를 직접 알려 주거나(예: `@Transient` 플래그를 두고 `@PostPersist`·`@PostLoad`에서 false로), 래퍼 타입 `@Version` 필드를 추가해서 고쳐요.
+</Aside>
+
+**`@Transactional(readOnly = true)`**
+
+Spring이 Hibernate의 flush 모드를 `MANUAL`로 바꿔요. 실험에서도 MANUAL 상태에서 필드를 바꾸고 커밋했더니 **UPDATE가 나가지 않았어요.** 조회 전용 메서드에선 변경 감지 비용을 아끼는 이점이지만, 수정 메서드에 잘못 걸리면 **예외 없이 수정이 사라져요.** 자세한 건 [@Transactional](../transactional/)의 readOnly 절을 보세요.
+
+**OSIV(Open Session In View)**
+
+Spring Boot는 `spring.jpa.open-in-view`가 **기본으로 켜져** 있어요. 요청이 들어와서 응답이 나갈 때까지 `EntityManager`를 스레드에 묶어 두는 설정이에요. 명시적으로 설정하지 않으면 "뷰 렌더링 중에도 DB 쿼리가 나갈 수 있다"는 경고 로그를 남겨요.
+
+| | OSIV 켬(기본) | OSIV 끔 |
+|---|---|---|
+| 컨트롤러·JSON 변환 중 LAZY 접근 | 동작함(그때 쿼리가 나감) | 컨텍스트가 트랜잭션과 함께 끝나 준영속 → `LazyInitializationException` |
+| 커넥션 | 요청 끝까지 잡고 있을 수 있다고 흔히 지적됨 | 트랜잭션이 끝나면 반납 |
+| 대응 | 편하지만 쿼리가 어디서 나가는지 흐려짐 | 서비스 안에서 fetch join(연관 엔티티를 한 쿼리로 같이 불러오기)이나 DTO(응답용 단순 객체) 변환으로 필요한 값을 미리 채움 |
+
+## 면접 질문
+
+<details>
+<summary>Q. 영속성 컨텍스트란 무엇이고, 어떤 이점이 있나요?</summary>
+
+**답변(30초)** JPA가 관리 중인 엔티티를 id별로 하나씩 담아 두는 메모리 공간이에요. 같은 id를 다시 조회하면 SQL 없이 같은 객체를 돌려주는 1차 캐시로 동일성을 보장해요. 조회 시점의 스냅샷과 비교해 바뀐 엔티티의 UPDATE를 자동으로 만드는 변경 감지가 있어요. 그리고 SQL을 모아 두었다가 flush 때 보내는 쓰기 지연으로 배치 처리도 가능해요.
+
+**꼬리질문**
+- Q. 1차 캐시와 2차 캐시 차이는? → 1차 캐시는 영속성 컨텍스트(보통 트랜잭션) 단위라 요청끼리 공유되지 않아요. 2차 캐시는 여러 컨텍스트가 공유하는 별개 기능이에요.
+- Q. JPQL도 1차 캐시에서 읽나요? → 아니요. JPQL은 항상 DB에 SQL을 보내요. 캐시를 먼저 보는 건 `find(id)`예요.
+</details>
+
+<details>
+<summary>Q. 엔티티 생명주기 4가지 상태를 설명해 주세요.</summary>
+
+**답변(30초)** 비영속, 영속, 준영속, 삭제예요. `new`로 막 만든 객체는 비영속이고, `persist`하거나 조회하면 영속이 되어 변경 감지 대상이 돼요. 트랜잭션이 끝나거나 `detach`·`clear`·`close`되면 준영속이 되어 바꿔도 DB에 반영되지 않아요. `remove`하면 삭제 상태가 되고 flush·커밋 때 DELETE가 나가요.
+
+**꼬리질문**
+- Q. 준영속 엔티티의 LAZY 연관을 건드리면? → 불러올 컨텍스트가 없어서 Hibernate는 `LazyInitializationException`을 던져요. 이미 불러온 값만 쓸 수 있어요.
+- Q. 영속이면 DB에 이미 있나요? → 아닐 수 있어요. `persist`는 관리 시작이고 INSERT는 flush 때 나가요(IDENTITY는 예외).
+</details>
+
+<details>
+<summary>Q. 변경 감지는 어떻게 동작하고, 단점은 무엇인가요?</summary>
+
+**답변(30초)** Hibernate는 엔티티를 불러올 때 상태를 스냅샷으로 보관해 두고, flush 때 컨텍스트의 모든 엔티티를 스냅샷과 비교해 달라진 것만 UPDATE를 만들어요. 그래서 영속 엔티티는 필드만 바꾸면 저장돼요. 단점은 엔티티가 많을수록 비교 비용과 메모리가 커진다는 거예요. 조회 전용이면 `readOnly = true`로 비교를 건너뛰고, 대량 처리 땐 주기적으로 flush·clear해요.
+
+**꼬리질문**
+- Q. 같은 필드를 여러 번 바꾸면 UPDATE가 여러 번 나가나요? → flush 사이의 변경은 한 번으로 합쳐져요. 중간에 flush가 끼면 그때마다 한 번씩 나가요.
+- Q. 준영속 엔티티를 바꾸면요? → 컨텍스트가 관리하지 않아 UPDATE가 안 나가요. `merge`하거나 다시 조회해서 바꿔야 해요.
+</details>
+
+<details>
+<summary>Q. flush는 언제 일어나고, commit과 무엇이 다른가요?</summary>
+
+**답변(30초)** flush는 영속성 컨텍스트의 변경을 SQL로 DB에 보내는 동기화이고, commit은 트랜잭션을 확정하는 거예요. flush 후에도 롤백할 수 있어요. 기본 AUTO 모드에서 Hibernate는 커밋 직전, 쌓인 변경과 겹치는 JPQL 실행 전, 네이티브 SQL 실행 전, 그리고 직접 `flush()`를 부를 때 flush해요.
+
+**꼬리질문**
+- Q. COMMIT 모드로 바꾸면요? → 쿼리 전 자동 flush가 없어서, Hibernate에선 방금 바꾼 값 대신 옛 값이 조회될 수 있어요. 스펙은 이 경우를 정해 두지 않았어요.
+- Q. flush 때 SQL은 호출한 순서대로 나가나요? → 아니요. INSERT, UPDATE, 컬렉션 작업, DELETE 순이에요. 그래서 삭제 후 같은 키로 저장하면 중복 키 에러가 날 수 있어요.
+</details>
+
+<details>
+<summary>Q. persist와 merge의 차이, 그리고 save()는 둘을 어떻게 고르나요?</summary>
+
+**답변(30초)** persist는 넘긴 객체 자체를 영속으로 만들고, merge는 준영속 객체의 값을 영속 객체에 복사해 그 영속 객체를 돌려줘요. 그래서 merge 후엔 반환값을 써야 해요. Spring Data JPA의 `save()`는 `isNew`로 판단하는데, 래퍼 타입 `@Version`이 있으면 그 값이 null인지, 없으면 id가 null인지로 새것을 판정해요. 새것이면 persist, 아니면 merge예요.
+
+**꼬리질문**
+- Q. id를 직접 넣는 엔티티를 save하면? → id가 null이 아니라 merge로 가서 SELECT 후 INSERT가 나가요. `Persistable`로 `isNew()`를 직접 알려 주거나 `@Version`을 추가해요.
+- Q. 준영속 객체를 persist하면? → `EntityExistsException`이 나요.
+</details>
+
+<details>
+<summary>Q. IDENTITY 전략에서는 왜 쓰기 지연이 안 되나요?</summary>
+
+**답변(30초)** IDENTITY는 DB가 INSERT할 때 id를 만들어 주는 방식이라, INSERT를 해 봐야 id를 알 수 있어요. 영속성 컨텍스트는 id로 엔티티를 관리하니 `persist()` 순간 바로 INSERT를 실행해야 해요. 그래서 INSERT를 모아 둘 수 없고, Hibernate는 IDENTITY 엔티티의 INSERT 배치를 자동으로 꺼요. SEQUENCE는 시퀀스로 id를 먼저 받으니 INSERT를 flush까지 미루고 배치로 보낼 수 있어요.
+
+**꼬리질문**
+- Q. SEQUENCE는 id 하나마다 시퀀스를 조회하나요? → Hibernate 기본 시퀀스는 50씩 증가해서, 한 번 조회로 여러 id를 미리 받아 써요.
+</details>
+
+<details>
+<summary>Q. OSIV란 무엇이고, 끄면 어떻게 되나요?</summary>
+
+**답변(30초)** 요청 시작부터 응답 끝까지 영속성 컨텍스트를 열어 두는 설정이고, Spring Boot는 기본으로 켜 두고 경고 로그를 남겨요. 켜 두면 컨트롤러나 JSON 변환 중에도 LAZY 로딩이 되지만, 그만큼 커넥션을 오래 잡을 수 있다는 지적이 있어요. 끄면 트랜잭션이 끝날 때 엔티티가 준영속이 되어, 서비스 밖에서 LAZY 연관을 건드리면 `LazyInitializationException`이 나요. 그래서 서비스 안에서 fetch join이나 DTO 변환으로 필요한 데이터를 미리 채워요.
+
+**꼬리질문**
+- Q. `@Transactional(readOnly = true)`는 JPA에서 어떤 이점이 있나요? → flush 모드가 MANUAL이 되어 변경 감지를 건너뛰어요. 대신 그 안에서 엔티티를 바꾸면 조용히 반영되지 않아요.
+</details>
+
+## 서술형 연습
+
+<details>
+<summary>상황: 회원 정보 수정 API를 배포했는데, 응답은 200이 오지만 DB 값이 바뀌지 않습니다. 에러 로그도 없습니다.</summary>
+
+**상황 파악**
+예외 없이 정상 응답인데 UPDATE가 안 나갔어요. JPA 입장에선 "바꿀 게 없다"고 판단했거나 "보낼 시점이 없었다"는 뜻이에요. SQL 로그로 UPDATE가 나갔는지부터 확인해요.
+
+**원인 후보**
+1. **영속 상태가 아님**: 컨트롤러에서 받은 값으로 `new Member(id, ...)`를 만들어 필드만 바꿨다면 비영속·준영속 객체라 변경 감지 대상이 아니에요.
+2. **readOnly 트랜잭션**: 서비스 클래스에 `@Transactional(readOnly = true)`를 걸고 수정 메서드에 `@Transactional`을 다시 안 붙였다면 flush 모드가 MANUAL이라 커밋해도 UPDATE가 안 나가요.
+3. **트랜잭션 밖에서 수정**: 서비스가 엔티티를 돌려준 뒤 컨트롤러에서 값을 바꿨다면 이미 준영속이에요.
+4. `merge`나 `save()`를 불렀지만 **반환값이 아닌 원래 객체**를 계속 고쳤을 수 있어요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. 서비스 트랜잭션 안에서 `find` 후 필드 변경(변경 감지) | 바뀐 엔티티만 UPDATE, 코드가 의도를 그대로 드러냄 | 조회 SELECT가 한 번 필요 |
+| B. 준영속 객체를 `merge`(또는 `save`) | DTO를 바로 넘길 수 있음 | merge는 **모든 필드를 덮어써서** 안 보낸 필드가 null로 바뀔 위험. 반환값을 써야 함 |
+| C. 클래스 기본은 readOnly, 수정 메서드에만 `@Transactional` 명시 | 조회 성능 이점 유지 | 붙이는 걸 잊으면 같은 사고 재발. 리뷰·테스트로 막아야 함 |
+
+**내가 고를 방법**
+A를 기본으로 해요. 수정은 "서비스 트랜잭션 안에서 조회한 영속 엔티티를 바꾼다"로 규칙을 정하면 변경 감지가 알아서 처리하고, 어떤 필드를 바꾸는지 코드에 드러나요. readOnly는 C처럼 조회 메서드에만 두고, 수정 API는 "DB에 실제로 반영됐는지" 확인하는 통합 테스트를 추가해요.
+
+**채점 포인트**: 영속/준영속 구분, 변경 감지는 영속 엔티티만, readOnly → flush MANUAL, merge는 반환값이 영속·전체 덮어쓰기 위험, SQL 로그로 확인, 해결책 2개 이상의 트레이드오프.
+</details>
+
+<details>
+<summary>상황: 10만 건을 saveAll로 저장하는 배치가 너무 느리고, 중간에 메모리 사용량이 계속 늘어납니다. 엔티티 id는 IDENTITY 전략입니다.</summary>
+
+**상황 파악**
+느림과 메모리 증가가 같이 나타나요. SQL 전송 방식과 영속성 컨텍스트 크기 둘 다 의심해요.
+
+**원인 후보**
+1. **IDENTITY라 배치 불가**: `persist`마다 INSERT가 즉시 한 건씩 나가고, Hibernate가 INSERT 배치를 꺼서 10만 번 왕복해요.
+2. **1차 캐시 비대**: 저장한 엔티티 10만 개가 트랜잭션이 끝날 때까지 컨텍스트에 남아 메모리가 늘고, flush 때마다 모두 변경 감지 비교 대상이 돼요.
+3. JDBC 배치 설정(`hibernate.jdbc.batch_size`)이 아예 꺼져 있을 수도 있어요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. SEQUENCE 전략 + `batch_size` + `order_inserts` + 일정 개수마다 `flush()`·`clear()` | JPA를 유지하면서 INSERT를 묶어 보내고 메모리 일정 | 시퀀스를 지원하지 않는 DB(예: MySQL)는 그대로 못 씀. id 전략 변경은 스키마 영향 |
+| B. JPA를 우회해 `JdbcTemplate`의 `batchUpdate` 사용 | 가장 빠르고 id 전략과 무관 | 영속성 컨텍스트·엔티티 콜백·변경 감지를 거치지 않음. SQL을 직접 관리 |
+| C. IDENTITY는 두고 `flush()`·`clear()`만 추가 | 변경이 작고 메모리 문제는 해결 | 한 건씩 INSERT하는 속도 문제는 그대로 |
+
+**내가 고를 방법**
+DB가 시퀀스를 지원하면 A를 골라요. JPA 모델을 유지하면서 두 원인을 다 고쳐요. MySQL처럼 IDENTITY를 써야 한다면 대량 적재 경로만 B로 분리해요. 이 배치는 단순 적재라 변경 감지가 필요 없어서 잃는 게 적어요. 어느 쪽이든 `order_inserts` 같은 옵션은 비용이 있으니 실제 데이터로 측정해서 정해요.
+
+**채점 포인트**: IDENTITY는 persist 즉시 INSERT·배치 자동 해제, SEQUENCE로 쓰기 지연, `batch_size`, flush·clear로 1차 캐시 제한, 변경 감지 비용, JDBC 직접 사용의 트레이드오프.
+</details>
+
+<details>
+<summary>상황: 같은 트랜잭션에서 기존 쿠폰을 remove하고 같은 쿠폰 코드(유니크)로 새 쿠폰을 persist했더니 중복 키 에러가 납니다. 코드는 분명 삭제가 먼저입니다.</summary>
+
+**상황 파악**
+코드 순서는 DELETE → INSERT인데 DB는 INSERT를 먼저 받은 것처럼 반응해요. SQL이 호출 순서대로 나가지 않았다는 신호예요.
+
+**원인 후보**
+1. **flush 실행 순서**: Hibernate는 flush 때 INSERT → UPDATE → 컬렉션 → DELETE 순으로 SQL을 보내요. 그래서 새 쿠폰 INSERT가 기존 쿠폰 DELETE보다 먼저 나가 유니크 제약에 걸려요.
+2. id 전략이 IDENTITY라면 `persist` 순간 INSERT가 바로 나가서, 아직 flush되지 않은 DELETE보다 먼저 실행돼요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. `remove` 직후 `em.flush()`(Spring Data면 `saveAndFlush`·`flush`) | DELETE가 먼저 나가는 게 확실함, 변경 작음 | flush 호출이 늘어 쓰기 지연 이점이 줄고, 순서 의존을 사람이 기억해야 함 |
+| B. 지우고 새로 만들지 않고 **기존 엔티티의 값을 수정** | SQL이 UPDATE 하나라 순서 문제가 없음 | "새 쿠폰"이라는 이력이 필요한 도메인이면 맞지 않음 |
+
+**내가 고를 방법**
+도메인상 같은 쿠폰을 갱신하는 거라면 B를 골라요. 순서 문제가 구조적으로 사라져요. 정말 다른 행이어야 한다면 A로 remove 직후 flush하고, 왜 flush하는지 주석을 남겨요.
+
+**채점 포인트**: flush SQL 순서(INSERT→UPDATE→DELETE), 쓰기 지연, IDENTITY는 즉시 INSERT, 명시적 flush, 수정으로 대체하는 대안.
+</details>
+
+## 필기 포인트
+
+- 영속성 컨텍스트 = 관리 중인 엔티티 모음, **같은 id엔 객체 하나**. Hibernate 명칭은 1차 캐시.
+- `find(id)`는 캐시를 먼저 보고, **JPQL은 항상 DB 조회**.
+- 4상태: 비영속(new/transient), 영속(managed), 준영속(detached), 삭제(removed).
+- 준영속이 되는 경우: 커밋·롤백(트랜잭션 범위), `detach`, `clear`, `close`, 직렬화 전달.
+- 준영속을 `persist` → `EntityExistsException`. `merge`는 **반환값**이 영속.
+- flush ≠ commit. flush 후에도 롤백 가능.
+- JPA flush 모드: `AUTO`(기본), `COMMIT`. Hibernate 추가: `ALWAYS`, `MANUAL`.
+- flush 순서: INSERT → UPDATE → 컬렉션 → DELETE.
+- IDENTITY: persist 즉시 INSERT, INSERT 배치 자동 해제.
+- `save()`: isNew면 persist(넘긴 객체 반환), 아니면 merge(반환값). 판정은 래퍼 `@Version` null → id null(기본형은 0).
+- Spring Boot `spring.jpa.open-in-view` 기본 true.
+- `readOnly = true` → Hibernate flush MANUAL → 수정해도 UPDATE 없음.
+
+## 함께 보기
+
+- [@Transactional 완전 정리](../transactional/)
+- [JPA N+1 문제](../jpa-n-plus-one/)
+- [JPA 연관관계 매핑](../jpa-relations/)
+- [equals와 hashCode](../../java/equals-hashcode/)
+
+## 출처
+
+- [Jakarta Persistence 3.2 Specification](https://jakarta.ee/specifications/persistence/3.2/jakarta-persistence-spec-3.2) (3.3 엔티티 생명주기, 3.4 커밋·롤백, 3.11.2 쿼리와 flush 모드, 7.1 영속성 컨텍스트)
+- [Hibernate ORM 7.0 User Guide](https://docs.hibernate.org/orm/7.0/userguide/html_single/Hibernate_User_Guide.html) (Persistence Context, Flushing, IDENTITY columns, Batching)
+- [Spring Data JPA Reference, Persisting Entities](https://docs.spring.io/spring-data/jpa/reference/jpa/entity-persistence.html)
+- [spring-data-jpa 소스, SimpleJpaRepository](https://github.com/spring-projects/spring-data-jpa/blob/main/spring-data-jpa/src/main/java/org/springframework/data/jpa/repository/support/SimpleJpaRepository.java)
+- [spring-data-commons 소스, AbstractEntityInformation](https://github.com/spring-projects/spring-data-commons/blob/3.4.x/src/main/java/org/springframework/data/repository/core/support/AbstractEntityInformation.java)
+- [spring-boot 소스, JpaBaseConfiguration](https://github.com/spring-projects/spring-boot/blob/3.5.x/spring-boot-project/spring-boot-autoconfigure/src/main/java/org/springframework/boot/autoconfigure/orm/jpa/JpaBaseConfiguration.java)
+- 동작 확인: Hibernate 7.4.1.Final + H2로 직접 실험(SQL 로그 기준)
