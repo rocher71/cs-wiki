@@ -1,0 +1,110 @@
+---
+/**
+ * 단계별 애니메이션 공용 컴포넌트.
+ * 슬롯의 SVG 안에서 data-id가 붙은 요소를, 현재 단계 show 목록에 있으면 선명하게, 없으면 흐리게 보여준다.
+ * 이번 단계에 처음 나타난 요소는 .is-new로 강조된다.
+ */
+interface Step { caption: string; show: string[] }
+interface Props { title: string; steps: Step[] }
+const { title, steps } = Astro.props;
+---
+<figure class="stepper" data-steps={JSON.stringify(steps)}>
+  <figcaption class="st-title">{title}</figcaption>
+  <div class="st-stage"><slot /></div>
+  <p class="st-caption" aria-live="polite"></p>
+  <div class="st-bar">
+    <button type="button" class="st-prev" aria-label="이전 단계">◀ 이전</button>
+    <span class="st-count"></span>
+    <button type="button" class="st-play" aria-label="자동 재생">▶ 재생</button>
+    <button type="button" class="st-next" aria-label="다음 단계">다음 ▶</button>
+  </div>
+</figure>
+
+<style>
+  .stepper {
+    margin: 1.25rem 0; padding: .75rem; border-radius: .75rem;
+    border: 1px solid var(--sl-color-gray-5); background: var(--sl-color-gray-7, var(--sl-color-black));
+  }
+  .st-title { font-weight: 700; font-size: .95rem; margin-bottom: .5rem; }
+  .st-stage { touch-action: pan-y; user-select: none; }
+  .st-stage :global(svg) { width: 100%; height: auto; display: block; max-height: 70vh; }
+  .st-stage :global([data-id]) { transition: opacity .35s ease; }
+  .st-stage :global([data-id].is-off) { opacity: .12; }
+  .st-stage :global([data-id].is-new) { animation: st-pop .6s ease; }
+  .st-caption { min-height: 3.2em; margin: .6rem 0 .4rem; font-size: .95rem; line-height: 1.6; }
+  .st-bar { display: flex; align-items: center; gap: .4rem; }
+  /* Starlight가 본문 형제 요소에 margin-top을 줘서 버튼 줄이 어긋나는 것 방지 */
+  .stepper :global(*) { margin-top: 0 !important; }
+  .stepper .st-caption { margin-top: .6rem !important; }
+  .st-bar button {
+    flex: 0 0 auto; min-height: 44px; padding: 0 .9rem; border-radius: .5rem; font: inherit; font-size: .9rem;
+    border: 1px solid var(--sl-color-gray-4); background: var(--sl-color-bg); color: var(--sl-color-text); cursor: pointer;
+  }
+  .st-bar button:disabled { opacity: .4; cursor: default; }
+  .st-next { margin-left: auto; background: var(--sl-color-accent) !important; color: var(--sl-color-black) !important; border-color: transparent !important; }
+  .st-count { font-size: .85rem; color: var(--sl-color-gray-3); font-variant-numeric: tabular-nums; }
+  @keyframes st-pop { 0% { opacity: .12; } 40% { opacity: 1; filter: drop-shadow(0 0 6px var(--sl-color-accent)); } 100% { opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) {
+    .st-stage :global([data-id]) { transition: none; }
+    .st-stage :global([data-id].is-new) { animation: none; }
+  }
+</style>
+
+<script>
+  function setup(root: HTMLElement) {
+    const steps: { caption: string; show: string[] }[] = JSON.parse(root.dataset.steps || '[]');
+    const els = [...root.querySelectorAll<SVGElement>('.st-stage [data-id]')];
+    const cap = root.querySelector('.st-caption')!;
+    const count = root.querySelector('.st-count')!;
+    const prev = root.querySelector<HTMLButtonElement>('.st-prev')!;
+    const next = root.querySelector<HTMLButtonElement>('.st-next')!;
+    const play = root.querySelector<HTMLButtonElement>('.st-play')!;
+    let i = 0;
+    let timer: number | undefined;
+
+    const render = (from: number) => {
+      const on = new Set(steps[i].show);
+      const was = new Set(from >= 0 ? steps[from].show : []);
+      for (const el of els) {
+        const id = el.dataset.id!;
+        el.classList.toggle('is-off', !on.has(id));
+        el.classList.remove('is-new');
+        if (on.has(id) && !was.has(id) && from >= 0) {
+          void el.getBoundingClientRect(); // 애니메이션 재시작
+          el.classList.add('is-new');
+        }
+      }
+      cap.textContent = steps[i].caption;
+      count.textContent = `${i + 1} / ${steps.length}`;
+      prev.disabled = i === 0;
+      next.disabled = i === steps.length - 1;
+    };
+    const go = (d: number) => {
+      const j = Math.min(Math.max(i + d, 0), steps.length - 1);
+      if (j !== i) { const from = i; i = j; render(from); }
+    };
+    const stop = () => { clearInterval(timer); timer = undefined; play.textContent = '▶ 재생'; };
+
+    prev.onclick = () => { stop(); go(-1); };
+    next.onclick = () => { stop(); go(1); };
+    play.onclick = () => {
+      if (timer) return stop();
+      if (i === steps.length - 1) { const from = i; i = 0; render(from); }
+      play.textContent = '❚❚ 정지';
+      timer = window.setInterval(() => (i < steps.length - 1 ? go(1) : stop()), 2200);
+    };
+
+    // 좌우 스와이프
+    let x0: number | null = null;
+    const stage = root.querySelector<HTMLElement>('.st-stage')!;
+    stage.addEventListener('pointerdown', (e) => (x0 = e.clientX));
+    stage.addEventListener('pointerup', (e) => {
+      if (x0 === null) return;
+      const dx = e.clientX - x0; x0 = null;
+      if (Math.abs(dx) > 40) { stop(); go(dx < 0 ? 1 : -1); }
+    });
+
+    if (steps.length) render(-1);
+  }
+  document.querySelectorAll<HTMLElement>('.stepper').forEach(setup);
+</script>

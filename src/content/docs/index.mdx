@@ -1,0 +1,35 @@
+---
+title: 백엔드 CS 위키
+description: 전공지식 제로에서 백엔드 면접·서술형·전공 필기까지, 폰으로 쉽게.
+template: splash
+hero:
+  tagline: 비유로 먼저 이해하고, 그림을 손으로 넘겨 보고, 면접에서 30초 동안 말할 수 있게.
+  actions:
+    - text: JVM과 GC부터 시작
+      link: java/jvm-gc/
+      icon: right-arrow
+---
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## 처음이라면 이 순서로
+
+1. **Java** — 백엔드 면접의 기본 언어. JVM, 컬렉션, 동시성
+2. **OOP·디자인 패턴** — "객체지향이 뭔가요?"에 답하기
+3. **Spring·JPA** — DI, AOP, 트랜잭션
+4. **DB 심화** — 인덱스, 트랜잭션 격리, 락
+5. **웹·네트워크** — HTTP, TCP, 인증
+6. **Redis → Docker·쿠버네티스 → 분산** — 실무 인프라
+7. **대규모 시스템 설계 → 실무 서술형** — 토스식 서술형 대비
+
+## 페이지 읽는 법
+
+<CardGrid>
+  <Card title="한 줄 요약" icon="star">면접 첫 문장으로 그대로 쓰세요.</Card>
+  <Card title="그림으로 보기" icon="seti:svg">이전/다음 버튼이나 좌우 스와이프로 한 단계씩.</Card>
+  <Card title="면접 질문" icon="comment">눌러서 펼치면 30초 답변과 꼬리질문.</Card>
+  <Card title="서술형 연습" icon="pencil">실무 상황 → 모범 답안 → 채점 포인트.</Card>
+</CardGrid>
+
+:::note[전공 필기 문제풀이]
+객관식 문제풀이는 별도 사이트(비공개)에서 해요.
+:::

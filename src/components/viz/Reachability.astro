@@ -1,0 +1,117 @@
+---
+// GC Root에서 참조를 따라가 닿는 객체만 살아남는다 + static Map 누수
+import Stepper from '../Stepper.astro';
+const A = 128, B = 232, W = 80, H = 40; // 힙 열 x, 객체 크기
+const yc = { user: 56, task: 116, cfg: 176, map: 236, cyc: 296 }; // 행 중심 y
+const steps = [
+  { caption: 'GC Root(지역변수, static 필드, 살아 있는 스레드)에서 힙 객체들로 화살표가 이어져 있어요.', show: ['uref', 'user', 'cyc', 'hl-roots'] },
+  { caption: 'u = null을 하면 지역변수와 User 객체 사이의 화살표가 끊겨요.', show: ['unull', 'user', 'cyc', 'hl-user'] },
+  { caption: 'GC가 Root에서 화살표를 따라가며 닿는 객체에 표시(✓)해요. User는 아무도 가리키지 않아 표시되지 않아요(✗).', show: ['unull', 'user', 'cyc', 'mark', 'xu'] },
+  { caption: 'X와 Y는 서로를 가리키지만, Root에서 닿는 길이 없어서 역시 표시되지 않아요.', show: ['unull', 'user', 'cyc', 'mark', 'xu', 'xc', 'hl-cyc'] },
+  { caption: '표시 안 된 객체(User, X, Y)를 회수해요.', show: ['unull', 'mark', 'gone'] },
+  { caption: '누수: static Map이 붙잡은 객체는 더 안 써도 Root에서 닿으니 회수되지 않아요.', show: ['unull', 'mark', 'leak', 'hl-leak'] },
+];
+const obj = (x: number, y: number) => ({ x, y: y - H / 2, width: W, height: H, rx: 6 });
+---
+<Stepper title="GC는 누구를 지우나: 도달 가능성" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 372" role="img" aria-label="GC Root에서 닿는 객체만 살아남는 과정">
+    <defs>
+      <marker id="rch-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+
+    <!-- 항상 보이는 바탕: Root 3개, 힙, 살아 있는 객체 -->
+    <text x="54" y="16" style="font-weight:700">GC Root</text>
+    <text x="216" y="16" style="font-weight:700">힙</text>
+    <rect class="frame" x="116" y="28" width="200" height="300" rx="10" />
+
+    <rect class="box" x="8" y="36" width="92" height="40" rx="6" />
+    <text x="54" y="48">지역변수</text>
+    <rect class="box" x="8" y="96" width="92" height="40" rx="6" />
+    <text x="54" y="116">스레드</text>
+    <rect class="box" x="8" y="156" width="92" height="100" rx="6" />
+    <text x="54" y="206">static 필드</text>
+    <text class="sub" data-id="cyc" x="54" y="296">Root 없음</text>
+
+    <rect class="box" {...obj(A, yc.task)} /><text x={A + W / 2} y={yc.task}>Task</text>
+    <rect class="box" {...obj(A, yc.cfg)} /><text x={A + W / 2} y={yc.cfg}>Config</text>
+    <rect class="box" {...obj(B, yc.cfg)} /><text x={B + W / 2} y={yc.cfg}>Item</text>
+    <line class="line" x1="100" y1={yc.task} x2={A - 2} y2={yc.task} marker-end="url(#rch-arr)" />
+    <line class="line" x1="100" y1={yc.cfg} x2={A - 2} y2={yc.cfg} marker-end="url(#rch-arr)" />
+    <line class="line" x1={A + W} y1={yc.cfg} x2={B - 2} y2={yc.cfg} marker-end="url(#rch-arr)" />
+
+    <!-- 지역변수 u: 참조 있음 / null -->
+    <g data-id="uref" class="hide">
+      <text class="sub" x="54" y="66">u</text>
+      <line class="line" x1="100" y1={yc.user} x2={A - 2} y2={yc.user} marker-end="url(#rch-arr)" />
+    </g>
+    <g data-id="unull" class="hide">
+      <text class="sub" x="54" y="66">u = null</text>
+      <line class="line" x1="100" y1={yc.user} x2="110" y2={yc.user} stroke-dasharray="3 3" />
+    </g>
+
+    <g data-id="user" class="hide">
+      <rect class="box" {...obj(A, yc.user)} /><text x={A + W / 2} y={yc.user}>User</text>
+    </g>
+
+    <g data-id="cyc" class="hide">
+      <rect class="box" {...obj(A, yc.cyc)} /><text x={A + W / 2} y={yc.cyc}>X</text>
+      <rect class="box" {...obj(B, yc.cyc)} /><text x={B + W / 2} y={yc.cyc}>Y</text>
+      <line class="line" x1={A + W} y1={yc.cyc - 8} x2={B - 2} y2={yc.cyc - 8} marker-end="url(#rch-arr)" />
+      <line class="line" x1={B} y1={yc.cyc + 8} x2={A + W + 2} y2={yc.cyc + 8} marker-end="url(#rch-arr)" />
+    </g>
+
+    <!-- 회수된 자리 -->
+    <g data-id="gone" class="hide">
+      {[[A, yc.user], [A, yc.cyc], [B, yc.cyc]].map(([x, y]) => (
+        <g>
+          <rect class="bad" {...obj(x, y)} />
+          <text class="sub" x={x + W / 2} y={y}>회수됨</text>
+        </g>
+      ))}
+    </g>
+
+    <!-- 누수: static Map → 안 쓰는 세션 -->
+    <g data-id="leak" class="hide">
+      <rect class="box" {...obj(A, yc.map)} /><text x={A + W / 2} y={yc.map}>캐시 Map</text>
+      <rect class="box" {...obj(B, yc.map)} /><text x={B + W / 2} y={yc.map}>옛 세션</text>
+      <line class="line" x1="100" y1={yc.map} x2={A - 2} y2={yc.map} marker-end="url(#rch-arr)" />
+      <line class="line" x1={A + W} y1={yc.map} x2={B - 2} y2={yc.map} marker-end="url(#rch-arr)" />
+      {[A, B].map((x) => (
+        <g>
+          <circle class="badge" cx={x + W - 2} cy={yc.map - H / 2 + 2} r="9" />
+          <text class="on-badge" x={x + W - 2} y={yc.map - H / 2 + 3} style="font-size:13px">✓</text>
+        </g>
+      ))}
+      <text class="sub" x="160" y="352">안 쓰는데도 계속 살아 있음 → 메모리 누수</text>
+    </g>
+
+    <!-- 표시(✓ 살아남음 / ✗ 표시 없음) -->
+    <g data-id="mark" class="hide">
+      {[[A, yc.task], [A, yc.cfg], [B, yc.cfg]].map(([x, y]) => (
+        <g>
+          <circle class="badge" cx={x + W - 2} cy={y - H / 2 + 2} r="9" />
+          <text class="on-badge" x={x + W - 2} y={y - H / 2 + 3} style="font-size:13px">✓</text>
+        </g>
+      ))}
+    </g>
+    <g data-id="xu" class="hide">
+      <circle class="bad" cx={A + W - 2} cy={yc.user - H / 2 + 2} r="9" />
+      <text class="sub" x={A + W - 2} y={yc.user - H / 2 + 3} style="font-size:13px">✗</text>
+    </g>
+    <g data-id="xc" class="hide">
+      {[A, B].map((x) => (
+        <g>
+          <circle class="bad" cx={x + W - 2} cy={yc.cyc - H / 2 + 2} r="9" />
+          <text class="sub" x={x + W - 2} y={yc.cyc - H / 2 + 3} style="font-size:13px">✗</text>
+        </g>
+      ))}
+    </g>
+
+    <rect data-id="hl-roots" class="hl" x="4" y="32" width="100" height="228" rx="8" />
+    <rect data-id="hl-user" class="hl" x="4" y="32" width="210" height="48" rx="8" />
+    <rect data-id="hl-cyc" class="hl" x={A - 4} y={yc.cyc - H / 2 - 4} width="192" height={H + 8} rx="8" />
+    <rect data-id="hl-leak" class="hl" x="4" y={yc.map - H / 2 - 4} width="312" height={H + 8} rx="8" />
+  </svg>
+</Stepper>

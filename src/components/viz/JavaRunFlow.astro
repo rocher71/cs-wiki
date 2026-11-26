@@ -1,0 +1,106 @@
+---
+// .java → .class → JVM(클래스로더 → 링킹 → 초기화 → 실행 엔진) 흐름
+import Stepper from '../Stepper.astro';
+const base = ['java', 'javac', 'class'];
+const steps = [
+  { caption: '개발자가 Hello.java를 작성해요.', show: ['java', 'hl-java'] },
+  { caption: 'javac가 OS와 상관없는 바이트코드(Hello.class)로 바꿔요.', show: [...base, 'hl-class'] },
+  { caption: 'java Hello를 실행하면 JVM이 시작돼요.', show: [...base, 'jvm', 'hl-jvm'] },
+  { caption: '클래스로더가 부모(플랫폼 → 부트스트랩)에게 먼저 물어보고, 없으면 직접 Hello.class를 불러와요.', show: [...base, 'jvm', 'loader', 'hl-loader'] },
+  { caption: '링킹: 바이트코드를 검증하고, static 필드를 기본값(0, null)으로 만들고, 참조를 실제 위치로 해석해요.', show: [...base, 'jvm', 'loader', 'link', 'hl-link'] },
+  { caption: '초기화: static 필드에 소스에 적은 값이 들어가요.', show: [...base, 'jvm', 'loader', 'link', 'init', 'hl-init'] },
+  { caption: '실행 엔진이 인터프리터로 실행하다가, 자주 도는 코드는 JIT가 기계어로 바꿔 둬요.', show: [...base, 'jvm', 'loader', 'link', 'init', 'engine', 'hl-engine'] },
+];
+// 3칸 칩 행: x 시작 26, 폭 80, 간격 14
+const chipX = [26, 120, 214];
+---
+<Stepper title=".java가 실행되기까지" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 560" role="img" aria-label="자바 소스가 JVM에서 실행되기까지의 단계">
+    <defs>
+      <marker id="jrf-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+
+    <g data-id="java">
+      <rect class="box" x="8" y="6" width="100" height="52" rx="8" />
+      <text x="58" y="24">Hello.java</text>
+      <text class="sub" x="58" y="44">소스 코드</text>
+    </g>
+    <rect data-id="hl-java" class="hl" x="5" y="3" width="106" height="58" rx="10" />
+
+    <g data-id="javac">
+      <line class="line" x1="110" y1="32" x2="206" y2="32" marker-end="url(#jrf-arr)" />
+      <text class="sub" x="158" y="20">javac</text>
+    </g>
+
+    <g data-id="class">
+      <rect class="box" x="212" y="6" width="100" height="52" rx="8" />
+      <text x="262" y="24">Hello.class</text>
+      <text class="sub" x="262" y="44">바이트코드</text>
+    </g>
+    <rect data-id="hl-class" class="hl" x="209" y="3" width="106" height="58" rx="10" />
+
+    <g data-id="jvm">
+      <line class="line" x1="262" y1="60" x2="262" y2="92" marker-end="url(#jrf-arr)" />
+      <text class="sub l" x="160" y="76">java Hello</text>
+      <rect class="frame" x="8" y="96" width="304" height="456" rx="10" />
+      <text x="40" y="114" style="font-weight:700">JVM</text>
+    </g>
+    <rect data-id="hl-jvm" class="hl" x="5" y="93" width="310" height="462" rx="12" />
+
+    <!-- ① 클래스로더: 부모에게 먼저 위임 -->
+    <g data-id="loader">
+      <rect class="box" x="18" y="126" width="284" height="92" rx="8" />
+      <text class="l" x="28" y="144">① 클래스로더</text>
+      {['앱', '플랫폼', '부트스트랩'].map((t, i) => (
+        <g>
+          <rect class="chip" x={chipX[i]} y="160" width="80" height="30" rx="6" />
+          <text x={chipX[i] + 40} y="175" style="font-size:14px">{t}</text>
+        </g>
+      ))}
+      <line class="line" x1="106" y1="175" x2="119" y2="175" marker-end="url(#jrf-arr)" />
+      <line class="line" x1="200" y1="175" x2="213" y2="175" marker-end="url(#jrf-arr)" />
+      <text class="sub" x="160" y="204">부모에게 먼저 물어봄 →</text>
+    </g>
+    <rect data-id="hl-loader" class="hl" x="15" y="123" width="290" height="98" rx="10" />
+
+    <!-- ② 링킹 -->
+    <g data-id="link">
+      <rect class="box" x="18" y="230" width="284" height="92" rx="8" />
+      <text class="l" x="28" y="248">② 링킹</text>
+      {['검증', '준비', '해석'].map((t, i) => (
+        <g>
+          <rect class="chip" x={chipX[i]} y="264" width="80" height="30" rx="6" />
+          <text x={chipX[i] + 40} y="279" style="font-size:14px">{t}</text>
+        </g>
+      ))}
+      <line class="line" x1="106" y1="279" x2="119" y2="279" marker-end="url(#jrf-arr)" />
+      <line class="line" x1="200" y1="279" x2="213" y2="279" marker-end="url(#jrf-arr)" />
+      <text class="sub" x="160" y="308">준비: static 필드 = 0, null</text>
+    </g>
+    <rect data-id="hl-link" class="hl" x="15" y="227" width="290" height="98" rx="10" />
+
+    <!-- ③ 초기화 -->
+    <g data-id="init">
+      <rect class="box" x="18" y="334" width="284" height="64" rx="8" />
+      <text class="l" x="28" y="352">③ 초기화</text>
+      <text class="sub" x="160" y="380">static 필드 = 소스에 적은 값</text>
+    </g>
+    <rect data-id="hl-init" class="hl" x="15" y="331" width="290" height="70" rx="10" />
+
+    <!-- ④ 실행 엔진 -->
+    <g data-id="engine">
+      <rect class="box" x="18" y="410" width="284" height="132" rx="8" />
+      <text class="l" x="28" y="428">④ 실행 엔진</text>
+      <rect class="chip" x="26" y="444" width="128" height="60" rx="6" />
+      <text x="90" y="462">인터프리터</text>
+      <text class="sub" x="90" y="487">한 줄씩 실행</text>
+      <rect class="chip" x="166" y="444" width="128" height="60" rx="6" />
+      <text x="230" y="462">JIT 컴파일러</text>
+      <text class="sub" x="230" y="487">자주 도는 코드</text>
+      <text class="sub" x="160" y="525">→ 기계어로 바꿔 저장, 다음부턴 빠르게</text>
+    </g>
+    <rect data-id="hl-engine" class="hl" x="15" y="407" width="290" height="138" rx="10" />
+  </svg>
+</Stepper>

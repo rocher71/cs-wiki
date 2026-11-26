@@ -1,0 +1,91 @@
+---
+// Eden → Survivor 왕복 → Old 승격 → Full GC. 같은 객체를 위치별로 따로 그려 data-id로 켜고 끈다.
+import Stepper from '../Stepper.astro';
+type O = { x: number; y: number; t: string; age?: string };
+const E = 92, S = 202, O1 = 326, O2 = 392; // 행 y: Eden, Survivor, Old 1·2줄
+const ex = [46, 102, 158, 214, 270];
+const groups: { id: string; items: O[]; dim?: boolean }[] = [
+  { id: 'o1', items: ['A', 'B', 'C', 'D', 'E'].map((t, i) => ({ x: ex[i], y: E, t })) },
+  { id: 's0a', items: [{ x: 56, y: S, t: 'A', age: 'age 1' }, { x: 116, y: S, t: 'C', age: 'age 1' }] },
+  { id: 'o2', items: ['F', 'G', 'H'].map((t, i) => ({ x: ex[i], y: E, t })) },
+  { id: 's1a', items: [{ x: 206, y: S, t: 'A', age: 'age 2' }, { x: 266, y: S, t: 'F', age: 'age 1' }] },
+  { id: 'oldA', items: [{ x: 46, y: O1, t: 'A', age: 'age 15' }] },
+  { id: 'oldfull', dim: true, items: [102, 158, 214, 270].map((x) => ({ x, y: O1, t: '' })).concat(ex.map((x) => ({ x, y: O2, t: '' }))) },
+];
+// 표시: ok=살아남음(✓), 아니면 회수 대상(✗)
+const marks: { id: string; items: { x: number; y: number; ok: boolean }[] }[] = [
+  { id: 'mark1', items: ex.map((x, i) => ({ x, y: E, ok: i === 0 || i === 2 })) },
+  { id: 'mark2', items: [{ x: 56, y: S, ok: true }, { x: 116, y: S, ok: false }].concat(ex.slice(0, 3).map((x, i) => ({ x, y: E, ok: i === 0 }))) },
+];
+const steps = [
+  { caption: 'new로 만든 객체들이 Eden에 쌓여요.', show: ['o1', 'hl-eden'] },
+  { caption: 'Eden이 가득 차면 Minor GC가 시작되고 앱이 잠깐 멈춰요(STW). GC Root에서 닿는 객체(✓)만 살려요.', show: ['o1', 'mark1', 'efull', 'stw', 'hl-eden'] },
+  { caption: '살아남은 A, C만 S0로 복사하고(age 1), Eden은 통째로 비워요. S1은 비어 있어요.', show: ['s0a', 'hl-s0'] },
+  { caption: '다시 Eden이 차면 또 Minor GC. 이번엔 Eden과 S0 양쪽에서 살아 있는 객체를 골라요.', show: ['o2', 's0a', 'mark2', 'efull', 'stw', 'hl-eden', 'hl-s0'] },
+  { caption: '살아남은 A, F를 S1로 복사하고(age +1), Eden과 S0는 비워요. 이제 S0가 빈 쪽이에요.', show: ['s1a', 'hl-s1'] },
+  { caption: '이 왕복을 반복해 age가 임계값(최대 15)에 닿으면 Old로 승격돼요.', show: ['oldA', 'promo', 'hl-old'] },
+  { caption: 'Old까지 가득 차면 전체 힙을 보는 큰 GC(Full GC)가 일어나고, 훨씬 오래 멈춰요.', show: ['oldA', 'oldfull', 'full', 'hl-all'] },
+];
+---
+<Stepper title="Minor GC와 객체의 나이(age)" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 476" role="img" aria-label="Young 영역에서 Old 영역으로 객체가 이동하는 과정">
+    <!-- 영역(항상 보임) -->
+    <rect class="frame" x="6" y="6" width="308" height="254" rx="10" />
+    <text class="l" x="16" y="22" style="font-weight:700">Young</text>
+    <rect class="box" x="16" y="34" width="288" height="96" rx="8" />
+    <text class="l" x="26" y="50">Eden</text>
+    <rect class="box" x="16" y="142" width="140" height="108" rx="8" />
+    <text class="l" x="26" y="158">S0</text>
+    <text class="sub l" x="50" y="158">Survivor</text>
+    <rect class="box" x="164" y="142" width="140" height="108" rx="8" />
+    <text class="l" x="174" y="158">S1</text>
+    <text class="sub l" x="198" y="158">Survivor</text>
+    <rect class="box" x="16" y="272" width="288" height="152" rx="8" />
+    <text class="l" x="26" y="288" style="font-weight:700">Old</text>
+
+    <text data-id="efull" class="sub hide" x="290" y="50" style="text-anchor:end">가득 참!</text>
+
+    {groups.map((g) => (
+      <g data-id={g.id} class="hide">
+        {g.items.map((o) => (
+          <g>
+            <circle class={g.dim ? 'box' : 'chip'} cx={o.x} cy={o.y} r="17" />
+            {o.t && <text x={o.x} y={o.y}>{o.t}</text>}
+            {o.age && <text class="sub" x={o.x} y={o.y + 30}>{o.age}</text>}
+          </g>
+        ))}
+      </g>
+    ))}
+
+    {marks.map((m) => (
+      <g data-id={m.id} class="hide">
+        {m.items.map((k) => (
+          <g>
+            <circle class={k.ok ? 'badge' : 'bad'} cx={k.x + 15} cy={k.y - 15} r="9" />
+            <text class={k.ok ? 'on-badge' : 'sub'} x={k.x + 15} y={k.y - 14} style="font-size:13px">{k.ok ? '✓' : '✗'}</text>
+          </g>
+        ))}
+      </g>
+    ))}
+
+    <g data-id="promo" class="hide">
+      <text class="sub l" x="74" y={O1}>← 오래 살아남아 승격</text>
+    </g>
+
+    <!-- 멈춤 배지: Minor는 짧게, Full은 길게 -->
+    <g data-id="stw" class="hide">
+      <rect class="badge" x="16" y="436" width="250" height="32" rx="16" />
+      <text class="on-badge" x="141" y="452">Minor GC · 잠깐 멈춤(STW)</text>
+    </g>
+    <g data-id="full" class="hide">
+      <rect class="badge" x="16" y="436" width="288" height="32" rx="16" />
+      <text class="on-badge" x="160" y="452">Full GC · 전체 힙 · 긴 멈춤(STW)</text>
+    </g>
+
+    <rect data-id="hl-eden" class="hl" x="13" y="31" width="294" height="102" rx="10" />
+    <rect data-id="hl-s0" class="hl" x="13" y="139" width="146" height="114" rx="10" />
+    <rect data-id="hl-s1" class="hl" x="161" y="139" width="146" height="114" rx="10" />
+    <rect data-id="hl-old" class="hl" x="13" y="269" width="294" height="158" rx="10" />
+    <rect data-id="hl-all" class="hl" x="3" y="3" width="314" height="428" rx="12" />
+  </svg>
+</Stepper>

@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.astro/
+.DS_Store
+# 저작권 자료는 절대 커밋 금지
+*.pdf

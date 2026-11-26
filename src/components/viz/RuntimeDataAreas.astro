@@ -1,0 +1,68 @@
+---
+// 런타임 데이터 영역: 공유(힙, 메서드 영역) vs 스레드별(PC, JVM 스택, 네이티브 스택)
+import Stepper from '../Stepper.astro';
+const steps = [
+  { caption: '실행 중 쓰는 메모리 중 힙과 메서드 영역은 모든 스레드가 함께 써요.', show: ['shared', 'hl-shared'] },
+  { caption: 'PC 레지스터, JVM 스택, 네이티브 스택은 스레드마다 따로 있어요.', show: ['shared', 'thr', 'hl-thr'] },
+  { caption: 'main()이 foo()를 부르면 스택에 프레임이 2개 쌓여요. new User()는 힙에, 변수 u(참조)는 foo 프레임에 있어요.', show: ['shared', 'thr', 'frames', 'user', 'ref'] },
+];
+const cols = [{ x: 16, name: '스레드 1 (main)' }, { x: 166, name: '스레드 2' }];
+---
+<Stepper title="JVM 메모리: 공유 vs 스레드별" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 470" role="img" aria-label="JVM 런타임 데이터 영역">
+    <defs>
+      <marker id="rda-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+    </defs>
+
+    <g data-id="shared">
+      <rect class="frame" x="6" y="6" width="308" height="168" rx="10" />
+      <text class="l" x="16" y="24" style="font-weight:700">모든 스레드가 공유</text>
+      <rect class="box" x="16" y="40" width="180" height="124" rx="8" />
+      <text x="106" y="58">힙 (객체·배열)</text>
+      <text class="sub" x="106" y="82">static 변수·문자열 풀</text>
+      <rect class="box" x="204" y="40" width="100" height="124" rx="8" />
+      <text x="254" y="70">메서드</text>
+      <text x="254" y="90">영역</text>
+      <text class="sub" x="254" y="120">클래스 정보</text>
+      <text class="sub" x="254" y="142">(Metaspace)</text>
+    </g>
+    <rect data-id="hl-shared" class="hl" x="3" y="3" width="314" height="174" rx="12" />
+
+    <g data-id="thr">
+      <rect class="frame" x="6" y="186" width="308" height="278" rx="10" />
+      <text class="l" x="16" y="204" style="font-weight:700">스레드마다 따로</text>
+      {cols.map((c) => (
+        <g>
+          <text x={c.x + 69} y="226" style="font-size:14px">{c.name}</text>
+          <rect class="box" x={c.x} y="240" width="138" height="30" rx="6" />
+          <text class="sub" x={c.x + 69} y="255">PC 레지스터</text>
+          <rect class="box" x={c.x} y="278" width="138" height="132" rx="6" />
+          <text class="sub" x={c.x + 69} y="396">JVM 스택</text>
+          <rect class="box" x={c.x} y="418" width="138" height="36" rx="6" />
+          <text class="sub" x={c.x + 69} y="436">네이티브 스택</text>
+        </g>
+      ))}
+    </g>
+    <rect data-id="hl-thr" class="hl" x="3" y="183" width="314" height="284" rx="12" />
+
+    <!-- 스택 프레임: 아래 main, 위에 foo -->
+    <g data-id="frames" class="hide">
+      <rect class="chip" x="24" y="286" width="122" height="54" rx="5" />
+      <text x="56" y="300" style="font-size:14px">foo()</text>
+      <rect class="box" x="34" y="314" width="102" height="20" rx="4" />
+      <text x="85" y="324" style="font-size:14px">u = 참조</text>
+      <rect class="box" x="24" y="346" width="122" height="30" rx="5" />
+      <text x="85" y="361" style="font-size:14px">main()</text>
+    </g>
+
+    <g data-id="user" class="hide">
+      <rect class="chip" x="66" y="104" width="80" height="34" rx="6" />
+      <text x="106" y="121">User</text>
+    </g>
+
+    <!-- u → 힙의 User 객체 -->
+    <path data-id="ref" class="hide" d="M136 324 C 160 300, 160 180, 124 142" fill="none" stroke="var(--sl-color-accent)" stroke-width="2" marker-end="url(#rda-arr)" />
+  </svg>
+</Stepper>
