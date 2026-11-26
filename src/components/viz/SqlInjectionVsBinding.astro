@@ -1,0 +1,87 @@
+---
+// SQL 인젝션: 같은 입력을 A(문자열 연결)과 B(파라미터 바인딩)에 보냈을 때 SQL 구조와 결과가 어떻게 다른지.
+// A·B 장면은 같은 자리에 번갈아 나오므로 class "hide".
+import Stepper from '../Stepper.astro';
+const steps = [
+  { caption: "아이디 칸에 alice, 비밀번호 칸에 ' OR '1'='1 을 넣었어요. 같은 입력을 두 방식(A. 문자열 연결, B. 바인딩)에 보내 볼게요.", show: ['base'] },
+  { caption: "[A. 문자열 연결] 서버가 \"... pw='\" + 입력 + \"'\" 로 SQL 문자열을 완성해요. 사용자가 넣은 글자(색칠한 부분)가 SQL 문장 안에 그대로 섞였어요.", show: ['base', 'a-sql'] },
+  { caption: "DB 파서가 문장을 쪼개요. 입력의 첫 ' 가 비밀번호 문자열을 닫아 pw='' 는 빈 값이 되고, 뒤의 OR '1'='1' 은 SQL 조건이 돼요. 데이터가 코드가 된 거예요.", show: ['base', 'a-sql', 'a-parse'] },
+  { caption: "AND가 먼저 묶여 (name='alice' AND pw='') OR '1'='1' 로 읽혀요. 뒤쪽이 항상 참이라 WHERE 전체가 참 → 3행이 전부 나와요.", show: ['base', 'a-sql', 'a-parse', 'a-res'] },
+  { caption: "[B. 바인딩] 서버는 값 자리를 ? 로 비워 둔 틀만 먼저 보내요. DB는 이때 문장 구조를 확정해요.", show: ['base', 'b-sql'] },
+  { caption: "값은 따로 보내요. 2번 ? 자리에 ' OR '1'='1 이 통째로 문자열 하나로 들어가요. 따옴표도 그냥 글자예요.", show: ['base', 'b-sql', 'b-val'] },
+  { caption: "DB는 구조를 다시 해석하지 않고, 비밀번호가 정확히 그 글자인 사용자를 찾아요. 그런 사용자는 없으니 0행이에요.", show: ['base', 'b-sql', 'b-val', 'b-res'] },
+];
+const mono = 'font-family:var(--sl-font-mono, monospace)';
+const arrow = 'stroke:var(--sl-color-gray-3);stroke-width:2;fill:none';
+---
+<Stepper title="같은 입력, 문자열 연결 vs 바인딩" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 404" role="img" aria-label="비밀번호 칸에 따옴표가 든 입력을 넣었을 때, 문자열 연결 방식은 SQL 조건이 바뀌어 3행이 나오고 바인딩 방식은 값으로만 비교돼 0행이 나오는 과정">
+    <defs>
+      <marker id="sib-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+
+    <g data-id="base">
+      <rect class="box" x="6" y="6" width="308" height="62" rx="8" />
+      <text class="l" x="16" y="24">아이디: <tspan style={mono}>alice</tspan></text>
+      <text class="l" x="16" y="50">비밀번호: <tspan class="hi" style={mono}>' OR '1'='1</tspan></text>
+      <line x1="160" y1="70" x2="160" y2="90" style={arrow} marker-end="url(#sib-a)" />
+      <rect class="frame" x="6" y="94" width="308" height="170" rx="8" />
+      <line x1="160" y1="266" x2="160" y2="286" style={arrow} marker-end="url(#sib-a)" />
+      <rect class="frame" x="6" y="290" width="308" height="108" rx="8" />
+      <text class="sub" x="160" y="306">DB가 돌려준 결과</text>
+    </g>
+
+    <!-- A. 문자열 연결 -->
+    <g data-id="a-sql" class="hide">
+      <text class="l" x="16" y="112" style="font-weight:700">A. 문자열 연결 (+)</text>
+      <text class="mono l" x="16" y="138">SELECT id, name FROM users</text>
+      <text class="mono l" x="16" y="160">WHERE name='alice'</text>
+      <text class="mono l" x="32" y="182">AND pw='<tspan class="hi">' OR '1'='1</tspan>'</text>
+      <text class="sub l" x="16" y="204">색칠 = 사용자가 넣은 글자</text>
+    </g>
+    <g data-id="a-parse" class="hide">
+      <rect class="chip" x="16" y="216" width="116" height="20" rx="4" />
+      <text class="mono" x="74" y="226">pw=''</text>
+      <text class="l" x="142" y="226">값 (빈 문자열)</text>
+      <rect class="err" x="16" y="240" width="116" height="20" rx="4" />
+      <text class="mono" x="74" y="250">OR '1'='1'</text>
+      <text class="err-t l" x="142" y="250">조건 = SQL 코드!</text>
+    </g>
+    <g data-id="a-res" class="hide">
+      <text class="l" x="16" y="328">(거짓) OR 참 → <tspan class="err-t">항상 참</tspan></text>
+      <rect class="box" x="16" y="342" width="90" height="26" rx="4" />
+      <text class="mono" x="61" y="355">alice</text>
+      <rect class="box" x="115" y="342" width="90" height="26" rx="4" />
+      <text class="mono" x="160" y="355">bob</text>
+      <rect class="box" x="214" y="342" width="90" height="26" rx="4" />
+      <text class="mono" x="259" y="355">carol</text>
+      <text class="err-t" x="160" y="384">3행 반환 → 비밀번호 없이 로그인</text>
+    </g>
+
+    <!-- B. 바인딩 -->
+    <g data-id="b-sql" class="hide">
+      <text class="l" x="16" y="112" style="font-weight:700">B. 바인딩 (?)</text>
+      <text class="mono l" x="16" y="138">SELECT id, name FROM users</text>
+      <text class="mono l" x="16" y="160">WHERE name=<tspan class="hi">?</tspan> AND pw=<tspan class="hi">?</tspan></text>
+      <text class="hi l" x="16" y="186">① 틀만 먼저 → 구조 확정</text>
+    </g>
+    <g data-id="b-val" class="hide">
+      <text class="l" x="16" y="210">② 값은 따로</text>
+      <text class="sub l" x="16" y="232">1번 ?</text>
+      <rect class="chip" x="68" y="222" width="124" height="20" rx="4" />
+      <text class="mono" x="130" y="232">alice</text>
+      <text class="sub l" x="16" y="254">2번 ?</text>
+      <rect class="chip" x="68" y="244" width="124" height="20" rx="4" />
+      <text class="mono" x="130" y="254">' OR '1'='1</text>
+      <text class="sub l" x="200" y="254">= 글자 덩어리</text>
+    </g>
+    <g data-id="b-res" class="hide">
+      <text class="l" x="16" y="328">비밀번호가 그 글자인 사용자?</text>
+      <rect class="bad" x="16" y="342" width="288" height="26" rx="4" />
+      <text class="sub" x="160" y="355">(일치하는 행 없음)</text>
+      <text class="hi" x="160" y="384">0행 반환 → 로그인 실패</text>
+    </g>
+  </svg>
+</Stepper>

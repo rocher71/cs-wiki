@@ -1,0 +1,71 @@
+---
+// 할인 함수 discount(price)를 TDD로: 테스트 목록 → 레드 → 그린 → 레드 → 그린 → 리팩터 → 경계값.
+// 상태 글자(s*), 구현 코드(c*), 단계 강조(p*·r*)는 같은 자리에 번갈아 나와서 class="hide".
+import Stepper from '../Stepper.astro';
+
+const tests = ['discount(20000) == 2000', 'discount(5000) == 0', 'discount(10000) == 1000'];
+// 단계별 테스트 3개 상태: 0 목록만, 1 실패, 2 통과
+const st = [[0, 0, 0], [1, 0, 0], [2, 0, 0], [2, 1, 0], [2, 2, 0], [2, 2, 0], [2, 2, 2]];
+const label = ['목록', '실패 ✗', '통과 ✓'];
+const code = [0, 0, 1, 1, 2, 3, 3]; // 단계별 구현 버전
+const phase = ['', 'R', 'G', 'R', 'G', 'F', 'G'];
+const row = [0, 1, 1, 2, 2, 0, 3]; // 단계별 강조할 테스트 줄(0이면 없음)
+const caps = [
+  '먼저 테스트 목록을 적어요. 1만 원 이상이면 10% 할인, 1만 원 미만이면 할인 없음, 정확히 1만 원이면 할인. 아직 코드는 없어요.',
+  '레드: 목록에서 하나만 골라 테스트로 써요. discount 함수가 아직 없으니 실패해요. 실패하는 걸 꼭 눈으로 확인해요.',
+  '그린: 이 테스트만 통과하게 가장 단순하게 써요. return price / 10 한 줄이면 2000이 나와서 통과해요.',
+  '레드: 다음 사례 5000원 → 0원을 테스트로 추가해요. 지금 코드는 500을 돌려주니 실패해요. 첫 테스트는 여전히 통과예요.',
+  '그린: if로 1만 원 이상일 때만 할인하게 고쳐요. 두 테스트 모두 통과해요. 지저분해도 괜찮아요.',
+  '리팩터: 테스트를 초록으로 둔 채 10000, 10 같은 숫자를 MIN_PRICE, RATE 상수로 바꿔요. 동작은 그대로라 테스트도 그대로 통과예요.',
+  '마지막 사례인 경계값(정확히 1만 원)을 추가해요. >= 덕분에 바로 통과하네요. 목록이 비었으니 이번 기능은 끝이에요.',
+];
+const steps = caps.map((caption, i) => ({
+  caption,
+  show: ['base', `s${i}`, `c${code[i]}`, ...(phase[i] ? [`p${phase[i]}`] : ['pL']), ...(row[i] ? [`r${row[i]}`] : [])],
+}));
+const PH = [
+  { id: 'R', x: 6, t: '레드', s: '실패 확인', cls: 'err' },
+  { id: 'G', x: 110, t: '그린', s: '최소 구현', cls: 'grn' },
+  { id: 'F', x: 214, t: '리팩터', s: '정리', cls: 'chip' },
+];
+const TY = (k: number) => 100 + k * 26;
+const IY = (k: number) => 228 + k * 24;
+// 구현 버전별 코드 줄. hi: 이번에 바뀐 줄
+const impl = [
+  [{ t: '// 아직 없음 → 컴파일 실패', hi: false }],
+  [{ t: 'return price / 10;', hi: true }],
+  [{ t: 'if (price >= 10000)', hi: true }, { t: '  return price / 10;', hi: false }, { t: 'return 0;', hi: true }],
+  [{ t: '// MIN_PRICE=10000, RATE=10', hi: true }, { t: 'if (price >= MIN_PRICE)', hi: true }, { t: '  return price*RATE/100;', hi: true }, { t: 'return 0;', hi: false }],
+];
+---
+<Stepper title="TDD 한 바퀴: 할인 함수 만들기" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 334" role="img" aria-label="discount 함수를 TDD로 만든다. 2만 원 테스트가 실패하고, price / 10으로 통과시킨다. 5천 원 테스트가 실패하고, if로 1만 원 이상만 할인해 통과시킨다. 숫자를 상수로 바꿔 정리하고, 정확히 1만 원 경계값 테스트도 통과하면 끝.">
+    <g data-id="base">
+      {PH.map((p) => <>
+        <rect class={p.cls} x={p.x} y="8" width="100" height="46" rx="7" />
+        <text x={p.x + 50} y="24" style="font-weight:700">{p.t}</text>
+        <text class="sub" x={p.x + 50} y="42">{p.s}</text>
+      </>)}
+      <rect class="box" x="6" y="68" width="308" height="100" rx="7" />
+      <text class="l sub" x="16" y="82">테스트 (기대값)</text>
+      {tests.map((t, k) => <text class="l mono" x="16" y={TY(k)}>{t}</text>)}
+      <rect class="box" x="6" y="182" width="308" height="144" rx="7" />
+      <text class="l sub" x="16" y="198">int discount(int price)</text>
+    </g>
+    {PH.map((p) => <rect data-id={'p' + p.id} class="hl hide" x={p.x - 3} y="5" width="106" height="52" rx="9" />)}
+    <rect data-id="pL" class="hl hide" x="3" y="65" width="314" height="106" rx="9" />
+    {[1, 2, 3].map((k) => <rect data-id={'r' + k} class="hl hide" x="9" y={TY(k - 1) - 12} width="302" height="24" rx="5" />)}
+
+    {st.map((s, i) => <g data-id={'s' + i} class="hide">
+      {s.map((v, k) => <text class={v === 1 ? 'err-t' : v === 2 ? 'hi' : 'sub'} x="306" y={TY(k)} style="text-anchor:end">{label[v]}</text>)}
+    </g>)}
+
+    {impl.map((lines, v) => <g data-id={'c' + v} class="hide">
+      {lines.map((ln, k) => <text class={ln.hi ? 'l mono hi' : 'l mono'} x="16" y={IY(k)} style="white-space:pre">{ln.t}</text>)}
+    </g>)}
+  </svg>
+</Stepper>
+
+<style>
+  svg :global(.grn) { fill: var(--sl-color-green-low); stroke: var(--sl-color-green); stroke-width: 1.2; }
+</style>

@@ -1,0 +1,85 @@
+---
+// 저장형 XSS: 공격자 댓글이 DB에 저장 → 피해자 브라우저가 태그로 해석해 실행 / 방어 시 글자로만 표시.
+import Stepper from '../Stepper.astro';
+const steps = [
+  { caption: '공격자가 댓글 칸에 글 대신 HTML 태그를 적어 올려요. 이미지 로딩이 실패하면(onerror) 스크립트가 돌게 만든 태그예요.', show: ['base', 'pay', 'post'] },
+  { caption: '서버는 아무 검사 없이 그 글자를 DB에 그대로 저장해요. 아직 아무 일도 안 일어났어요.', show: ['base', 'pay', 'post', 'store'] },
+  { caption: '다른 사용자(피해자)가 글을 열어요. 서버는 댓글을 이스케이프하지 않고 HTML 안에 그대로 끼워 보내요.', show: ['base', 'pay', 'post', 'store', 'req', 'resp', 'resp-raw'] },
+  { caption: '피해자 브라우저는 그 글자를 진짜 태그로 해석해요. 이미지가 없으니 onerror가 실행돼요. 우리 사이트 출처에서 돈 스크립트라 브라우저는 믿어요.', show: ['base', 'pay', 'post', 'store', 'req', 'resp', 'resp-raw', 'run'] },
+  { caption: '스크립트는 피해자 권한으로 API를 부르고(글 쓰기·송금·화면 조작), 읽을 수 있는 쿠키·토큰을 evil.example로 보낼 수 있어요.', show: ['base', 'pay', 'post', 'store', 'req', 'resp', 'resp-raw', 'run', 'abuse'] },
+  { caption: '방어: 출력할 때 th:text처럼 인코딩하면 < 가 &lt; 로 바뀌어 화면에 글자로만 보여요. 한 겹 더, CSP가 인라인 onerror 실행을 막아요.', show: ['base', 'pay', 'post', 'store', 'req', 'resp', 'resp-enc', 'safe', 'def'] },
+];
+const halo = 'paint-order:stroke;stroke:var(--sl-color-gray-7, var(--sl-color-black));stroke-width:5px;stroke-linejoin:round';
+const acc = 'stroke:var(--sl-color-accent);stroke-width:2.4;fill:none';
+const red = 'stroke:var(--sl-color-red);stroke-width:2.4;fill:none';
+---
+<Stepper title="저장형 XSS: 댓글이 코드로 실행되기까지" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 380" role="img" aria-label="공격자가 태그가 든 댓글을 저장하고, 피해자가 글을 열면 브라우저가 태그를 실행하는 순서와, 출력 인코딩으로 글자로만 보이게 막는 모습">
+    <defs>
+      <marker id="sxf-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+      <marker id="sxf-r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-red)" />
+      </marker>
+    </defs>
+    <g data-id="base">
+      <rect class="box" x="4" y="6" width="92" height="36" rx="8" />
+      <text x="50" y="24" style="font-weight:700">공격자</text>
+      <rect class="box" x="114" y="6" width="92" height="36" rx="8" />
+      <text x="160" y="24" style="font-weight:700">서버·DB</text>
+      <rect class="box" x="224" y="6" width="92" height="36" rx="8" />
+      <text x="270" y="24" style="font-weight:700">피해자</text>
+      <line class="line" x1="50" y1="44" x2="50" y2="374" style="stroke-dasharray:4 4" />
+      <line class="line" x1="160" y1="44" x2="160" y2="374" style="stroke-dasharray:4 4" />
+      <line class="line" x1="270" y1="44" x2="270" y2="374" style="stroke-dasharray:4 4" />
+    </g>
+    <g data-id="pay">
+      <rect class="err" x="4" y="52" width="262" height="26" rx="5" />
+      <text class="mono" x="135" y="65">&lt;img src=x onerror=…&gt;</text>
+    </g>
+    <g data-id="post">
+      <line x1="50" y1="100" x2="156" y2="100" style={acc} marker-end="url(#sxf-a)" />
+      <text x="104" y="88" style={`font-size:14px;${halo}`}>댓글 등록</text>
+    </g>
+    <g data-id="store">
+      <rect class="chip" x="114" y="110" width="92" height="44" rx="6" />
+      <text x="160" y="124" style="font-size:14px">DB에</text>
+      <text x="160" y="142" style="font-size:14px">그대로 저장</text>
+    </g>
+    <g data-id="req">
+      <line x1="270" y1="180" x2="164" y2="180" style={acc} marker-end="url(#sxf-a)" />
+      <text x="216" y="168" style={`font-size:14px;${halo}`}>글 열기</text>
+    </g>
+    <g data-id="resp">
+      <line x1="160" y1="212" x2="266" y2="212" style={acc} marker-end="url(#sxf-a)" />
+    </g>
+    <g data-id="resp-raw" class="hide">
+      <text class="err-t" x="214" y="226" style={`font-size:14px;${halo}`}>태그 그대로</text>
+    </g>
+    <g data-id="resp-enc" class="hide">
+      <text class="hi" x="214" y="226" style={`font-size:14px;${halo}`}>&amp;lt; 로 인코딩</text>
+    </g>
+    <g data-id="run" class="hide">
+      <rect class="err" x="196" y="240" width="120" height="44" rx="6" />
+      <text class="err-t" x="256" y="254" style="font-size:14px">태그로 해석</text>
+      <text class="err-t" x="256" y="272" style="font-size:14px">onerror 실행!</text>
+    </g>
+    <g data-id="safe" class="hide">
+      <rect class="chip" x="196" y="240" width="120" height="44" rx="6" />
+      <text x="256" y="254" style="font-size:14px">글자로만 표시</text>
+      <text class="mono" x="256" y="272">&lt;img src=x…</text>
+    </g>
+    <g data-id="abuse" class="hide">
+      <line x1="270" y1="306" x2="164" y2="306" style={red} marker-end="url(#sxf-r)" />
+      <text class="err-t" x="216" y="320" style={`font-size:14px;${halo}`}>피해자 권한 API</text>
+      <line x1="270" y1="348" x2="54" y2="348" style={red} marker-end="url(#sxf-r)" />
+      <text class="err-t" x="160" y="362" style={`font-size:14px;${halo}`}>쿠키·토큰 → evil.example</text>
+    </g>
+    <g data-id="def" class="hide">
+      <rect class="chip" x="10" y="300" width="300" height="60" rx="6" />
+      <text x="160" y="318" style="font-size:14px">방어 ① 출력 인코딩(th:text)</text>
+      <text x="160" y="342" style="font-size:14px">방어 ② CSP로 인라인 실행 차단</text>
+    </g>
+  </svg>
+</Stepper>

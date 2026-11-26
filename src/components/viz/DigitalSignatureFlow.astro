@@ -1,0 +1,95 @@
+---
+// 전자서명: 문서 해시 → 개인키로 서명 → 문서+서명 전송 → 받는 쪽 재해시 + 공개키 검증 → 지문 비교. 변조되면 실패. 값은 짧게 줄인 예시.
+import Stepper from '../Stepper.astro';
+const send = ['hdrS', 'doc', 'h1', 'sig', 'send'];
+const steps = [
+  { caption: '보내는 쪽: 문서를 SHA-256으로 해시해 지문(a3f9…)을 만들어요. 문서가 아무리 길어도 지문은 32바이트예요.', show: ['hdrS', 'doc', 'h1'] },
+  { caption: '그 지문을 내 개인키로 서명해요. 결과가 서명값(Sg7k…)이에요. 개인키는 나만 갖고 있어서 이 서명은 나만 만들 수 있어요.', show: ['hdrS', 'doc', 'h1', 'sig'] },
+  { caption: '문서와 서명을 함께 보내요. 개인키는 보내지 않아요. 받는 쪽은 내 공개키만 갖고 있어요.', show: [...send, 'rOk'] },
+  { caption: '받는 쪽: 받은 문서를 똑같이 SHA-256으로 해시해 지문′을 직접 계산해요.', show: [...send, 'rOk', 'h2', 'fpOk'] },
+  { caption: '보낸 사람의 공개키로 서명을 검증해요. 서명이 어떤 지문(a3f9…)에 찍혔는지 확인하는 단계예요. (쉽게 그린 그림이에요. 실제로는 지문′·서명·공개키를 넣으면 "맞다/아니다"만 나와요.)', show: [...send, 'rOk', 'h2', 'fpOk', 'ver'] },
+  { caption: '두 지문이 같아요. 문서가 안 바뀌었고(무결성), 개인키 주인이 서명했다(인증·부인 방지)는 게 확인돼요.', show: [...send, 'rOk', 'h2', 'fpOk', 'ver', 'ok'] },
+  { caption: '만약 중간에 누가 900만원으로 바꾸면 지문′이 7c2e…로 달라져요. 서명 속 지문과 안 맞으니 검증 실패예요. 개인키가 없으니 서명을 새로 만들어 끼울 수도 없어요.', show: [...send, 'rBad', 'h2', 'fpBad', 'ver', 'ng'] },
+];
+const acc = 'stroke:var(--sl-color-accent);stroke-width:2.4;fill:none';
+---
+<Stepper title="전자서명: 개인키로 찍고 공개키로 확인" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 440" role="img" aria-label="보내는 쪽이 문서 해시를 개인키로 서명해 문서와 함께 보내고, 받는 쪽이 문서를 다시 해시하고 공개키로 서명을 검증해 두 지문을 비교하는 과정. 문서가 바뀌면 지문이 달라 검증에 실패한다">
+    <defs>
+      <marker id="dsf-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+    </defs>
+    <!-- 보내는 쪽 -->
+    <text data-id="hdrS" class="l" x="10" y="14" style="font-weight:700">보내는 쪽 (개인키 보유)</text>
+    <g data-id="doc">
+      <rect class="box" x="10" y="28" width="110" height="44" rx="8" />
+      <text class="sub" x="65" y="41">문서</text>
+      <text x="65" y="60">100만원 송금</text>
+    </g>
+    <g data-id="h1">
+      <line x1="122" y1="50" x2="206" y2="50" style={acc} marker-end="url(#dsf-a)" />
+      <text class="mono" x="164" y="38">SHA-256</text>
+      <rect class="chip" x="210" y="28" width="100" height="44" rx="8" />
+      <text class="sub" x="260" y="41">지문</text>
+      <text class="mono hi" x="260" y="60">a3f9…</text>
+    </g>
+    <g data-id="sig">
+      <line x1="260" y1="72" x2="260" y2="100" style={acc} marker-end="url(#dsf-a)" />
+      <text class="hi" x="252" y="86" style="text-anchor:end">개인키로 서명</text>
+      <rect class="chip" x="210" y="102" width="100" height="44" rx="8" />
+      <text class="sub" x="260" y="115">서명</text>
+      <text class="mono hi" x="260" y="134">Sg7k…</text>
+    </g>
+
+    <!-- 전송 -->
+    <g data-id="send">
+      <line class="line" x1="65" y1="72" x2="65" y2="242" marker-end="url(#dsf-a)" />
+      <line class="line" x1="260" y1="146" x2="260" y2="242" marker-end="url(#dsf-a)" />
+      <text x="162" y="180">문서 + 서명 전송</text>
+      <line class="line" x1="0" y1="222" x2="320" y2="222" style="stroke-dasharray:4 4" />
+      <text class="l" x="78" y="234" style="font-weight:700">받는 쪽 (공개키만 있음)</text>
+      <rect class="box" x="10" y="246" width="110" height="44" rx="8" />
+      <text class="sub" x="65" y="259">받은 문서</text>
+      <rect class="box" x="210" y="246" width="100" height="44" rx="8" />
+      <text class="sub" x="260" y="259">받은 서명</text>
+      <text class="mono" x="260" y="278">Sg7k…</text>
+    </g>
+    <text data-id="rOk" class="hide" x="65" y="278">100만원 송금</text>
+    <g data-id="rBad" class="hide">
+      <text class="err-t" x="65" y="278">900만원 송금</text>
+      <text class="err-t l" x="72" y="204">✕ 중간에 변조</text>
+    </g>
+
+    <!-- 받는 쪽 확인 -->
+    <g data-id="h2">
+      <line x1="65" y1="290" x2="65" y2="318" style={acc} marker-end="url(#dsf-a)" />
+      <text class="mono l" x="74" y="304">SHA-256</text>
+      <rect class="chip" x="10" y="320" width="110" height="44" rx="8" />
+      <text class="sub" x="65" y="333">지문′ (직접 계산)</text>
+    </g>
+    <text data-id="fpOk" class="mono hi hide" x="65" y="352">a3f9…</text>
+    <text data-id="fpBad" class="mono err-t hide" x="65" y="352">7c2e…</text>
+    <g data-id="ver">
+      <line x1="260" y1="290" x2="260" y2="318" style={acc} marker-end="url(#dsf-a)" />
+      <text class="hi" x="252" y="304" style="text-anchor:end">공개키로 검증</text>
+      <rect class="chip" x="210" y="320" width="100" height="44" rx="8" />
+      <text class="sub" x="260" y="333">서명 속 지문</text>
+      <text class="mono hi" x="260" y="352">a3f9…</text>
+    </g>
+
+    <!-- 결과 (같은 자리 번갈아) -->
+    <g data-id="ok" class="hide">
+      <text class="hi" x="165" y="343" style="font-size:22px">=</text>
+      <rect class="chip" x="10" y="380" width="300" height="52" rx="8" />
+      <text class="hi" x="160" y="397">일치 ✓ 검증 성공</text>
+      <text class="sub" x="160" y="418">안 바뀜 + 개인키 주인이 서명</text>
+    </g>
+    <g data-id="ng" class="hide">
+      <text class="err-t" x="165" y="343" style="font-size:22px">≠</text>
+      <rect class="err" x="10" y="380" width="300" height="52" rx="8" />
+      <text class="err-t" x="160" y="397">불일치 ✕ 검증 실패</text>
+      <text class="sub" x="160" y="418">문서가 바뀌었거나 다른 키로 서명</text>
+    </g>
+  </svg>
+</Stepper>

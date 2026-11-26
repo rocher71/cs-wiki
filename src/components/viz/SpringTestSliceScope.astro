@@ -1,0 +1,92 @@
+---
+// 테스트 애너테이션별로 어떤 빈이 뜨는지: @SpringBootTest(전부) vs @WebMvcTest vs @DataJpaTest vs @JsonTest.
+import Stepper from '../Stepper.astro';
+
+const rows = [
+  { id: 'web', y: 44, h: 72, name: '웹 층', subs: ['Controller · ControllerAdvice · Filter', 'Interceptor · WebMvcConfigurer'] },
+  { id: 'svc', y: 122, h: 56, name: '서비스 층', subs: ['@Service · 일반 @Component'] },
+  { id: 'data', y: 184, h: 56, name: '데이터 층', subs: ['@Entity · 리포지토리'] },
+  { id: 'db', y: 246, h: 56, name: 'DB 연결', subs: ['DataSource · JPA 설정'] },
+  { id: 'json', y: 308, h: 56, name: 'JSON 매퍼', subs: ['Jackson ObjectMapper'] },
+];
+const ids = rows.map((r) => r.id);
+// 단계마다: 켜진 칸(on), 대역·교체(swap), 나머지는 안 뜸(off)
+const st = (on: string[], swap: string[] = []) => [
+  ...ids,
+  ...on.map((id) => 'on-' + id),
+  ...swap.map((id) => 'sw-' + id),
+  ...ids.filter((id) => !on.includes(id) && !swap.includes(id)).map((id) => 'off-' + id),
+];
+const heads = ['앱의 빈 지도', '@SpringBootTest: 전부', '@WebMvcTest: 웹 층만', '@DataJpaTest: JPA 층만', '@JsonTest: JSON만'];
+const tools = [
+  ['테스트 도구', '슬라이스마다 같이 주는 도구가 달라요'],
+  ['webEnvironment 기본 MOCK', '내장 서버 없이 모의 서블릿 환경'],
+  ['MockMvc 주입', '가짜 HTTP 요청으로 컨트롤러 호출'],
+  ['TestEntityManager · JdbcTemplate', '기본으로 각 테스트 끝에 롤백'],
+  ['JacksonTester', '객체 ↔ JSON 모양 확인'],
+];
+const swaps: Record<string, [string, string]> = {
+  svc: ['서비스 → @MockitoBean 대역', '진짜 서비스는 안 떠요'],
+  db: ['DB → 테스트용 DB로 교체', '임베디드 DB 또는 Testcontainers'],
+};
+const steps = [
+  { caption: '앱 하나에는 이런 빈들이 층층이 있어요. 테스트 애너테이션마다 이 중 어디까지 띄우는지가 달라요.', show: [...ids, 'h0', 't0'] },
+  { caption: '@SpringBootTest는 실제 실행처럼 모든 빈을 다 띄워요. 가장 확실하지만 가장 무겁고, 기본 웹 환경은 내장 서버 없는 MOCK이에요.', show: [...st(ids), 'h1', 't1'] },
+  { caption: '@WebMvcTest는 컨트롤러·필터·인터셉터 같은 MVC 빈과 JSON 매퍼만 띄워요. 서비스는 안 뜨니까 @MockitoBean으로 대역을 직접 넣어야 해요(안 넣으면 주입 실패).', show: [...st(['web', 'json'], ['svc']), 'h2', 't2'] },
+  { caption: '@DataJpaTest는 엔티티·리포지토리·DataSource만 띄우고 DB는 임베디드 DB(또는 Testcontainers)로 바꿔요. 웹·서비스는 안 뜨고, 각 테스트는 끝나면 롤백돼요.', show: [...st(['data'], ['db']), 'h3', 't3'] },
+  { caption: '@JsonTest는 JSON 매퍼만 띄워서 객체가 JSON으로 어떤 모양이 되는지만 확인해요.', show: [...st(['json']), 'h4', 't4'] },
+];
+---
+<Stepper title="테스트마다 뜨는 빈의 범위" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 446" role="img" aria-label="앱의 빈을 웹 층, 서비스 층, 데이터 층, DB 연결, JSON 매퍼 다섯 칸으로 나눈 그림. @SpringBootTest는 전부 띄우고, @WebMvcTest는 웹 층과 JSON 매퍼만 띄우며 서비스 자리에 @MockitoBean 대역을 넣는다. @DataJpaTest는 데이터 층과 테스트용 DB만 띄우고 각 테스트 끝에 롤백한다. @JsonTest는 JSON 매퍼만 띄운다.">
+    <!-- 제목: 같은 자리에 번갈아 -->
+    {heads.map((h, i) => (
+      <text data-id={'h' + i} class="hi hide" x="160" y="20" style="font-size:16px">{h}</text>
+    ))}
+
+    <!-- 빈 칸 -->
+    {rows.map((r) => (
+      <g data-id={r.id}>
+        <rect class="box" x="10" y={r.y} width="300" height={r.h} rx="7" />
+        <text class="l" x="22" y={r.y + 18} style="font-weight:700">{r.name}</text>
+        {r.subs.map((s, k) => <text class="sub l" x="22" y={r.y + 40 + k * 20}>{s}</text>)}
+      </g>
+    ))}
+    <!-- 켜짐: 강조 테두리 + 라벨 -->
+    {rows.map((r) => (
+      <g data-id={'on-' + r.id} class="hide">
+        <rect class="hl" x="8" y={r.y - 2} width="304" height={r.h + 4} rx="8" />
+        <rect class="badge" x="246" y={r.y + 6} width="56" height="24" rx="12" />
+        <text class="on-badge" x="274" y={r.y + 18}>뜸</text>
+      </g>
+    ))}
+    <!-- 안 뜸 -->
+    {rows.map((r) => (
+      <g data-id={'off-' + r.id} class="hide">
+        <rect class="bad" x="246" y={r.y + 6} width="56" height="24" rx="12" />
+        <text class="sub" x="274" y={r.y + 18}>안 뜸</text>
+      </g>
+    ))}
+    <!-- 대역·교체: 칸 위에 덮어 씀 -->
+    {Object.entries(swaps).map(([id, [a, b]]) => {
+      const r = rows.find((x) => x.id === id)!;
+      return (
+        <g data-id={'sw-' + id} class="hide">
+          <rect class="chip" x="10" y={r.y} width="300" height={r.h} rx="7" />
+          <rect class="hl" x="8" y={r.y - 2} width="304" height={r.h + 4} rx="8" />
+          <text class="hi l" x="22" y={r.y + 18}>{a}</text>
+          <text class="l" x="22" y={r.y + 40} style="font-size:14px">{b}</text>
+        </g>
+      );
+    })}
+
+    <!-- 테스트 도구: 같은 자리에 번갈아 -->
+    <rect class="frame" x="10" y="376" width="300" height="62" rx="7" />
+    {tools.map(([a, b], i) => (
+      <g data-id={'t' + i} class="hide">
+        <text class="l" x="22" y="396" style="font-weight:700">{a}</text>
+        <text class="sub l" x="22" y="420">{b}</text>
+      </g>
+    ))}
+  </svg>
+</Stepper>
