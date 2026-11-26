@@ -1,0 +1,300 @@
+---
+title: 기본형·참조형과 Call by Value
+description: 기본형 변수엔 값 자체가, 참조형 변수엔 객체를 가리키는 참조값이 들어 있고, 자바는 메서드에 인자를 넘길 때 언제나 그 값을 복사해서 넘겨요.
+sidebar: { order: 2 }
+tags: [면접빈출, 서술형]
+---
+import { Aside } from '@astrojs/starlight/components';
+import CallByValue from '~/components/viz/CallByValue.astro';
+import IntegerCache from '~/components/viz/IntegerCache.astro';
+
+:::tip[한 줄 요약]
+자바 변수에는 기본형이면 값 자체가, 참조형이면 객체를 가리키는 참조값이 들어 있어요. 자바는 항상 Call by Value라서, 객체를 넘길 때도 객체가 아니라 참조값을 복사해서 넘겨요.
+:::
+
+## 쉽게 이해하기
+
+변수를 **이름표가 붙은 상자**라고 생각해 보세요. `int a = 10`이면 상자 안에 숫자 10이 그대로 들어 있어요. 이게 **기본형**이에요.
+
+`User u = new User()`는 달라요. 사용자 객체는 큰 창고(힙)에 따로 있고, 상자 `u` 안에는 **"창고 몇 번 칸"이라고 적힌 쪽지**만 들어 있어요. 이게 **참조형**이에요.
+
+메서드를 부를 때 자바는 상자 안의 내용물을 **복사해서** 새 상자에 넣어 줘요. 기본형이면 숫자가 복사되고, 참조형이면 쪽지가 복사돼요. 쪽지를 복사해도 창고 칸은 같으니, 메서드가 그 칸의 물건을 고치면 호출한 쪽에서도 바뀐 게 보여요. 반대로 메서드가 자기 쪽지를 다른 칸으로 고쳐 써도 내 쪽지는 그대로예요.
+
+단, 실제로 참조값이 메모리 주소 숫자 그대로라는 보장은 없어요. "객체를 찾아가는 값" 정도로 이해하면 충분해요.
+
+## 그림으로 보기
+
+<CallByValue />
+
+<IntegerCache />
+
+## 제대로 알기
+
+### 1. 타입은 딱 두 종류
+
+자바의 타입은 **기본형**(primitive type)과 **참조형**(reference type) 두 가지예요. 그래서 변수에 담기고, 인자로 넘어가고, 반환되는 값도 **기본값**과 **참조값** 두 가지뿐이에요.
+
+기본형은 8개이고, 나머지(클래스, 인터페이스, 배열, `String` 포함)는 전부 참조형이에요.
+
+| 타입 | 크기 | 범위·특징 | 필드 기본값 |
+|---|---|---|---|
+| `boolean` | - | true / false | false |
+| `byte` | 8bit | -128 ~ 127 | 0 |
+| `short` | 16bit | -32768 ~ 32767 | 0 |
+| `int` | 32bit | -2^31 ~ 2^31-1 (약 ±21억) | 0 |
+| `long` | 64bit | -2^63 ~ 2^63-1 | 0 |
+| `char` | 16bit | 0 ~ 65535, 부호 없는 UTF-16 코드 유닛 | `'\u0000'` |
+| `float` | 32bit | IEEE 754 단정밀도 | +0.0 |
+| `double` | 64bit | IEEE 754 배정밀도 | +0.0 |
+| 참조형 전부 | - | 객체를 가리키는 참조값 또는 null | null |
+
+- 정수형(`byte`~`long`)은 모두 **2의 보수**(음수를 표현하는 이진수 방식)로 저장하는 부호 있는 정수예요.
+- **null**은 "아무 객체도 가리키지 않는다"는 특별한 참조값이에요.
+- 위 기본값은 **필드, static 필드, 배열 원소**에만 자동으로 들어가요. **지역변수**는 기본값이 없어서, 값을 넣기 전에 쓰면 컴파일 에러가 나요.
+
+### 2. 참조형: 같은 객체를 여러 변수가 가리킬 수 있다
+
+```java
+User u = new User("kim");  // 힙에 객체 생성, u에는 참조값
+User v = u;                // 참조값만 복사. 객체는 여전히 1개
+v.name = "lee";
+System.out.println(u.name); // lee (같은 객체라서)
+```
+
+`v = u`는 객체를 복제하지 않아요. 같은 객체를 가리키는 화살표가 하나 더 생길 뿐이에요.
+
+<Aside type="caution" title="기본형은 스택, 참조형은 힙? 반만 맞아요">
+어디 저장되는지는 **변수의 종류**가 정해요. 지역변수는 기본형이든 참조형이든 메서드의 스택 프레임에 있고, 객체의 필드는 `int` 필드라도 객체와 함께 힙에 있어요. 객체 자체는 항상 힙이에요.
+</Aside>
+
+**`final` 참조 변수**는 "다른 객체로 바꿔 끼울 수 없다"는 뜻이지 객체가 불변이라는 뜻이 아니에요. `final List<String> list`에도 `add`는 돼요.
+
+### 3. 기본형의 함정: 오버플로와 정밀도
+
+정수 연산은 범위를 넘쳐도 **예외 없이 조용히** 잘못된 값을 내요.
+
+```java
+int i = 1000000;
+System.out.println(i * i);          // -727379968 (오버플로)
+System.out.println((long) i * i);   // 1000000000000
+```
+
+넓은 타입으로 옮길 때도 정밀도가 깨질 수 있어요. `int`→`float`, `long`→`float`, `long`→`double`은 하위 자릿수가 반올림돼요. 예를 들어 `int big = 1234567890; float f = big;` 하면 `big - (int) f`가 -46이 돼요. `int`→`double`은 손실이 없어요.
+
+`float`/`double`은 이진수로 소수를 표현해서 `0.1 + 0.2`가 정확히 `0.3`이 되지 않아요. 그래서 돈 계산은 `BigDecimal`이나 원 단위 `long`을 써요.
+
+### 4. 래퍼 클래스와 오토박싱
+
+**래퍼 클래스**(wrapper class)는 기본형 값을 객체로 감싼 클래스예요. 제네릭 타입 인자에는 참조형만 올 수 있어서 `List<int>`는 안 되고 `List<Integer>`를 써요. null로 "값 없음"을 표현할 수 있다는 것도 래퍼의 쓰임이에요.
+
+| 기본형 | 래퍼 |
+|---|---|
+| `boolean` / `char` | `Boolean` / `Character` |
+| `byte` / `short` | `Byte` / `Short` |
+| `int` / `long` | `Integer` / `Long` |
+| `float` / `double` | `Float` / `Double` |
+
+**오토박싱**(autoboxing)은 컴파일러가 기본형을 래퍼로 자동 변환하는 것이고, 반대가 **언박싱**(unboxing)이에요. 마법이 아니라 컴파일러가 코드를 바꿔 쓰는 거예요.
+
+```java
+List<Integer> li = new ArrayList<>();
+li.add(3);        // 컴파일러가 li.add(Integer.valueOf(3))로 바꿈
+int n = li.get(0); // li.get(0).intValue()로 바꿈
+```
+
+래퍼를 기대하는 자리(메서드 인자, 래퍼 변수 대입)에 기본형을 쓰면 박싱이, 그 반대면 언박싱이 일어나요.
+
+**언박싱할 값이 null이면 `NullPointerException`**이 나요.
+
+```java
+Integer count = map.get("없는키"); // null
+int c = count;                     // NPE
+int r = flag ? count : 0;          // flag가 true면 NPE: 결과 타입이 int라 count가 언박싱됨
+```
+
+`new Integer(5)` 같은 래퍼 생성자는 Java 9에서 deprecated, JDK 16에서 "삭제 예정"이 됐어요. 매번 새 객체를 만들기 때문에 `Integer.valueOf(5)`나 오토박싱을 써요.
+
+### 5. Integer 캐시와 `==`
+
+참조끼리 `==`는 **같은 객체인지**만 봐요. 내용은 비교하지 않아요. 그런데 래퍼는 작은 값을 미리 만들어 두고 재사용(캐시)해서, 같은 값이면 같은 객체가 나오기도 해요.
+
+```java
+Integer a = 127, b = 127;
+Integer c = 128, d = 128;
+System.out.println(a == b);      // true  (캐시된 같은 객체)
+System.out.println(c == d);      // false (서로 다른 객체)
+System.out.println(c.equals(d)); // true  (값 비교)
+System.out.println(c == 128);    // true  (한쪽이 int라 언박싱 후 값 비교)
+```
+
+| 래퍼 | `valueOf` 캐시 범위 |
+|---|---|
+| `Integer` | -128 ~ 127 항상, 상한은 늘릴 수 있음 |
+| `Short`, `Long` | -128 ~ 127 |
+| `Byte` | 모든 값 |
+| `Character` | `'\u0000'` ~ `'\u007f'` |
+| `Boolean` | TRUE / FALSE 상수 |
+| `Float`, `Double` | 캐시 없음 |
+
+- JLS(자바 언어 명세)는 -128~127 정수, `'\u0000'`~`'\u007f'` 문자, true/false를 박싱하면 `==`가 true라고 **최소한만** 보장해요. 항상 같은 객체를 주는 게 이상적이지만 구현이 어려워서, 흔한 작은 값만 보장하는 타협이에요.
+- HotSpot에서는 `-XX:AutoBoxCacheMax=<size>`로 Integer 캐시 상한을 키울 수 있어요(127보다 작게는 못 줄이고, 하한 -128은 고정). 이 옵션은 javadoc이 아니라 OpenJDK 소스에만 나와요.
+- 그래서 **캐시에 기대는 코드는 그 자체로 틀린 코드**예요. 래퍼끼리는 `equals`나 `Objects.equals`로 비교해요.
+
+<Aside type="note" title="래퍼는 value-based 클래스">
+JDK 16(JEP 390)부터 8개 래퍼는 **value-based 클래스**(값이 같으면 서로 바꿔 써도 되는 것으로 취급하는 클래스)로 지정됐어요. 래퍼 객체로 `synchronized`를 걸면 javac가 경고하고, 미래 버전에선 실패할 수 있어요. 식별자 없는 값 객체를 만드는 Project Valhalla를 준비하는 변화예요.
+</Aside>
+
+### 6. 자바는 항상 Call by Value
+
+**Call by Value**(값에 의한 호출)는 인자의 값을 복사해서 넘기는 방식이고, **Call by Reference**(참조에 의한 호출)는 호출한 쪽 변수 자체를 넘겨서 메서드가 그 변수를 바꿀 수 있는 방식이에요.
+
+자바는 메서드를 부를 때 새 프레임을 만들고, 인자 값을 새 파라미터 변수에 **대입**해요. 기본형이든 참조형이든 똑같아요.
+
+```java
+static void change(int p) { p = 10; }
+
+static void moveCircle(Circle circle) {
+    circle.setX(5);              // 같은 객체를 고침 → 호출자도 보임
+    circle = new Circle(0, 0);   // 파라미터만 새 객체를 가리킴 → 호출자 영향 없음
+}
+
+int x = 3;
+change(x);              // x는 여전히 3
+Circle myCircle = new Circle(1, 1);
+moveCircle(myCircle);   // myCircle은 원래 객체, 그 객체의 x 좌표만 5로 바뀜
+```
+
+- 객체 수정이 보이는 건 **복사된 참조값이 같은 객체를 가리키기** 때문이에요.
+- 파라미터에 새 객체를 대입해도 호출자 변수는 안 바뀌어요. 진짜 Call by Reference라면 바뀌어야 해요.
+- 그래서 자바로는 호출자의 변수 두 개를 맞바꾸는 `swap(a, b)` 메서드를 만들 수 없어요.
+- `String`도 특별 취급이 아니에요. 불변이라 "바꾸는" 연산이 전부 새 객체를 만들고, 파라미터에 그걸 대입하니 호출자 쪽이 안 바뀌어 보일 뿐이에요.
+
+## 면접 질문
+
+<details>
+<summary>Q. 기본형과 참조형의 차이를 설명해 주세요.</summary>
+
+**답변(30초)** 기본형은 `int`, `long`, `boolean` 등 8개이고 변수에 값 자체가 들어 있어요. 참조형은 그 외 전부로, 변수에는 힙에 있는 객체를 가리키는 참조값이 들어 있어요. 그래서 참조형은 여러 변수가 같은 객체를 가리킬 수 있고, null을 가질 수 있어요. 필드로 선언하면 기본형은 0이나 false, 참조형은 null이 기본값이에요.
+
+**꼬리질문**
+- Q. 기본형은 스택, 참조형은 힙에 저장되나요? → 반만 맞아요. 지역변수는 타입과 상관없이 스택 프레임, 필드는 객체와 함께 힙에 있어요. 객체 자체만 항상 힙이에요.
+- Q. String은 기본형인가요? → 아니요, 클래스라서 참조형이에요.
+- Q. 지역변수는 왜 초기화 안 하면 에러가 나나요? → 지역변수엔 기본값이 없고, 컴파일러가 쓰기 전에 값이 확실히 들어갔는지 검사해요.
+</details>
+
+<details>
+<summary>Q. 자바는 Call by Value인가요, Call by Reference인가요?</summary>
+
+**답변(30초)** 항상 Call by Value예요. 메서드를 부르면 인자 값이 새 파라미터 변수에 복사돼요. 객체를 넘길 때는 객체가 아니라 객체를 가리키는 참조값이 복사돼요. 같은 객체를 가리키니 필드 수정은 호출자에게 보이지만, 파라미터에 새 객체를 대입해도 호출자 변수는 그대로예요. 그래서 swap 메서드를 만들 수 없어요.
+
+**꼬리질문**
+- Q. 메서드 안에서 `list = new ArrayList<>()`를 하면 호출자 리스트는? → 그대로예요. 파라미터만 새 리스트를 가리켜요. 비우려면 `list.clear()`, 새로 만들려면 반환값으로 돌려줘요.
+- Q. 메서드가 넘겨받은 객체를 몰래 바꾸는 걸 막으려면? → 방어적 복사를 하거나 불변 객체·불변 컬렉션을 넘겨요.
+</details>
+
+<details>
+<summary>Q. `Integer a = 127, b = 127`이면 `a == b`가 true인데, 128이면 false인 이유는?</summary>
+
+**답변(30초)** 오토박싱은 `Integer.valueOf`를 호출하고, `valueOf`는 -128~127을 미리 만들어 둔 캐시에서 꺼내 줘요. 127은 둘 다 같은 캐시 객체라 `==`가 true예요. 128은 범위 밖이라 객체가 따로 생겨서, 참조를 비교하는 `==`는 false가 돼요. 그래서 래퍼끼리는 반드시 `equals`로 비교해야 해요.
+
+**꼬리질문**
+- Q. 캐시 범위는 고정인가요? → JLS는 -128~127만 최소 보장해요. HotSpot은 `-XX:AutoBoxCacheMax`로 Integer 상한을 늘릴 수 있어서 결과가 달라질 수 있어요.
+- Q. `Long`이나 `Double`은요? → `Long`도 -128~127만 캐시하고, `Double`·`Float`는 캐시가 없어 같은 값이어도 `==`가 false예요.
+- Q. `Integer c = 128; c == 128`은? → true예요. 한쪽이 `int`면 언박싱해서 값으로 비교해요.
+</details>
+
+<details>
+<summary>Q. 오토박싱과 언박싱이 뭔가요? 주의할 점은?</summary>
+
+**답변(30초)** 기본형과 래퍼 클래스 사이를 컴파일러가 자동으로 바꿔 주는 거예요. `list.add(3)`은 `Integer.valueOf(3)`으로, 래퍼를 `int`로 쓰면 `intValue()` 호출로 바뀌어요. 주의할 점은 두 가지예요. null을 언박싱하면 NPE가 나고, 반복문에서 래퍼로 누적하면 객체가 계속 만들어져 느려져요.
+
+**꼬리질문**
+- Q. 언박싱 NPE가 나는 대표 상황은? → `int c = map.get(key)`에서 키가 없을 때, `flag ? nullInteger : 0` 같은 삼항 연산자에서 결과 타입이 `int`가 될 때요.
+- Q. 래퍼 클래스는 왜 필요한가요? → 제네릭과 컬렉션은 참조형만 받고, null로 "값 없음"을 표현해야 할 때가 있어서요.
+- Q. `new Integer(5)`는 왜 안 쓰나요? → 매번 새 객체를 만들고, Java 9부터 deprecated, JDK 16부터 삭제 예정이에요. `valueOf`를 써요.
+</details>
+
+<details>
+<summary>Q. `int`의 범위와 오버플로가 나면 어떻게 되나요?</summary>
+
+**답변(30초)** `int`는 32비트라 약 -21억에서 21억까지예요. 범위를 넘으면 예외 없이 값이 반대쪽으로 돌아가요. 예를 들어 100만 곱하기 100만은 음수가 나와요. 그래서 큰 합계는 `long`을 쓰고, 넘치면 바로 알아야 하는 곳은 `Math.addExact` 같은 메서드로 예외를 받는 방법을 써요.
+
+**꼬리질문**
+- Q. 금액 계산에 `double`을 써도 되나요? → 안 돼요. 이진 소수 표현 한계로 `0.1 + 0.2`가 정확히 0.3이 아니라서, `BigDecimal`이나 원 단위 `long`을 써요.
+- Q. `final` 참조 변수의 객체는 바꿀 수 있나요? → 네. `final`은 다른 객체로 재대입을 막을 뿐이에요.
+</details>
+
+## 서술형 연습
+
+<details>
+<summary>상황: 로컬과 테스트에선 통과하던 "본인 주문만 조회" 권한 체크가 운영에서만 실패합니다. 코드는 `if (order.getUserId() == loginUser.getId())`이고 둘 다 `Long`입니다.</summary>
+
+**상황 파악**
+같은 코드가 **환경에 따라** 결과가 다르다는 게 핵심이에요. 로직이 아니라 데이터 차이를 의심해요. 테스트 데이터의 사용자 ID는 1~100 정도로 작고, 운영 ID는 수만 단위예요.
+
+**원인 후보**
+1. `Long`끼리 `==`는 값이 아니라 **같은 객체인지**를 비교해요. `Long.valueOf`는 -128~127만 캐시하니, 작은 ID는 우연히 같은 객체라 true, 큰 ID는 다른 객체라 false가 돼요.
+2. (덜 유력) 한쪽 ID가 null이라 비교 자체가 틀리는 경우.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. `Objects.equals(a, b)`로 비교 | 수정 범위가 작고 null도 안전 | 다른 곳에 남은 `==`는 직접 찾아야 함 |
+| B. ID 타입을 기본형 `long`으로 | `==`가 값 비교라 실수 자체가 불가 | null로 "아직 없음"(저장 전 엔티티 등)을 표현 못 함 |
+| C. 정적 분석(IntelliJ 검사, SpotBugs) 도입 | 같은 실수를 빌드 단계에서 잡음 | 도구 설정과 기존 경고 정리가 필요 |
+
+**내가 고를 방법**
+당장은 A로 고치고, 같은 패턴을 C로 코드 전체에서 찾아 막아요. ID가 null일 수 있는 엔티티가 많아 B는 부담이 커요. 테스트 데이터에 128 이상 ID를 넣어 같은 버그가 재현되게 하는 것도 같이 해요.
+
+**채점 포인트**: 래퍼 `==`는 참조 비교, `Long` 캐시 -128~127, 테스트와 운영의 데이터 범위 차이, `equals`/`Objects.equals`, 기본형으로 바꿀 때 null 표현 불가 트레이드오프, 재발 방지(정적 분석·테스트 데이터).
+</details>
+
+<details>
+<summary>상황: 일별 통계 배치가 가끔 `NullPointerException`으로 실패합니다. 문제 줄은 `int total = statMap.get(day);`입니다.</summary>
+
+**상황 파악**
+"가끔"이라는 건 특정 데이터에서만 난다는 뜻이에요. `statMap`은 `Map<String, Integer>`라서 집계가 안 된 날짜를 조회하면 `get`이 null을 돌려주고, 그걸 `int`에 넣는 순간 **언박싱 NPE**가 나요.
+
+**원인 후보**
+1. 데이터가 없는 날짜(휴일, 장애일)의 키가 맵에 없음
+2. 집계 과정에서 값 자체를 null로 넣은 경우
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. `statMap.getOrDefault(day, 0)` | 한 줄 수정, 배치가 멈추지 않음 | "데이터 없음"과 "진짜 0건"을 구분 못 함 |
+| B. `Integer`로 받고 null을 명시 처리 | 없음과 0을 구분해 리포트에 표시 가능 | 쓰는 곳마다 null 체크 부담 |
+
+**내가 고를 방법**
+통계에서 "집계 안 됨"과 "0건"이 다른 의미라면 B를 골라요. 잘못된 0이 리포트에 섞이면 NPE보다 찾기 어려운 오류가 되기 때문이에요. 둘의 의미가 같다고 합의된 지표라면 A로 충분해요.
+
+**채점 포인트**: 언박싱 시 null이면 NPE, `Map.get`이 없는 키에 null 반환, `getOrDefault`, null과 0의 의미 차이 트레이드오프, 삼항 연산자 언박싱 같은 유사 패턴 점검.
+</details>
+
+## 필기 포인트
+
+- 기본형 8개와 크기: `byte` 8, `short` 16, `char` 16(부호 없음), `int` 32, `long` 64, `float` 32, `double` 64bit.
+- `char`는 0~65535, 음수가 없어요.
+- 필드 기본값은 숫자 0, `char`는 `'\u0000'`, `boolean`은 false, 참조형은 null. 지역변수는 기본값 없음.
+- `int * int` 오버플로는 예외가 아니라 잘못된 값.
+- `Integer` 127 `==` 127은 true, 128 `==` 128은 false(기본 설정). `Double`은 캐시 없음.
+- 자바는 객체를 넘겨도 Call by Value(참조값 복사).
+
+## 함께 보기
+
+- [JVM 구조와 가비지 컬렉션(GC)](../jvm-gc/) — 스택 프레임과 힙, 객체가 GC 대상이 되는 조건
+- [String 불변성과 문자열 풀](../string/)
+- [equals와 hashCode](../equals-hashcode/)
+
+## 출처
+
+- [JLS SE 21, Chapter 4 Types, Values, and Variables](https://docs.oracle.com/javase/specs/jls/se21/html/jls-4.html)
+- [JLS SE 21, Chapter 5 Conversions and Contexts (Boxing/Unboxing)](https://docs.oracle.com/javase/specs/jls/se21/html/jls-5.html)
+- [JLS SE 21, Chapter 15 Expressions (메서드 호출, 동등 연산자, 조건 연산자)](https://docs.oracle.com/javase/specs/jls/se21/html/jls-15.html)
+- [Java SE 21 API, java.lang.Integer](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/lang/Integer.html)
+- [The Java Tutorials, Autoboxing and Unboxing](https://docs.oracle.com/javase/tutorial/java/data/autoboxing.html)
+- [The Java Tutorials, Passing Information to a Method or a Constructor](https://docs.oracle.com/javase/tutorial/java/javaOO/arguments.html)
+- [JEP 390: Warnings for Value-Based Classes](https://openjdk.org/jeps/390)
+- [OpenJDK jdk21u 소스, java.lang 래퍼 클래스](https://github.com/openjdk/jdk21u/tree/master/src/java.base/share/classes/java/lang)

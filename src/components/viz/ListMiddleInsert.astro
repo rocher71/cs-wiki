@@ -1,0 +1,116 @@
+---
+// add(1, X): ArrayList는 뒤 원소를 밀고, LinkedList는 찾아간 뒤 연결만 바꾼다.
+import Stepper from '../Stepper.astro';
+const CW = 56, AX = 20, AY = 48;          // 배열 칸
+const cx = (i: number) => AX + i * CW + CW / 2;
+const NW = 52, NG = 24, NX = 20, NY = 222, NH = 40; // 노드
+const nx = (i: number) => NX + i * (NW + NG);
+const XN = { x: 58, y: 300 };             // 새 노드 X 위치
+const steps = [
+  { caption: '같은 [A, B, C, D]를 담았어요. 위는 칸이 붙어 있는 배열(ArrayList), 아래는 앞뒤 링크로 이은 노드(LinkedList)예요.', show: ['arr0', 'll', 'ab'] },
+  { caption: '두 리스트에 똑같이 add(1, "X"), 즉 인덱스 1 자리에 X를 끼워 넣어요.', show: ['arr0', 'll', 'ab', 'req'] },
+  { caption: 'ArrayList: 자리를 비우려고 D → C → B 순서로 뒤에서부터 한 칸씩 밀어요(이동 3번). 그다음 빈 칸에 X를 넣어요.', show: ['arr1', 'shift', 'hl-arr', 'll', 'ab'] },
+  { caption: 'LinkedList: 번호로 바로 못 가요. head부터 노드를 따라가서 끼울 자리(A 다음)를 찾아요.', show: ['arr1', 'll', 'ab', 'walk', 'hl-walk'] },
+  { caption: 'LinkedList: 찾은 뒤에는 A–X, X–B 두 연결만 바꿔요(각각 앞·뒤 링크). 다른 노드는 그대로예요.', show: ['arr1', 'll', 'xn', 'relink', 'hl-x'] },
+  { caption: '결론: 둘 다 O(n)이에요. ArrayList는 밀어내는 이동 비용, LinkedList는 찾아가는 탐색 비용 때문이에요.', show: ['arr1', 'll', 'xn', 'relink', 'cost'] },
+];
+const cell = (i: number, t: string) => ({ i, t });
+const arr0 = ['A', 'B', 'C', 'D', ''].map((t, i) => cell(i, t));
+const arr1 = ['A', 'X', 'B', 'C', 'D'].map((t, i) => cell(i, t));
+const dbl = 'fill:none;stroke:var(--sl-color-gray-3);stroke-width:1.6';
+const acc = 'fill:none;stroke:var(--sl-color-accent);stroke-width:2.2';
+---
+<Stepper title="중간 삽입: ArrayList vs LinkedList" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 420" role="img" aria-label="인덱스 1에 X를 삽입할 때 ArrayList와 LinkedList의 차이">
+    <defs>
+      <marker id="lmi-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+      <marker id="lmi-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+    </defs>
+
+    <!-- ArrayList -->
+    <text class="l" x="16" y="14" style="font-weight:700">ArrayList</text>
+    <text class="sub l" x="100" y="14">칸이 붙은 배열</text>
+    {arr0.map((c) => <text class="sub" x={cx(c.i)} y="36" style="font-size:13px">[{c.i}]</text>)}
+    <g data-id="arr0" class="hide">
+      {arr0.map((c) => (
+        <g>
+          <rect class={c.t ? 'box' : 'bad'} x={AX + c.i * CW} y={AY} width={CW} height="44" />
+          {c.t && <text x={cx(c.i)} y={AY + 22}>{c.t}</text>}
+        </g>
+      ))}
+    </g>
+    <g data-id="arr1" class="hide">
+      {arr1.map((c) => (
+        <g>
+          <rect class={c.t === 'X' ? 'chip' : 'box'} x={AX + c.i * CW} y={AY} width={CW} height="44" />
+          <text x={cx(c.i)} y={AY + 22} style={c.t === 'X' ? 'font-weight:700' : undefined}>{c.t}</text>
+        </g>
+      ))}
+    </g>
+    <!-- 이동 화살표: D(3→4), C(2→3), B(1→2) -->
+    <g data-id="shift" class="hide">
+      {[3, 2, 1].map((from, k) => (
+        <g>
+          <path d={`M${cx(from)} ${AY + 50} Q ${cx(from) + CW / 2} ${AY + 74} ${cx(from + 1) - 4} ${AY + 52}`} style={acc} marker-end="url(#lmi-a)" />
+          <text class="sub" x={cx(from) + CW / 2} y={AY + 80} style="font-size:13px">{k + 1}번째</text>
+        </g>
+      ))}
+    </g>
+    <rect data-id="hl-arr" class="hl" x={AX - 3} y={AY - 3} width={CW * 5 + 6} height="50" rx="4" />
+
+    <g data-id="req" class="hide">
+      <rect class="badge" x="40" y="146" width="240" height="30" rx="15" />
+      <text class="on-badge" x="160" y="161">add(1, "X") · 인덱스 1에 삽입</text>
+    </g>
+
+    <!-- LinkedList -->
+    <text class="l" x="16" y="192" style="font-weight:700">LinkedList</text>
+    <text class="sub l" x="108" y="192">링크로 이은 노드</text>
+    <g data-id="ll">
+      <text class="sub" x={nx(0) + NW / 2} y="210" style="font-size:13px">head</text>
+      {['A', 'B', 'C', 'D'].map((t, i) => (
+        <g>
+          <rect class="box" x={nx(i)} y={NY} width={NW} height={NH} rx="6" />
+          <text x={nx(i) + NW / 2} y={NY + NH / 2}>{t}</text>
+        </g>
+      ))}
+      {[1, 2].map((i) => (
+        <line x1={nx(i) + NW + 3} y1={NY + NH / 2} x2={nx(i + 1) - 3} y2={NY + NH / 2} style={dbl}
+          marker-start="url(#lmi-g)" marker-end="url(#lmi-g)" />
+      ))}
+    </g>
+    <!-- A–B 직접 연결 (삽입 후 사라짐) -->
+    <line data-id="ab" class="hide" x1={nx(0) + NW + 3} y1={NY + NH / 2} x2={nx(1) - 3} y2={NY + NH / 2} style={dbl}
+      marker-start="url(#lmi-g)" marker-end="url(#lmi-g)" />
+
+    <g data-id="walk" class="hide">
+      <line x1={nx(0) + NW / 2} y1={NY + NH + 30} x2={nx(0) + NW / 2} y2={NY + NH + 5} style={acc} marker-end="url(#lmi-a)" />
+      <text class="sub" x={nx(0) + NW / 2} y={NY + NH + 42} style="font-size:13px">찾음</text>
+      <text class="sub l" x={nx(1)} y={NY + NH + 22} style="font-size:13px">head → A … 하나씩 따라가기</text>
+      <text class="sub l" x={nx(1)} y={NY + NH + 42} style="font-size:13px">(뒤쪽 인덱스일수록 오래 걸림)</text>
+    </g>
+    <rect data-id="hl-walk" class="hl" x={nx(0) - 3} y={NY - 3} width={NW + 6} height={NH + 6} rx="8" />
+
+    <g data-id="xn" class="hide">
+      <rect class="chip" x={XN.x} y={XN.y} width={NW} height={NH} rx="6" />
+      <text x={XN.x + NW / 2} y={XN.y + NH / 2} style="font-weight:700">X</text>
+    </g>
+    <g data-id="relink" class="hide">
+      <line x1={nx(0) + NW / 2 + 6} y1={NY + NH + 3} x2={XN.x + 10} y2={XN.y - 3} style={acc} marker-start="url(#lmi-a)" marker-end="url(#lmi-a)" />
+      <line x1={XN.x + NW - 10} y1={XN.y - 3} x2={nx(1) + NW / 2 - 6} y2={NY + NH + 3} style={acc} marker-start="url(#lmi-a)" marker-end="url(#lmi-a)" />
+      <text class="sub l" x={XN.x + NW + 10} y={XN.y + NH / 2}>연결 2개만 교체</text>
+    </g>
+    <rect data-id="hl-x" class="hl" x={XN.x - 3} y={XN.y - 3} width={NW + 6} height={NH + 6} rx="8" />
+
+    <g data-id="cost" class="hide">
+      <rect class="badge" x="8" y="372" width="148" height="32" rx="16" />
+      <text class="on-badge" x="82" y="388">ArrayList: 이동 O(n)</text>
+      <rect class="badge" x="164" y="372" width="148" height="32" rx="16" />
+      <text class="on-badge" x="238" y="388">Linked: 탐색 O(n)</text>
+    </g>
+  </svg>
+</Stepper>

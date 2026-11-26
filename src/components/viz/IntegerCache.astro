@@ -1,0 +1,78 @@
+---
+// Integer 캐시: -128~127은 valueOf가 같은 캐시 객체를, 128은 매번 새 객체를 준다.
+import Stepper from '../Stepper.astro';
+const steps = [
+  { caption: 'Integer a = 127, b = 127은 둘 다 Integer.valueOf(127)이 돼요. 127은 캐시 범위 안이라 둘 다 미리 만들어 둔 같은 객체를 받아요.', show: ['ab', 'abArr', 'r1', 'hl-127'] },
+  { caption: 'Integer c = 128, d = 128은 캐시 범위 밖이라 객체가 2개 따로 생겨요. ==는 같은 객체인지를 보니 false예요(기본 설정 기준).', show: ['cd', 'cdArr', 'cdObj', 'r2'] },
+  { caption: 'c.equals(d)는 객체 안의 값을 비교해요. 둘 다 128이라 true예요. 래퍼끼리는 equals로 비교해요.', show: ['cd', 'cdArr', 'cdObj', 'r3', 'hl-cd'] },
+];
+const cells = [{ x: 16, t: '-128' }, { x: 90, t: '…' }, { x: 164, t: '126' }, { x: 238, t: '127' }];
+const rows = [{ id: 'ab', vs: [{ n: 'a', y: 118 }, { n: 'b', y: 162 }] }, { id: 'cd', vs: [{ n: 'c', y: 222 }, { n: 'd', y: 266 }] }];
+const arrow = 'fill:none;stroke:var(--sl-color-accent);stroke-width:2';
+const results = ['a == b → true (같은 객체)', 'c == d → false (다른 객체)', 'c.equals(d) → true (같은 값)'];
+---
+<Stepper title="Integer 캐시와 == 비교" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 356" role="img" aria-label="Integer 캐시 범위 안과 밖에서 == 결과가 달라지는 과정">
+    <defs>
+      <marker id="ic-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+    </defs>
+
+    <!-- 캐시 배열(항상 보임) -->
+    <rect class="frame" x="6" y="6" width="308" height="86" rx="10" />
+    <text class="l" x="16" y="22" style="font-weight:700">Integer 캐시 (-128 ~ 127)</text>
+    {cells.map((c) => (
+      <g>
+        <rect class="box" x={c.x} y="36" width="66" height="44" rx="6" />
+        <text x={c.x + 33} y="58">{c.t}</text>
+      </g>
+    ))}
+    <rect data-id="hl-127" class="hl" x="235" y="33" width="72" height="50" rx="8" />
+
+    <!-- 변수(참조값 상자) -->
+    {rows.map((r) => (
+      <g data-id={r.id}>
+        {r.vs.map((v) => (
+          <g>
+            <rect class="slot" x="16" y={v.y} width="92" height="36" rx="6" />
+            <text class="l" x="28" y={v.y + 18}>{v.n}</text>
+            <circle cx="98" cy={v.y + 18} r="4" fill="var(--sl-color-accent)" />
+          </g>
+        ))}
+      </g>
+    ))}
+
+    <!-- a, b → 같은 캐시 객체 -->
+    <g data-id="abArr">
+      <path d="M102 136 C 200 136, 262 120, 266 84" style={arrow} marker-end="url(#ic-arr)" />
+      <path d="M102 180 C 220 180, 280 130, 278 84" style={arrow} marker-end="url(#ic-arr)" />
+    </g>
+
+    <!-- c, d → 각자 새 객체 -->
+    <g data-id="cdObj">
+      <text class="sub" x="237" y="206">캐시 밖 · 새 객체 2개</text>
+      <rect class="chip" x="170" y="222" width="134" height="36" rx="6" />
+      <text x="237" y="240">Integer(128)</text>
+      <rect class="chip" x="170" y="266" width="134" height="36" rx="6" />
+      <text x="237" y="284">Integer(128)</text>
+    </g>
+    <g data-id="cdArr">
+      <path d="M102 240 L168 240" style={arrow} marker-end="url(#ic-arr)" />
+      <path d="M102 284 L168 284" style={arrow} marker-end="url(#ic-arr)" />
+    </g>
+    <rect data-id="hl-cd" class="hl" x="166" y="218" width="142" height="88" rx="8" />
+
+    <!-- 비교 결과 -->
+    {results.map((t, i) => (
+      <g data-id={`r${i + 1}`} class="hide">
+        <rect class="badge" x="16" y="318" width="288" height="32" rx="16" />
+        <text class="on-badge" x="160" y="334">{t}</text>
+      </g>
+    ))}
+  </svg>
+</Stepper>
+
+<style>
+  svg.viz .slot { fill: var(--sl-color-bg); stroke: var(--sl-color-gray-3); stroke-width: 1.2; }
+</style>

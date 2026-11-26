@@ -1,0 +1,245 @@
+---
+title: equals와 hashCode
+description: ==는 같은 객체인지, equals는 같은 값인지를 봐요. equals를 재정의하면 "같으면 해시코드도 같다"는 약속을 지키려고 hashCode도 반드시 함께 재정의해야 해요.
+sidebar: { order: 4 }
+tags: [면접빈출, 서술형]
+---
+import { Aside } from '@astrojs/starlight/components';
+import HashMapLookup from '~/components/viz/HashMapLookup.astro';
+import MutableKeyLost from '~/components/viz/MutableKeyLost.astro';
+
+:::tip[한 줄 요약]
+`==`는 두 참조가 같은 객체를 가리키는지, `equals`는 두 객체의 내용이 논리적으로 같은지를 봐요. HashMap·HashSet은 hashCode로 칸을 먼저 고르고 equals로 확인하기 때문에, equals를 재정의하면 hashCode도 꼭 같이 재정의해야 해요.
+:::
+
+## 쉽게 이해하기
+
+`==`는 **"같은 사람이에요?"**라고 묻는 거예요. 쌍둥이라도 다른 사람이면 false예요. `equals`는 **"같은 정보예요?"**라고 묻는 거예요. 이름과 생년월일이 같으면 같다고 칠 수 있어요. 무엇을 같다고 볼지는 클래스를 만든 사람이 정해요.
+
+`hashCode`는 **사물함 번호**예요. HashMap은 물건을 넣을 때 사물함 번호(hashCode)로 칸을 고르고, 찾을 때도 같은 번호의 칸만 열어 봐요. 그 칸 안에서 하나씩 꺼내 equals로 "이게 맞나?"를 확인해요.
+
+그래서 equals로는 같은 두 객체가 서로 다른 사물함 번호를 받으면, 엉뚱한 칸을 열어 보고 "없어요"라고 답해요. 반대로 서로 다른 물건이 같은 칸에 들어가는 건 괜찮아요. 칸 안에서 equals로 가려내면 되니까요.
+
+단, 실제 hashCode는 칸 번호 그 자체가 아니라 정수 하나예요. HashMap이 그 정수를 가공해서 배열의 몇 번째 칸(버킷)인지 정해요.
+
+## 그림으로 보기
+
+<HashMapLookup />
+
+<MutableKeyLost />
+
+## 제대로 알기
+
+### 1. ==와 equals
+
+| 비교 | 무엇을 보나 | 예 |
+|---|---|---|
+| `==` (참조 타입) | 둘이 **같은 객체**를 가리키는지(동일성) | `new String("a") == new String("a")` → false |
+| `==` (기본 타입) | 숫자 값이 같은지 | `3 == 3` → true |
+| `equals` | 내용이 **논리적으로 같은지**(동등성) | `new String("a").equals(new String("a"))` → true |
+
+- `Object`의 기본 `equals`는 `==`와 똑같이 동작해요. 같은 객체일 때만 true예요. 재정의해야 비로소 "내용 비교"가 돼요.
+- String을 `==`로 비교하면 글자가 같아도 다른 객체면 false가 나와요. 내용 비교는 항상 `equals`예요.
+- 부동소수점 `==`에서 NaN(Not a Number, 계산할 수 없는 값)은 자기 자신과도 같지 않아요. `x != x`가 true면 x는 NaN이에요.
+
+<Aside type="caution" title="Integer를 ==로 비교하면 생기는 일">
+**오토박싱**(autoboxing, `int`를 `Integer` 객체로 자동 포장하는 것)할 때 -128~127 범위의 정수는 캐시된 같은 객체를 쓰도록 보장돼요. 그래서 `Integer a = 127, b = 127; a == b`는 true예요. 1000끼리는 보통 false가 나오지만, 이건 스펙이 보장하지 않는 구현 재량이에요. 래퍼 타입 비교는 무조건 `equals`를 쓰세요.
+</Aside>
+
+### 2. equals의 약속 5가지
+
+equals는 null이 아닌 참조에 대해 **동치 관계**(같은 것끼리 묶을 수 있는 관계)를 지켜야 해요.
+
+| 성질 | 뜻 |
+|---|---|
+| 반사성 | `x.equals(x)`는 true |
+| 대칭성 | `x.equals(y)`가 true면 `y.equals(x)`도 true |
+| 추이성 | x=y이고 y=z면 x=z |
+| 일관성 | 비교에 쓰는 값이 안 바뀌면 몇 번을 불러도 같은 결과 |
+| null 비교 | `x.equals(null)`은 false |
+
+**대칭성이 깨지는 흔한 예**: 상위 클래스 `Point`는 `instanceof`로 비교하고, 하위 클래스 `ColorPoint`가 색 필드를 더해 equals를 재정의하면 `p.equals(cp)`는 true인데 `cp.equals(p)`는 false가 될 수 있어요. `getClass()`로 비교하면 대칭은 지키지만 하위 타입을 상위 타입 자리에 못 쓰게 돼요. 그래서 값을 담는 클래스는 상속보다 필드로 들고 있는 **구성**(composition)이 흔히 권장돼요.
+
+### 3. hashCode의 약속 3가지
+
+hashCode는 HashMap 같은 **해시 테이블**(해시값으로 저장 위치를 바로 계산하는 자료구조)을 위해 있어요.
+
+1. 한 번 실행하는 동안, equals에 쓰는 값이 안 바뀌면 같은 객체는 항상 같은 정수를 돌려줘요. 프로그램을 다시 실행하면 달라도 돼요.
+2. **equals로 같은 두 객체는 hashCode가 반드시 같아야 해요.** 핵심은 이거예요.
+3. equals로 다른 두 객체의 hashCode가 달라야 할 필요는 없어요. 같으면 **해시 충돌**인데, 허용되지만 많을수록 성능이 나빠져요.
+
+여기서 거꾸로 하면 이렇게 돼요. **hashCode가 다르면 equals는 절대 true일 수 없어요.** 그래서 Map 구현은 equals를 부르기 전에 hashCode부터 비교해서 후보를 줄여도 돼요.
+
+<Aside type="note" title="hashCode는 메모리 주소인가요?">
+스펙은 "현실적으로 가능한 한 객체마다 다른 정수를 준다"고만 해요. 메모리 주소라고 단정하면 안 돼요.
+</Aside>
+
+### 4. 하나만 재정의하면 HashMap에서 무슨 일이?
+
+Map에서 "같은 키"인지는 스펙상 equals로 판단해요. 그런데 HashMap은 키의 hashCode로 버킷을 먼저 고르고, 그 버킷 안에서만 해시값을 비교한 뒤 equals로 최종 확인해요.
+
+| 재정의한 것 | 결과 |
+|---|---|
+| equals만 | 내용이 같은 두 키가 다른 해시 → 다른 버킷. `get`은 null, `HashSet`엔 중복 저장 |
+| hashCode만 | 같은 버킷엔 가지만 equals가 `==`라 false → 여전히 다른 키 |
+| 둘 다 | 정상 동작 |
+
+이 실수는 **컴파일 에러도 경고도 안 나요.** 런타임에 조용히 중복이 남거나 조회가 실패해요.
+
+```java
+public final class Point {
+    private final int x, y;
+    public Point(int x, int y) { this.x = x; this.y = y; }
+
+    @Override  // 붙여 두면 매개변수 타입 실수를 컴파일러가 잡아줌
+    public boolean equals(Object o) {      // Point가 아니라 Object!
+        if (this == o) return true;
+        if (!(o instanceof Point p)) return false;
+        return x == p.x && y == p.y;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(x, y);  // equals에 쓴 필드를 그대로
+    }
+}
+```
+
+- 매개변수를 `Point`로 쓰면 재정의가 아니라 **오버로딩**(이름만 같은 다른 메서드)이 돼요. HashMap은 `equals(Object)`를 부르니 내 메서드는 무시돼요.
+- `Objects.equals(a, b)`는 null도 안전하게 비교하고, `Objects.hash(...)`는 여러 필드로 해시코드를 만들어요.
+
+### 5. 가변 객체를 키로 쓰면 안 되는 이유
+
+키로 넣은 뒤 equals에 영향을 주는 필드를 바꾸면, Map의 동작은 스펙상 **정의되지 않아요.** 실제로는 hashCode가 바뀌어 원래 버킷을 못 찾아요. `get`도 `remove`도 실패하고, 원래 엔트리는 꺼낼 방법 없이 남아 메모리를 차지해요. 키는 불변 객체로 쓰는 게 안전해요.
+
+### 6. 헷갈리는 표준 클래스
+
+| 클래스 | 함정 |
+|---|---|
+| `Double` | equals는 `==`가 아니라 비트 값으로 비교해요. 그래서 `NaN`끼리 equals는 true, `0.0`과 `-0.0`은 `==`는 true인데 equals는 false |
+| `BigDecimal` | equals는 값과 **scale**(소수점 아래 자릿수)까지 봐요. `2.0`과 `2.00`은 equals false, `compareTo`는 0 |
+| 정렬 컬렉션 | `compareTo`가 0인데 equals는 false인 클래스는 TreeSet/TreeMap에서 이상하게 동작해요. BigDecimal `2.0`, `2.00`을 HashSet에 넣으면 2개, TreeSet에 넣으면 1개 |
+
+금액 비교는 `equals`가 아니라 `compareTo`로 하세요.
+
+### 7. record는 자동으로 해 줘요
+
+**record**(Java 16에서 정식이 된, 값을 담는 불변 클래스 문법)는 equals, hashCode, toString을 직접 쓰지 않으면 자동으로 만들어 줘요.
+
+```java
+record Point(int x, int y) {}
+
+new Point(1, 2).equals(new Point(1, 2));  // true
+// 같은 컴포넌트로 만든 두 record는 hashCode도 같음
+```
+
+- 자동 equals는 **같은 record 클래스**이고 **모든 컴포넌트가 같을 때만** true예요.
+- 참조 타입 컴포넌트는 그 컴포넌트의 equals로(null도 처리), 기본 타입은 래퍼의 `compare(...) == 0`으로 비교해요. 그래서 double 컴포넌트에 NaN이 있어도 반사성이 지켜져요.
+- 자동 hashCode의 정확한 공식은 정해져 있지 않고 바뀔 수 있어요. 값에 의존하면 안 돼요.
+
+<Aside type="caution" title="record는 얕은 비교예요">
+컴포넌트의 equals를 부를 뿐이에요. 컴포넌트가 **배열**이면 배열의 equals는 참조 비교라서, 내용이 같은 배열을 넣어도 다른 record로 봐요. 컴포넌트가 가변 `List`면 record는 불변이어도 리스트 내용이 바뀌어 해시가 달라질 수 있어요.
+</Aside>
+
+## 면접 질문
+
+<details>
+<summary>Q. ==와 equals의 차이는 무엇인가요?</summary>
+
+**답변(30초)** `==`는 참조 타입에서 두 변수가 같은 객체를 가리키는지 보는 동일성 비교예요. `equals`는 내용이 논리적으로 같은지 보는 동등성 비교예요. 다만 Object의 기본 equals는 `==`와 똑같아서, 클래스가 재정의해야 내용 비교가 돼요. String이나 Integer 같은 값 비교는 항상 equals를 써요.
+
+**꼬리질문**
+- Q. `Integer a = 127, b = 127`일 때 `a == b`는? 1000이면? → 127은 -128~127 캐시가 보장돼서 true예요. 1000은 보통 false지만 스펙이 보장하지 않으니 equals를 써야 해요.
+- Q. String을 `==`로 비교하면 왜 위험한가요? → 글자가 같아도 다른 객체면 false가 나와요.
+</details>
+
+<details>
+<summary>Q. equals를 재정의하면 왜 hashCode도 재정의해야 하나요?</summary>
+
+**답변(30초)** "equals로 같은 객체는 hashCode도 같아야 한다"는 계약 때문이에요. HashMap과 HashSet은 hashCode로 버킷을 먼저 고르고 그 안에서 equals로 확인해요. hashCode를 재정의하지 않으면 내용이 같은 두 객체가 다른 버킷으로 가서, equals는 불려 보지도 못하고 조회가 실패하거나 중복이 저장돼요. 에러 없이 조용히 틀리기 때문에 더 위험해요.
+
+**꼬리질문**
+- Q. hashCode가 같으면 같은 객체인가요? → 아니요. 해시 충돌은 정상이에요. 반대로 hashCode가 다르면 equals는 절대 true일 수 없어요.
+- Q. 충돌이 많으면 HashMap은 어떻게 되나요? → 한 버킷에 노드가 몰려 느려져요. Java 8부터는 한 버킷 노드가 8개를 넘고 테이블이 64칸 이상이면 연결 리스트를 레드블랙 트리로 바꿔 완화해요.
+</details>
+
+<details>
+<summary>Q. equals의 계약을 말해 보세요.</summary>
+
+**답변(30초)** 반사성, 대칭성, 추이성, 일관성, 그리고 null과 비교하면 false예요. 자기 자신과 같고, x가 y와 같으면 y도 x와 같고, x=y이고 y=z면 x=z여야 해요. 값이 안 바뀌면 몇 번 불러도 결과가 같아야 해요.
+
+**꼬리질문**
+- Q. 대칭성이 깨지는 예는? → 상위 클래스는 instanceof로, 필드를 추가한 하위 클래스는 자기 타입으로 비교하면 한쪽 방향만 true가 될 수 있어요.
+- Q. instanceof와 getClass 중 무엇을 쓰나요? → getClass는 대칭을 지키지만 하위 타입 치환을 깨요. 값 클래스는 상속 대신 구성으로 설계하는 게 흔한 해법이에요.
+</details>
+
+<details>
+<summary>Q. HashMap 키로 가변 객체를 쓰면 왜 안 되나요?</summary>
+
+**답변(30초)** 키로 넣은 뒤 equals에 쓰이는 필드가 바뀌면 hashCode도 바뀌어요. 그러면 조회할 때 다른 버킷을 보게 돼서 get과 remove가 실패해요. 원래 엔트리는 꺼낼 수 없는 채로 남아 메모리 누수처럼 쌓여요. 스펙도 이 경우 Map 동작이 정의되지 않는다고 해요. 그래서 키는 record 같은 불변 객체로 써요.
+
+**꼬리질문**
+- Q. 이미 가변 객체를 키로 써야 한다면? → 넣을 때 키를 복사해 넣고, 넣은 키는 절대 수정하지 않아요.
+</details>
+
+<details>
+<summary>Q. record를 쓰면 equals와 hashCode는 어떻게 되나요?</summary>
+
+**답변(30초)** 직접 선언하지 않으면 컴파일러가 equals, hashCode, toString을 자동으로 만들어요. equals는 같은 record 타입이고 모든 컴포넌트가 같을 때 true예요. 다만 컴포넌트의 equals를 부르는 얕은 비교라서, 배열 컴포넌트는 참조로 비교되고 가변 List 컴포넌트는 내용이 바뀌면 해시가 달라질 수 있어요.
+
+**꼬리질문**
+- Q. record의 hashCode 값을 저장해 두고 써도 되나요? → 안 돼요. 공식은 명시되지 않았고 바뀔 수 있어요.
+- Q. BigDecimal `2.0`과 `2.00`은 equals인가요? → 아니요. scale까지 비교해서 false고, compareTo는 0이에요. 금액 비교는 compareTo를 써요.
+</details>
+
+## 서술형 연습
+
+<details>
+<summary>상황: JPA 엔티티에 Lombok @Data를 붙였더니 Set에 넣은 엔티티를 contains로 못 찾고, 가끔 StackOverflowError도 납니다.</summary>
+
+**상황 파악**
+증상이 두 개예요. Set에서 엔티티를 못 찾는 건 **hashCode가 Set에 넣은 뒤 바뀌었다**는 신호예요. StackOverflowError는 equals나 hashCode가 **끝없이 서로를 부르고 있다**는 신호예요. 둘 다 Lombok `@Data`가 만든 equals/hashCode가 엔티티에 맞지 않아서 생길 수 있어요. `@Data`는 보통 모든 필드로 equals/hashCode를 만들기 때문이에요.
+
+**원인 후보**
+1. **생성 id 변화**: `@GeneratedValue` id는 persist/flush 전에 null이에요. Set에 넣은 뒤 id가 채워지면 hashCode가 바뀌어 `contains`가 false가 돼요.
+2. **양방향 연관관계 순환**: `Order`가 `List<OrderItem>`을, `OrderItem`이 `Order`를 들고 있으면 서로의 hashCode를 끝없이 불러 StackOverflowError가 나요.
+3. **지연 로딩**: 연관 필드까지 비교하면 equals 한 번에 쿼리가 나갈 수 있어요. 또 지연 로딩 프록시는 엔티티의 하위 클래스라 `getClass()` 비교가 실패할 수 있어요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. equals/hashCode를 아예 재정의하지 않음 | 같은 영속성 컨텍스트 안에서는 Hibernate가 같은 행을 같은 인스턴스로 보장해서 `==`로 충분. 가장 단순 | 다른 세션에서 읽은 두 인스턴스나 detached 엔티티를 Set에서 섞으면 같은 행인데 다르다고 봄 |
+| B. 자연 키 기반(`@NaturalId`, 예: ISBN, 이메일) | 저장 전후 값이 안 바뀌어 해시가 안정적. Hibernate 문서가 권장하는 방식 | 진짜 불변인 비즈니스 키가 있어야 함 |
+| C. id 기반 equals + 상수 hashCode(`getClass().hashCode()` 등) | 자연 키가 없어도 쓸 수 있고, id가 채워져도 해시가 안 바뀜 | 같은 클래스의 엔티티가 모두 같은 해시라 큰 HashSet에선 느려짐 |
+
+어떤 방법이든 공통으로 할 일이 있어요. `@Data` 대신 `@Getter` 등 필요한 것만 쓰고, 연관 필드는 비교에서 빼요. 비교는 `instanceof`와 getter로 해서 프록시도 통과하게 해요.
+
+**내가 고를 방법**
+먼저 `@Data`를 걷어내 순환과 지연 로딩 문제부터 없애요. 그다음 불변 비즈니스 키가 있으면 B를 고르고, 없으면 C를 써요. 엔티티를 Set에 넣어 세션 밖에서 비교할 일이 정말 없다면 A로 두는 것도 괜찮아요. 무조건 id로 equals를 짜는 건 저장 전 null id 때문에 처음 증상을 그대로 남겨요.
+
+**채점 포인트**: hashCode가 Set 삽입 후 바뀌는 문제, persist 전 생성 id는 null, 양방향 연관 순환으로 StackOverflowError, `@Data`가 모든 필드를 비교, 영속성 컨텍스트 안의 동일성 보장, 자연 키(`@NaturalId`) 권장, 프록시와 `getClass()` 함정, 해결책 2개 이상의 트레이드오프.
+</details>
+
+## 함께 보기
+
+- [HashMap 내부 동작](../hashmap/)
+- [기본형·참조형과 Call by Value](../primitive-reference/)
+- [String 불변성과 문자열 풀](../string/)
+- [컬렉션 프레임워크 한눈에](../collections/)
+
+## 출처
+
+- [Java SE 21 API, java.lang.Object (equals, hashCode)](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/lang/Object.html)
+- [Java SE 21 API, java.lang.Record](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/lang/Record.html)
+- [JLS SE 21 §15.21 Equality Operators](https://docs.oracle.com/javase/specs/jls/se21/html/jls-15.html#jls-15.21)
+- [JLS SE 21 §5.1.7 Boxing Conversion](https://docs.oracle.com/javase/specs/jls/se21/html/jls-5.html#jls-5.1.7)
+- [JLS SE 21 §8.10.3 Record Members](https://docs.oracle.com/javase/specs/jls/se21/html/jls-8.html#jls-8.10.3)
+- [Java SE 21 API, java.util.Map](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/Map.html)
+- [Java SE 21 API, java.util.HashMap](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/HashMap.html)
+- [Java SE 21 API, java.util.Objects](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/Objects.html)
+- [Java SE 21 API, Integer.valueOf(int)](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/lang/Integer.html#valueOf(int))
+- [Java SE 21 API, Double.equals](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/lang/Double.html#equals(java.lang.Object))
+- [Java SE 21 API, BigDecimal.equals](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/math/BigDecimal.html#equals(java.lang.Object))
+- [Java SE 21 API, java.lang.Comparable](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/lang/Comparable.html)
+- [Hibernate ORM 6.4 User Guide, Implementing equals() and hashCode()](https://docs.jboss.org/hibernate/orm/6.4/userguide/html_single/Hibernate_User_Guide.html#mapping-model-pojo-equalshashcode)

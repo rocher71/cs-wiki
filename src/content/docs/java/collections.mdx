@@ -1,0 +1,338 @@
+---
+title: 컬렉션 프레임워크 한눈에
+description: 자바 컬렉션은 Collection 트리(List·Set·Queue)와 별도의 Map 트리로 나뉘고, 구현체마다 순서·중복·속도가 달라서 용도에 맞게 골라 써요.
+sidebar: { order: 5 }
+tags: [면접빈출, 서술형]
+---
+import { Aside } from '@astrojs/starlight/components';
+import CollectionHierarchy from '~/components/viz/CollectionHierarchy.astro';
+import ListMiddleInsert from '~/components/viz/ListMiddleInsert.astro';
+
+:::tip[한 줄 요약]
+자바 컬렉션은 `Collection` 아래의 List(순서 O, 중복 O)·Set(중복 X)·Queue(꺼낼 순서가 정해진 대기열)와, 따로 떨어진 Map(키→값)으로 나뉘어요. 보통은 `ArrayList`, `HashMap`, `HashSet`, `ArrayDeque`를 기본으로 쓰고, 순서나 정렬이 필요할 때 Linked 계열이나 Tree 계열로 바꿔요.
+:::
+
+## 쉽게 이해하기
+
+컬렉션은 **물건을 담는 수납 도구 세트**예요. 같은 "담기"라도 도구마다 잘하는 게 달라요.
+
+- **List**는 번호가 붙은 사물함 줄이에요. 같은 물건을 두 칸에 넣어도 되고, "3번 칸"처럼 번호로 꺼내요.
+- **Set**은 도장 찍힌 출석부예요. 같은 사람은 한 번만 올라가요.
+- **Queue**는 은행 번호표 줄이에요. 정해진 순서대로 하나씩 꺼내요.
+- **Map**은 이름표 붙은 서랍장이에요. "이름표(키)"로 바로 서랍(값)을 열어요.
+
+같은 사물함 줄이라도 **칸이 붙어 있는 사물함(ArrayList)**은 번호로 찾기는 빠르지만, 중간에 칸 하나를 끼워 넣으려면 뒤 물건을 전부 한 칸씩 밀어야 해요. **고리로 이어진 상자 줄(LinkedList)**은 고리만 바꿔 끼우면 되지만, 몇 번째 상자인지 찾으려면 처음부터 세어 가야 해요.
+
+단, 실제로는 Map이 나머지 셋과 같은 가족이 아니에요. Map은 `Collection`을 상속하지 않는 별도의 계층이에요.
+
+## 그림으로 보기
+
+<CollectionHierarchy />
+
+<ListMiddleInsert />
+
+## 제대로 알기
+
+### 1. 왜 컬렉션 프레임워크가 있나
+
+**컬렉션**(collection)은 객체 여러 개를 하나로 묶어 다루는 객체예요. **컬렉션 프레임워크**는 이런 자료구조들을 같은 인터페이스로 다룰 수 있게 정리한 체계예요.
+
+덕분에 `List<String> names`처럼 **인터페이스 타입으로 선언**해 두면, 나중에 `ArrayList`를 다른 구현체로 바꿔도 쓰는 쪽 코드는 그대로예요. 서로 다른 라이브러리끼리도 `List`, `Map`으로 주고받으면 되니 호환이 쉬워요.
+
+### 2. 두 갈래 계층
+
+| 인터페이스 | 특징 | 대표 구현체 |
+|---|---|---|
+| `List` | 순서 있음, 중복 허용, 인덱스로 접근 | `ArrayList`, `LinkedList` |
+| `Set` | 중복 불가 | `HashSet`, `LinkedHashSet`, `TreeSet` |
+| `Queue` | 처리 전 대기. 보통 FIFO(먼저 넣은 게 먼저 나옴) | `ArrayDeque`, `PriorityQueue` |
+| `Deque` | 양쪽 끝에서 넣고 빼기. 큐와 스택 둘 다 가능 | `ArrayDeque`, `LinkedList` |
+| `Map` | 키→값. 키는 중복 불가, 키 하나에 값 하나 | `HashMap`, `LinkedHashMap`, `TreeMap` |
+
+- `Collection`은 List·Set·Queue의 루트이고, **`Map`은 `Collection`이 아니에요.** 그래서 Map은 바로 for-each로 돌릴 수 없고, `keySet()`, `values()`, `entrySet()`을 꺼내서 순회해요.
+- `LinkedList`는 `List`와 `Deque`를 **둘 다** 구현해요.
+
+### 3. List: ArrayList vs LinkedList
+
+**ArrayList**는 크기가 자동으로 늘어나는 배열이에요.
+- `get`, `set`, `size`는 상수 시간 O(1)이에요(**O(1)**: 데이터가 많아져도 걸리는 시간이 거의 같음).
+- 맨 뒤 `add`는 **분할상환 O(1)**(amortized, 가끔 비싼 순간이 있지만 평균 내면 상수)이에요.
+- 내부 배열이 꽉 차면 더 큰 배열을 새로 만들고 전부 복사해요. 그 순간만 O(n)이에요.
+
+<Aside type="note" title="ArrayList는 몇 배로 늘어나나">
+공식 문서는 "add가 분할상환 상수 시간"이라는 것만 약속하고 **증가 비율은 정하지 않아요.** OpenJDK 21 구현은 빈 배열로 시작해 첫 `add` 때 10칸을 만들고, 꽉 차면 기존 크기의 절반만큼 늘려 약 **1.5배**가 돼요. 1.5배는 구현 세부사항이라고 덧붙이면 좋아요. 대량으로 넣을 걸 알면 `new ArrayList<>(n)`이나 `ensureCapacity(n)`으로 복사 횟수를 줄여요.
+</Aside>
+
+**LinkedList**는 **이중 연결 리스트**(doubly linked list, 노드마다 앞·뒤 노드를 가리키는 구조)예요.
+- `get(i)`는 앞이나 뒤 중 가까운 쪽부터 노드를 따라가서 **O(n)**이에요.
+- 이미 그 위치에 있으면(Iterator로 서 있거나 양 끝) 링크만 바꿔서 O(1)로 넣고 빼요.
+
+| 연산 | ArrayList | LinkedList |
+|---|---|---|
+| `get(i)` | O(1) | O(n) |
+| 맨 뒤 추가 | 분할상환 O(1) | O(1) |
+| `add(i, x)` 중간 삽입 | O(n), 뒤 원소들을 밀어야 함 | O(n), 위치를 찾아가야 함 |
+| 메모리 | 연속된 배열, 군더더기 적음 | 노드마다 앞·뒤 참조가 붙어 더 큼 |
+
+"LinkedList가 삽입이 빨라요"는 반만 맞아요. 인덱스로 넣으면 **탐색 때문에 결국 O(n)**이에요. 배열은 메모리에 붙어 있어 CPU 캐시에도 유리해서, 실무에선 대부분 `ArrayList`를 써요. 큐나 스택이 필요하면 아래의 `ArrayDeque`가 있어요.
+
+### 4. Set: HashSet, LinkedHashSet, TreeSet
+
+`"banana"`, `"apple"`, `"cherry"` 순서로 넣었을 때를 생각해 봐요.
+
+| 구현체 | 꺼낼 때 순서 | 주요 연산 | 같음 판단 |
+|---|---|---|---|
+| `HashSet` | 보장 없음 (시간이 지나도 유지된다는 보장도 없음) | 평균 O(1) | `hashCode` + `equals` |
+| `LinkedHashSet` | 넣은 순서: banana, apple, cherry | 평균 O(1), 약간 느림 | `hashCode` + `equals` |
+| `TreeSet` | 정렬 순서: apple, banana, cherry | O(log n) 보장 | `compareTo` / `compare` |
+
+- `HashSet`은 속을 보면 `HashMap`이에요. 원소를 키로 넣어요. 그래서 원소 클래스가 `equals`와 `hashCode`를 제대로 재정의하지 않으면 중복 제거가 안 돼요([equals와 hashCode](../equals-hashcode/) 참고).
+- `TreeSet`은 **비교 결과가 0이면 같은 원소**로 보고 하나만 남겨요. `equals`가 달라도요. 그래서 정렬 기준이 `equals`와 맞아야 Set 규칙이 깨지지 않아요.
+
+### 5. Map: HashMap, LinkedHashMap, TreeMap
+
+| 구현체 | 키 순서 | `get`/`put` | 메모 |
+|---|---|---|---|
+| `HashMap` | 보장 없음 | 평균 O(1) | 내부 동작은 [HashMap 내부 동작](../hashmap/) |
+| `LinkedHashMap` | 넣은 순서(옵션으로 최근 접근 순서) | 평균 O(1), 약간 느림 | LRU 캐시 만들기 좋음 |
+| `TreeMap` | 키 정렬 순서 | O(log n) 보장 | **레드-블랙 트리**(균형을 스스로 맞추는 이진 탐색 트리) |
+
+- `LinkedHashMap`에 같은 키를 다시 `put`해도 순서는 그대로예요.
+- 반복 비용도 달라요. `HashMap`은 버킷 수(내부 칸 수)에 비례하고, `LinkedHashMap`은 원소 수에만 비례해요.
+- `TreeMap`은 자연 순서를 쓰면 null 키에서 `NullPointerException`이 나요.
+
+**LRU 캐시**(Least Recently Used, 가장 오래 안 쓴 걸 먼저 버리는 캐시)는 `LinkedHashMap`으로 몇 줄이면 돼요.
+
+```java
+// accessOrder=true: get 할 때마다 그 항목이 맨 뒤(최근)로 이동
+Map<String, String> cache = new LinkedHashMap<>(16, 0.75f, true) {
+    @Override
+    protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
+        return size() > 100; // 100개 넘으면 가장 오래된 항목 자동 삭제
+    }
+};
+```
+
+단, 이 맵은 **스레드 안전하지 않아요.** 여러 스레드가 쓰면 `Collections.synchronizedMap`으로 감싸거나 Caffeine 같은 캐시 라이브러리를 써요.
+
+### 6. Queue와 Deque
+
+`Queue` 메서드는 실패했을 때 반응이 다른 **두 벌**이에요.
+
+| 동작 | 실패 시 예외 | 실패 시 특수값(false/null) |
+|---|---|---|
+| 넣기 | `add` | `offer` |
+| 꺼내기 | `remove` | `poll` |
+| 맨 앞 보기 | `element` | `peek` |
+
+- `poll`이 "비었음"을 null로 알리니까 큐에는 **null을 넣지 않아요.**
+- **`ArrayDeque`**: 배열 기반 Deque. 공식 문서가 "스택으로 쓰면 `Stack`보다, 큐로 쓰면 `LinkedList`보다 빠를 가능성이 높다"고 적어 둬요. null은 못 넣어요.
+- **`PriorityQueue`**: **힙**(heap, 가장 작은 값이 늘 맨 위에 오도록 유지하는 트리) 기반이에요. 기본은 가장 작은 원소가 먼저 나와요. `offer`/`poll`은 O(log n), `peek`은 O(1)이에요.
+
+<Aside type="caution" title="PriorityQueue를 for-each로 돌리면">
+정렬 순서로 나오지 않아요. iterator는 순서를 보장하지 않아요. 정렬된 순서가 필요하면 `poll`을 반복해서 꺼내요.
+</Aside>
+
+**레거시 클래스**: `Vector`, `Stack`, `Hashtable`은 초창기 클래스예요. `Vector`는 메서드마다 동기화가 걸려 있어서 스레드 안전이 필요 없으면 `ArrayList`를 쓰라고 문서가 권해요. 스택은 `Stack` 대신 `Deque`(보통 `ArrayDeque`)를 쓰라고 해요.
+
+### 7. 순회 중 수정과 ConcurrentModificationException
+
+**구조적 변경**(structural modification)은 원소를 넣거나 빼서 크기가 바뀌는 변경이에요. `set`으로 값만 바꾸는 건 해당하지 않아요.
+
+`ArrayList`의 iterator는 **fail-fast**(문제를 발견하면 바로 실패)예요. iterator를 만든 뒤 iterator 자신 말고 다른 경로로 구조가 바뀌면 `ConcurrentModificationException`(CME)을 던져요. for-each도 속은 iterator라서, 그 안에서 `list.remove()`를 부르면 스레드가 하나여도 터져요.
+
+```java
+// 잘못된 예: for-each 안에서 직접 삭제 → CME
+for (String s : list) {
+    if (s.isBlank()) list.remove(s);
+}
+
+// 방법 1: removeIf (Java 8+)
+list.removeIf(String::isBlank);
+
+// 방법 2: iterator 자신의 remove
+Iterator<String> it = list.iterator();
+while (it.hasNext()) {
+    if (it.next().isBlank()) it.remove();
+}
+```
+
+fail-fast는 **최선 노력**(best-effort)이라 항상 잡아 준다는 보장이 없어요. 버그를 찾는 용도일 뿐, 동시성 안전 장치로 믿으면 안 돼요.
+
+**멀티스레드**에선 기본 컬렉션(`ArrayList`, `HashSet`, `ArrayDeque` 등)이 전부 동기화되지 않아요.
+- `Collections.synchronizedList(list)`: 메서드 하나하나는 동기화되지만, **순회할 땐 직접 `synchronized (list) { ... }`로 감싸야** 해요.
+- `CopyOnWriteArrayList`: 쓸 때마다 내부 배열을 통째로 복사해요. 쓰기는 비싸지만, iterator가 만든 시점의 스냅샷을 돌기 때문에 CME가 절대 안 나요. 읽기가 압도적으로 많은 리스너 목록 같은 곳에 맞아요.
+
+### 8. 수정 불가 컬렉션: 뷰인가, 복사인가
+
+| 만드는 법 | 버전 | 원본 바뀌면? | null | 크기 변경 |
+|---|---|---|---|---|
+| `List.of(...)` | 9 | 원본 없음 | 불가(NPE) | 불가 |
+| `List.copyOf(src)` | 10 | 반영 안 됨(독립 사본) | 불가(NPE) | 불가 |
+| `Collections.unmodifiableList(src)` | 오래전부터 | **같이 바뀜**(뷰) | 원본 따라감 | 불가 |
+| `Arrays.asList(arr)` | 오래전부터 | 배열과 서로 반영 | 허용 | 불가, `set`은 됨 |
+| `stream.toList()` | 16 | 원본 없음 | 허용 | 불가 |
+
+- 수정 불가 컬렉션에 `add`, `remove` 등을 부르면 `UnsupportedOperationException`이 나요.
+- **뷰**(view)는 원본을 들여다보는 창문이에요. `unmodifiableList`로 막아도 원본을 가진 쪽이 바꾸면 창문 너머도 바뀌어요. 진짜 독립된 사본이 필요하면 `List.copyOf`예요.
+- `List.of`여도 안에 든 객체가 가변이면 그 객체의 상태는 바뀔 수 있어요. 리스트 구조만 못 바꿀 뿐이에요.
+- `Set.of`는 중복 원소를, `Map.of`는 중복 키를 넣으면 만들 때 바로 예외가 나요. 둘 다 반복 순서는 정해져 있지 않아요.
+- `collect(Collectors.toList())`는 가변성을 **보장하지 않아요.** 꼭 `ArrayList`가 필요하면 `Collectors.toCollection(ArrayList::new)`를 써요.
+
+### 9. Java 21: Sequenced Collections
+
+예전엔 "첫 원소 꺼내기"가 타입마다 달랐어요. List는 `get(0)`, Deque는 `getFirst()`, SortedSet은 `first()`였고, LinkedHashSet은 마지막 원소를 꺼낼 방법이 사실상 전체 순회뿐이었어요.
+
+Java 21(JEP 431)은 **순서가 정해진 컬렉션**을 위한 인터페이스 3개를 추가했어요.
+
+| 인터페이스 | 주요 메서드 | 누가 구현하나 |
+|---|---|---|
+| `SequencedCollection` | `getFirst`, `getLast`, `addFirst`, `addLast`, `removeFirst`, `removeLast`, `reversed()` | `List`, `Deque` |
+| `SequencedSet` | 위와 같음, `reversed()`가 Set 반환 | `LinkedHashSet`, `SortedSet` |
+| `SequencedMap` | `firstEntry`, `lastEntry`, `putFirst`, `putLast`, `pollFirstEntry`, `reversed()` | `LinkedHashMap`, `SortedMap` |
+
+- `reversed()`는 역순 **뷰**를 돌려줘요. 복사가 아니에요.
+- 순서가 없는 `HashSet`, `HashMap`은 여기에 해당하지 않아요.
+- `TreeSet`처럼 정렬로 위치가 정해지는 컬렉션은 `addFirst`/`addLast`에서 `UnsupportedOperationException`을 던질 수 있어요.
+
+## 면접 질문
+
+<details>
+<summary>Q. 자바 컬렉션 프레임워크의 구조를 설명해 주세요.</summary>
+
+**답변(30초)** 크게 `Collection` 계층과 `Map` 계층 두 갈래예요. `Collection` 아래에 순서가 있고 중복을 허용하는 List, 중복을 허용하지 않는 Set, 처리 순서대로 꺼내는 Queue가 있어요. Map은 키와 값을 짝지어 저장하고, `Collection`을 상속하지 않는 별도 계층이에요. 인터페이스로 선언해 두면 구현체를 바꿔도 쓰는 코드가 그대로라는 게 장점이에요.
+
+**꼬리질문**
+- Q. Map은 왜 Collection이 아닌가요? → 원소 하나가 아니라 키·값 쌍을 다루기 때문에 별도 계층이에요. 순회는 `keySet()`, `values()`, `entrySet()` 뷰로 해요.
+- Q. 변수를 `ArrayList`가 아니라 `List`로 선언하는 이유는? → 구현체를 바꿔도 사용하는 쪽 코드를 고칠 필요가 없어서요.
+</details>
+
+<details>
+<summary>Q. ArrayList와 LinkedList의 차이와, 각각 언제 쓰나요?</summary>
+
+**답변(30초)** ArrayList는 배열 기반이라 인덱스 조회가 O(1)이고, LinkedList는 이중 연결 리스트라 조회가 O(n)이에요. 중간 삽입은 둘 다 O(n)인데, ArrayList는 뒤 원소를 밀어야 해서고 LinkedList는 위치를 찾아가야 해서예요. 배열은 메모리가 연속이라 캐시에도 유리해서 대부분 ArrayList를 써요. 큐나 스택이 필요하면 LinkedList보다 ArrayDeque를 써요.
+
+**꼬리질문**
+- Q. LinkedList 삽입이 O(1)인 경우는? → Iterator로 이미 그 위치에 있거나 맨 앞·맨 뒤일 때예요. 링크만 바꾸면 돼요.
+- Q. ArrayList의 add가 O(1)인 이유는? → 정확히는 분할상환 O(1)이에요. 꽉 차면 큰 배열로 복사하는 O(n) 순간이 있지만, 가끔이라 평균하면 상수예요.
+- Q. 몇 배로 늘어나나요? → 명세는 정하지 않아요. OpenJDK 구현은 약 1.5배예요.
+</details>
+
+<details>
+<summary>Q. HashSet, LinkedHashSet, TreeSet의 차이는?</summary>
+
+**답변(30초)** 셋 다 중복을 허용하지 않지만 순서와 속도가 달라요. HashSet은 순서를 보장하지 않고 평균 O(1)이에요. LinkedHashSet은 넣은 순서를 지키고, 연결 리스트를 함께 유지해서 조금 더 느려요. TreeSet은 정렬된 순서를 지키고 O(log n)이에요. Map 쪽의 HashMap, LinkedHashMap, TreeMap도 같은 관계예요.
+
+**꼬리질문**
+- Q. TreeSet은 중복을 무엇으로 판단하나요? → `equals`가 아니라 `compareTo`나 `Comparator`예요. 비교 결과가 0이면 다른 객체여도 하나만 남아요.
+- Q. HashSet에 넣은 객체가 중복 제거되지 않아요. 왜일까요? → 그 클래스가 `equals`와 `hashCode`를 같이 재정의하지 않았을 가능성이 커요.
+</details>
+
+<details>
+<summary>Q. ConcurrentModificationException은 언제 나고, 어떻게 피하나요?</summary>
+
+**답변(30초)** iterator로 순회하는 도중에 iterator가 아닌 다른 경로로 컬렉션 크기를 바꾸면 나요. ArrayList의 iterator가 fail-fast라서, 구조가 바뀐 걸 알아채면 바로 예외를 던져요. for-each도 속은 iterator라 그 안에서 `list.remove()`를 부르면 단일 스레드에서도 나요. `removeIf`나 `Iterator.remove()`로 지우면 돼요.
+
+**꼬리질문**
+- Q. 멀티스레드에서 CME를 믿고 동시성 버그를 잡을 수 있나요? → 아니요. fail-fast는 최선 노력이라 보장이 없어요. 동기화를 따로 해야 해요.
+- Q. 순회가 많은 공유 리스트는? → 읽기가 압도적이면 `CopyOnWriteArrayList`예요. 스냅샷을 돌아서 CME가 안 나지만 쓰기마다 배열을 복사해요.
+</details>
+
+<details>
+<summary>Q. Collections.unmodifiableList와 List.of, List.copyOf의 차이는?</summary>
+
+**답변(30초)** 셋 다 수정하려 하면 `UnsupportedOperationException`이 나지만, 원본과의 관계가 달라요. `unmodifiableList`는 원본을 감싼 읽기 전용 뷰라서 원본이 바뀌면 같이 바뀌어요. `List.copyOf`는 독립된 사본이라 원본 변경이 반영되지 않아요. `List.of`는 처음부터 새로 만든 수정 불가 리스트이고, 둘 다 null을 허용하지 않아요.
+
+**꼬리질문**
+- Q. `List.of`면 완전히 불변인가요? → 리스트 구조만 못 바꿔요. 안에 든 객체가 가변이면 그 상태는 바뀔 수 있어요.
+- Q. `Arrays.asList` 결과에 `add`하면? → `UnsupportedOperationException`이에요. 배열 기반 고정 크기라 `set`만 되고, 그 변경은 배열에도 반영돼요.
+</details>
+
+<details>
+<summary>Q. 스택이나 큐가 필요하면 무엇을 쓰나요?</summary>
+
+**답변(30초)** 둘 다 `ArrayDeque`를 써요. 공식 문서도 스택으로는 `Stack`보다, 큐로는 `LinkedList`보다 빠를 가능성이 높다고 적고 있어요. `Stack`은 동기화가 걸린 레거시 `Vector`를 상속한 클래스라 `Deque`를 쓰라고 권장돼요. 우선순위대로 꺼내야 하면 힙 기반 `PriorityQueue`를 써요.
+
+**꼬리질문**
+- Q. PriorityQueue의 시간복잡도는? → `offer`/`poll`은 O(log n), `peek`은 O(1), `contains`는 O(n)이에요.
+- Q. `offer`와 `add` 차이는? → 실패하면 `add`는 예외를, `offer`는 false를 돌려줘요.
+</details>
+
+<details>
+<summary>Q. Java 21의 Sequenced Collections는 무엇인가요?</summary>
+
+**답변(30초)** 순서가 정해진 컬렉션에 공통 인터페이스를 준 기능이에요. 예전엔 첫 원소를 꺼내는 방법이 List는 `get(0)`, Deque는 `getFirst()`, SortedSet은 `first()`로 제각각이었어요. Java 21부터 `SequencedCollection`, `SequencedSet`, `SequencedMap`이 생겨 `getFirst`, `getLast`, `reversed()`를 똑같이 쓸 수 있어요. 순서 없는 HashSet과 HashMap은 해당하지 않아요.
+
+**꼬리질문**
+- Q. `reversed()`는 새 리스트를 만드나요? → 아니요. 원본의 역순 뷰예요.
+</details>
+
+## 서술형 연습
+
+<details>
+<summary>상황: 주문 목록에서 취소된 주문을 걸러내는 코드가 운영에서 ConcurrentModificationException으로 실패합니다.</summary>
+
+**상황 파악**
+코드를 보면 API로 받은 `ArrayList`를 for-each로 돌면서 조건에 맞는 원소를 `list.remove()`로 지우고 있어요. for-each는 속에서 iterator를 쓰고, `ArrayList`의 iterator는 fail-fast라서, iterator 밖에서 크기가 바뀐 걸 알아채면 예외를 던져요. 테스트 데이터에는 취소 주문이 없었거나 우연히 피해 가서 안 보였을 수 있어요.
+
+**원인 후보**
+1. 같은 스레드에서 for-each 도중 직접 `remove` (가장 흔함)
+2. 다른 스레드가 같은 리스트를 동시에 수정 (공유 리스트라면)
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. `list.removeIf(Order::isCanceled)` | 한 줄, 의도가 명확, 원본에서 바로 삭제 | 원본 리스트가 바뀜. 수정 불가 리스트면 `UnsupportedOperationException` |
+| B. `Iterator.remove()`로 직접 삭제 | 삭제하면서 다른 처리도 같이 할 수 있음 | 코드가 길고 실수하기 쉬움 |
+| C. 스트림으로 새 리스트 만들기 `stream().filter(...).toList()` | 원본을 건드리지 않음, 수정 불가 리스트에도 안전 | 새 리스트만큼 메모리를 더 씀. 결과도 수정 불가 |
+| D. (다른 스레드가 원인일 때) 동기화 또는 `CopyOnWriteArrayList` | 동시 수정 자체를 막음 | 락 비용, 또는 쓰기마다 배열 복사 |
+
+**내가 고를 방법**
+먼저 리스트가 다른 스레드와 공유되는지 확인해요. 공유가 아니라면 1번이 원인이니, 원본을 바꿔도 되는 상황이면 A, 원본을 지켜야 하거나 출처를 모르는 리스트면 C를 써요. 외부에서 받은 리스트는 `List.of`처럼 수정 불가일 수 있어서 C가 더 안전한 경우가 많아요. 공유 리스트라면 삭제 방식만 바꿔선 안 되고 D로 동시 접근부터 정리해요.
+
+**채점 포인트**: for-each 내부가 iterator라는 점, fail-fast, 구조적 변경, `removeIf`/`Iterator.remove()`, 원본 변경 vs 새 리스트 트레이드오프, 수정 불가 리스트 가능성, fail-fast는 동시성 보장이 아니라는 점.
+</details>
+
+<details>
+<summary>상황: 내부 리스트를 `Collections.unmodifiableList`로 감싸 외부에 반환했는데, 외부에서 캐시해 둔 값이 나중에 바뀌어 있었습니다.</summary>
+
+**상황 파악**
+`unmodifiableList`는 복사본이 아니라 원본을 들여다보는 **읽기 전용 뷰**예요. 외부는 이 뷰로 수정할 수 없지만, 원본을 가진 클래스가 내부 리스트를 바꾸면 뷰를 통해서도 바뀐 값이 보여요. 외부는 "불변 리스트를 받았다"고 생각하고 캐시했으니 예상 밖으로 값이 바뀐 거예요.
+
+**원인 후보**
+1. 뷰와 복사를 헷갈린 반환 방식
+2. 외부가 받은 리스트를 그대로 캐시한 사용 방식
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. `List.copyOf(internal)`로 반환 | 반환 시점 사본이라 이후 변경과 무관, 수정도 막힘 | 호출할 때마다 복사 비용. null 원소가 있으면 NPE |
+| B. 뷰는 그대로 두고 문서에 "원본 변경이 반영됨"을 명시 | 복사 비용 없음, 항상 최신 값 | 쓰는 쪽이 계약을 놓치면 같은 버그가 반복 |
+| C. 외부에서 받을 때 `new ArrayList<>(list)`로 방어적 복사 | 받는 쪽이 스스로 보호 | 모든 호출자가 지켜야 함 |
+
+**내가 고를 방법**
+"그 시점의 값"을 돌려주는 게 의도라면 A가 맞아요. 반환 계약이 분명하고 호출자 실수 여지가 없어요. 리스트가 매우 크고 자주 불려서 복사 비용이 문제라면, 항상 최신 값을 보여 주는 게 의도인지 확인하고 B로 계약을 명확히 해요. C는 내가 고칠 수 없는 외부 라이브러리의 반환값을 받을 때 쓰는 보조 수단이에요.
+
+**채점 포인트**: 뷰 vs 사본, `unmodifiableList`는 원본을 읽어 들어감, `List.copyOf`는 원본 변경 미반영, `UnsupportedOperationException`, 복사 비용 트레이드오프, 반환 계약 문서화, null 불가.
+</details>
+
+## 함께 보기
+
+- [HashMap 내부 동작](../hashmap/)
+- [제네릭과 타입 소거](../generics/)
+- [equals와 hashCode](../equals-hashcode/)
+- [JVM 구조와 GC](../jvm-gc/)
+
+## 출처
+
+- [Java SE 21 Core Libraries, Java Collections Framework](https://docs.oracle.com/en/java/javase/21/core/java-collections-framework.html)
+- [The Java Tutorials, Collections Interfaces](https://docs.oracle.com/javase/tutorial/collections/interfaces/index.html)
+- Java SE 21 API: [List](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/List.html) / [ArrayList](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/ArrayList.html) / [LinkedList](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/LinkedList.html) / [Vector](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/Vector.html) / [Stack](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/Stack.html)
+- Java SE 21 API: [HashSet](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/HashSet.html) / [TreeSet](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/TreeSet.html) / [LinkedHashMap](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/LinkedHashMap.html) / [TreeMap](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/TreeMap.html)
+- Java SE 21 API: [Queue](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/Queue.html) / [ArrayDeque](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/ArrayDeque.html) / [PriorityQueue](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/PriorityQueue.html)
+- Java SE 21 API: [Collection](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/Collection.html) / [Collections](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/Collections.html) / [CopyOnWriteArrayList](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/CopyOnWriteArrayList.html)
+- Java SE 21 API: [Set](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/Set.html) / [Map](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/Map.html) / [Arrays](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/Arrays.html) / [Stream](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/stream/Stream.html) / [Collectors](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/stream/Collectors.html)
+- [OpenJDK 21 소스, ArrayList.java](https://github.com/openjdk/jdk/blob/jdk-21%2B35/src/java.base/share/classes/java/util/ArrayList.java)
+- [JEP 431: Sequenced Collections](https://openjdk.org/jeps/431)

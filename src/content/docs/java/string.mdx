@@ -1,0 +1,305 @@
+---
+title: String 불변성과 문자열 풀
+description: String은 한 번 만들면 내용을 바꿀 수 없는 불변 객체이고, 같은 내용의 리터럴은 문자열 풀에 하나만 두고 함께 써요.
+sidebar: { order: 3 }
+tags: [면접빈출, 서술형]
+---
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+import StringPoolLiteralVsNew from '~/components/viz/StringPoolLiteralVsNew.astro';
+import ConcatLoopVsBuilder from '~/components/viz/ConcatLoopVsBuilder.astro';
+
+:::tip[한 줄 요약]
+String은 만든 뒤 내용을 바꿀 수 없는 불변 객체예요. 불변이라 안심하고 공유할 수 있어서, 같은 내용의 리터럴은 힙 안의 문자열 풀에 하나만 두고 모두가 같은 객체를 가리켜요. 자주 바꿔야 하는 문자열은 StringBuilder로 만들어요.
+:::
+
+## 쉽게 이해하기
+
+String은 **인쇄된 명함**과 비슷해요. 한 번 찍으면 글자를 고칠 수 없어요. 전화번호가 바뀌면 명함을 고치는 게 아니라 **새 명함을 찍고**, 옛 명함은 버려요.
+
+고칠 수 없다는 건 단점 같지만, 덕분에 **여러 사람이 같은 명함을 돌려 봐도 안전**해요. 누가 몰래 고칠 일이 없으니까요. 그래서 자바는 `"hello"`처럼 코드에 직접 쓴 문자열(리터럴)을 **문자열 풀**이라는 공용 명함꽂이에 한 장만 꽂아 두고, 같은 글자가 필요한 곳은 전부 그 한 장을 가리키게 해요.
+
+반대로 글자를 계속 덧붙여야 하는 일(로그 한 줄씩 쌓기 등)에 명함을 쓰면 매번 새로 찍어야 해서 낭비가 커요. 그럴 땐 **화이트보드(StringBuilder)**에 쓰고 지우다가, 다 끝나면 마지막에 명함 한 장으로 찍어요.
+
+단, 실제로는 `s = s + "a"`처럼 변수에 새 값을 넣을 수는 있어요. 그건 명함을 고친 게 아니라, `s`라는 손가락이 **새 명함을 가리키도록** 바뀐 거예요.
+
+## 그림으로 보기
+
+<StringPoolLiteralVsNew />
+
+<ConcatLoopVsBuilder />
+
+## 제대로 알기
+
+### 1. 불변(immutable)이란
+
+**불변 객체**(immutable object, 만든 뒤 내부 값을 바꿀 수 없는 객체)인 String은 내용을 바꾸는 메서드가 없어요. `toUpperCase`, `replace`, `concat`, `substring`은 모두 **결과를 새 String으로 돌려줄 뿐** 원본은 그대로예요.
+
+```java
+String s = "hi";
+s.toUpperCase();          // 새 "HI"가 만들어지지만 아무도 안 받음
+System.out.println(s);    // hi  (원본 그대로)
+
+s = s.toUpperCase();      // s가 새 객체 "HI"를 가리키도록 참조만 바뀜
+System.out.println(s);    // HI
+```
+
+- String 클래스는 `final`이라 상속해서 동작을 바꿀 수도 없어요.
+- `final`과 불변은 달라요. `final String s`는 **변수에 다시 넣는 것**을 막고, 불변은 **객체 내용이 바뀌는 것**을 막아요.
+
+### 2. 왜 불변으로 만들었나
+
+공식 문서(String javadoc)가 직접 밝힌 이유는 하나예요. **불변이라서 여러 곳에서 공유할 수 있다**는 거예요. 문자열 풀이 가능한 것도 이 덕분이에요.
+
+면접에서는 여기서 나오는 장점을 보통 이렇게 덧붙여 말해요(공식 문서 문구가 아니라 널리 알려진 설명이에요).
+
+| 장점 | 설명 |
+|---|---|
+| 풀에서 공유 | 누가 바꿀 수 없으니 같은 객체를 여러 변수가 함께 가리켜도 안전 (공식 문서의 이유) |
+| 스레드 안전 | 여러 스레드가 동기화 없이 읽기만 하니 경쟁이 없음 |
+| 해시값 캐싱 | 내용이 안 바뀌니 `hashCode()`를 한 번 계산해 필드에 담아 두고 재사용. HashMap 키로 적합 |
+| 보안 | 파일 경로, URL, 클래스 이름 같은 값을 검사한 뒤에 누가 바꿔치기하는 일을 막음 |
+
+해시 캐싱 근거로, JEP 192는 JDK 8의 String이 문자 배열 필드와 `hash` 필드를 함께 가진다고 적고 있어요. `hashCode()` 공식은 `s[0]*31^(n-1) + ... + s[n-1]`로 정해져 있어서 내용이 같으면 해시도 항상 같아요.
+
+### 3. 리터럴 vs new, 그리고 문자열 풀
+
+**문자열 리터럴**(string literal, 코드에 `"hello"`처럼 직접 쓴 문자열)은 같은 내용이면 **항상 같은 객체**를 가리켜요. 클래스나 패키지가 달라도 마찬가지예요. JLS(자바 언어 명세)가 리터럴을 자동으로 **인턴**(intern, 풀에 하나만 두고 그걸 돌려쓰기)하도록 정해 놨기 때문이에요.
+
+```java
+String a = "java";
+String b = "java";
+String c = new String("java");
+
+a == b;          // true  (풀의 같은 객체)
+a == c;          // false (new는 항상 새 객체)
+a.equals(c);     // true  (내용은 같음)
+a == c.intern(); // true  (풀에 있던 "java"를 돌려줌)
+```
+
+- `==`는 **같은 객체인지**(참조 비교), `equals()`는 **같은 글자 순서인지**(내용 비교)를 봐요. 자세한 건 [equals와 hashCode](../equals-hashcode/) 페이지에서 다뤄요.
+- `new String("java")`는 javadoc도 "명시적 복사가 꼭 필요한 게 아니면 쓸 필요 없다"고 할 만큼 거의 쓸 일이 없어요.
+- 문자열 풀은 JDK 7부터 PermGen(예전 JVM에서 클래스 정보를 따로 두던 고정 크기 영역)이 아니라 **힙**에 있어요. 그래서 참조가 끊긴 풀의 문자열도 GC로 치울 수 있다고 알려져 있어요. 메모리 영역 이야기는 [JVM 구조와 GC](../jvm-gc/)를 보세요.
+
+<Aside type="note" title="new String(&quot;abc&quot;)는 객체를 몇 개 만드나?">
+면접 단골이에요. 보통 답은 **"풀에 'abc'가 없으면 2개(풀의 리터럴 + new로 만든 힙 객체), 이미 있으면 1개"**예요. 명세와 javadoc 규칙을 조합한 설명이고, 리터럴이 정확히 어느 시점에 풀에 올라가는지는 JVM 구현 세부예요.
+</Aside>
+
+### 4. intern()과 상수식
+
+`intern()`을 부르면 풀에서 `equals`로 같은 문자열을 찾아 그걸 돌려주고, 없으면 지금 객체를 풀에 넣고 돌려줘요. 그래서 `s.intern() == t.intern()`은 `s.equals(t)`일 때만 true예요.
+
+**상수식**(constant expression, 컴파일할 때 값이 확정되는 식)은 컴파일러가 미리 계산하고 리터럴처럼 인턴해요. 여기서 헷갈리는 게 `final` 변수예요.
+
+```java
+String hello = "Hello";
+String lo = "lo";
+final String flo = "lo";          // 상수 변수
+
+hello == "Hel" + "lo";            // true  (컴파일 때 "Hello"로 합쳐짐)
+hello == "Hel" + lo;              // false (실행 중에 새로 만듦)
+hello == "Hel" + flo;             // true  (final + 리터럴 초기화 = 상수)
+hello == ("Hel" + lo).intern();   // true
+```
+
+- **상수 변수**(constant variable)는 기본형이나 String 타입의 `final` 변수 중 **상수식으로 초기화된 것**이에요.
+- `final String x = getLo();`처럼 메서드 결과로 초기화하면 final이어도 상수 변수가 아니에요.
+- 텍스트 블록(`"""`로 감싼 여러 줄 문자열)도 리터럴과 같은 규칙으로 인턴돼요.
+
+### 5. `+` 연결은 내부에서 어떻게 바뀌나
+
+- 한쪽만 String이어도 다른 쪽은 문자열로 바뀌어요. null이면 `"null"` 네 글자가 돼요.
+- `+`는 왼쪽부터 계산해요. `1 + 2 + "개"`는 `"3개"`, `"개" + 1 + 2`는 `"개12"`예요.
+- 결과는 **새 String 객체**예요. 단, 식 전체가 상수식이면 컴파일 때 합쳐져요.
+- JLS는 `+`를 어떻게 구현할지 컴파일러에게 맡겨요. 그래서 버전마다 달라요.
+
+| 버전 | `a + "(" + b + ")"`가 바뀌는 모습 |
+|---|---|
+| 상수식(`"Hel" + "lo"`) | 모든 버전에서 컴파일 때 `"Hello"` |
+| JDK 8 이하 | `new StringBuilder().append(a).append("(")...toString()` |
+| JDK 9+ (JEP 280) | `invokedynamic` 한 번. 실제 연결 방법은 실행 시 `StringConcatFactory`가 정함 |
+
+`invokedynamic`은 "어떤 코드를 실행할지 처음 실행할 때 정하는" 바이트코드 명령이에요. JEP 280의 목적은 **최적화를 javac가 아니라 JDK 런타임 쪽으로 옮기는 것**이에요. 그러면 코드를 다시 컴파일하지 않아도 JDK만 올리면 연결이 빨라질 수 있어요. 상수 부분은 "레시피"로, 바뀌는 값만 인자로 넘기고, int 같은 기본형은 박싱 없이 넘겨요.
+
+<Aside type="caution" title="그래도 반복문 안의 +=는 피하세요">
+JEP 280이 다루는 건 **한 식 안의** 연결이에요. 반복문 전체를 하나로 묶어 주지 않아요. `for` 안에서 `s += x`를 하면 반복마다 새 String이 생기고, 앞부분을 매번 복사하니 길어질수록 느려져요(흔히 O(n²)이라고 설명해요). 반복 누적은 StringBuilder 하나에 `append`하는 게 정석이에요.
+</Aside>
+
+### 6. StringBuilder vs StringBuffer
+
+둘 다 **가변**(mutable, 내용을 바꿀 수 있는) 문자열이고 API도 거의 같아요. 차이는 **동기화**(synchronization, 여러 스레드가 동시에 못 건드리게 잠그는 것)예요.
+
+| | String | StringBuilder | StringBuffer |
+|---|---|---|---|
+| 내용 변경 | 불가(불변) | 가능 | 가능 |
+| 동기화 | 필요 없음(불변이라 읽기만) | 없음 | 메서드가 `synchronized` |
+| 속도 | - | 보통 더 빠름 | 잠금 비용 있음 |
+| 언제 | 기본 | 한 스레드 안에서 조립(대부분) | 여러 스레드가 한 객체를 공유할 때 |
+
+- StringBuilder는 JDK 5에 추가됐고, javadoc이 직접 "가능하면 StringBuilder를 쓰라"고 권해요.
+- 기본 생성자의 초기 용량은 16자예요. 넘치면 자동으로 늘어나고, 크기를 미리 알면 `new StringBuilder(10000)`처럼 정할 수 있어요.
+- StringBuffer도 **메서드 하나하나**만 동기화돼요. `if (sb.length() == 0) sb.append(x)`처럼 두 호출을 묶은 동작까지 원자적이진 않아요.
+
+### 7. 내부 표현: Compact Strings (JDK 9+)
+
+| 버전 | 내부 필드 | `"abc"` | `"가나"` |
+|---|---|---|---|
+| JDK 8 이하 | `char[]` (글자당 2바이트, UTF-16) | 6바이트 | 4바이트 |
+| JDK 9+ (JEP 254) | `byte[]` + 인코딩 플래그 | 3바이트 (Latin-1) | 4바이트 (UTF-16) |
+
+- 문자열이 힙의 큰 부분을 차지하는데 대부분 영문 같은 **Latin-1**(1바이트로 표현되는 서유럽 문자 집합) 문자뿐이라, `char[]`의 절반이 낭비되고 있었어요. 그래서 다 Latin-1이면 1바이트로 저장해요.
+- 한 글자라도 범위 밖 문자가 있으면 전체가 UTF-16이에요. **한글이 섞이면 2바이트**라 한글 위주 서비스는 효과가 작아요.
+- 공개 API는 그대로예요. `length()`는 여전히 바이트 수가 아니라 char 개수예요.
+- 기본으로 켜져 있고 `-XX:-CompactStrings`로 끌 수 있어요.
+
+### 8. 문자열이 메모리를 너무 먹을 때: intern vs 중복 제거
+
+**G1 문자열 중복 제거**(JEP 192, JDK 8u20)는 GC가 내용이 같은 String들이 **내부 배열만 함께 쓰도록** 바꿔 주는 기능이에요. 측정상 큰 앱에서 힙의 약 25%가 String이고 그 절반쯤이 중복이었던 게 출발점이에요.
+
+| | `intern()` | G1 문자열 중복 제거 |
+|---|---|---|
+| 누가 | 개발자가 코드에서 호출 | GC가 알아서 |
+| 무엇을 합치나 | String **객체** 자체 | 객체는 그대로, **내부 배열만** 공유 |
+| `==` 결과 | 같은 객체가 되어 true | 바뀌지 않음 |
+| 켜는 법 | 코드 수정 | `-XX:+UseStringDeduplication` (기본 꺼짐, G1 필요) |
+
+객체를 합치지 않는 이유는, 앱이 객체 정체성(예: 그 객체로 `synchronized`)에 기대고 있을 수 있어서예요.
+
+## 면접 질문
+
+<details>
+<summary>Q. String이 불변인 이유는 무엇인가요?</summary>
+
+**답변(30초)** String은 한 번 만들면 내용을 바꿀 수 없고, 공식 문서가 밝히는 이유는 불변이라 여러 곳에서 안전하게 공유할 수 있다는 점이에요. 그래서 같은 리터럴을 문자열 풀에 하나만 두고 돌려쓸 수 있어요. 여기서 따라오는 장점으로 동기화 없이 여러 스레드가 써도 안전하고, 해시값을 한 번 계산해 캐싱할 수 있어 HashMap 키로 적합하고, 파일 경로 같은 값이 검사 후 바뀌는 보안 문제도 막아요.
+
+**꼬리질문**
+- Q. `s = s + "a"`가 되는데 불변인가요? → 객체가 바뀐 게 아니라 변수 `s`가 새로 만든 객체를 가리키게 된 거예요.
+- Q. `final`과 불변은 같은가요? → 아니요. `final`은 변수 재할당 금지, 불변은 객체 내용 변경 금지예요.
+- Q. String 클래스를 상속할 수 있나요? → 없어요. `final` 클래스라 하위 클래스로 동작을 바꿀 수 없어요.
+</details>
+
+<details>
+<summary>Q. 리터럴로 만든 String과 new로 만든 String은 어떻게 다른가요?</summary>
+
+**답변(30초)** 리터럴은 문자열 풀에 인턴되어, 같은 내용이면 어디서 쓰든 같은 객체를 가리켜요. `new String("java")`는 풀과 상관없이 힙에 항상 새 객체를 만들어요. 그래서 리터럴끼리는 `==`가 true지만 리터럴과 new는 `==`가 false고, 내용이 같으니 `equals`는 true예요. 문자열 풀은 JDK 7부터 힙에 있어요.
+
+**꼬리질문**
+- Q. `new String("abc")`는 객체를 몇 개 만드나요? → 풀에 "abc"가 없으면 리터럴과 new 객체로 2개, 이미 있으면 1개라고 보통 답해요.
+- Q. new로 만든 문자열을 풀의 객체로 바꾸려면? → `intern()`을 부르면 풀에 같은 내용이 있으면 그걸, 없으면 자기를 넣고 돌려줘요.
+- Q. 문자열 비교에 `==`를 쓰면 왜 안 되나요? → 리터럴끼리는 우연히 true라 테스트를 통과하지만, 입력값·DB 값·실행 중 연결한 값은 다른 객체라 false가 돼요.
+</details>
+
+<details>
+<summary>Q. "Hel" + "lo" == "Hello"는 true인가요? 변수를 쓰면요?</summary>
+
+**답변(30초)** true예요. 리터럴끼리 연결은 상수식이라 컴파일 때 `"Hello"`로 합쳐지고 인턴돼요. 하지만 `String lo = "lo"`로 두고 `"Hel" + lo`를 하면 실행 중에 새 객체가 만들어져 false예요. 다만 `final String lo = "lo"`처럼 상수로 초기화한 final 변수는 상수 변수라 다시 true가 돼요.
+
+**꼬리질문**
+- Q. `final String lo = getLo()`면요? → 메서드 결과로 초기화했으니 상수 변수가 아니고 false예요.
+- Q. 그럼 문자열은 무조건 `equals`로 비교하나요? → 네. 내용 비교는 항상 `equals`예요. null일 수 있으면 `"ADMIN".equals(role)`처럼 리터럴 쪽에서 불러요.
+</details>
+
+<details>
+<summary>Q. String, StringBuilder, StringBuffer의 차이와 언제 무엇을 쓰나요?</summary>
+
+**답변(30초)** String은 불변이고 나머지 둘은 내용을 바꿀 수 있어요. StringBuilder와 StringBuffer는 API가 같고, StringBuffer만 메서드가 synchronized라 여러 스레드가 공유해도 안전해요. 대신 잠금 비용이 있어서 한 스레드 안에서 조립할 때는 StringBuilder가 빠르고, javadoc도 가능하면 StringBuilder를 권해요. 실무에선 대부분 메서드 안 지역 변수로 StringBuilder를 써요.
+
+**꼬리질문**
+- Q. StringBuffer면 멀티스레드에서 완전히 안전한가요? → 메서드 하나씩만 동기화라, 길이를 확인하고 붙이는 것처럼 여러 호출을 묶은 동작은 원자적이지 않아요.
+- Q. StringBuilder 초기 용량은? → 기본 16자이고, 넘치면 자동으로 늘어나요. 크기를 알면 생성자로 미리 정해요.
+</details>
+
+<details>
+<summary>Q. 문자열 + 연산은 내부적으로 어떻게 처리되나요?</summary>
+
+**답변(30초)** 버전마다 달라요. 상수끼리는 모든 버전에서 컴파일 때 합쳐져요. JDK 8까지 javac는 `+`를 StringBuilder의 append 체인으로 바꿨고, JDK 9부터는 JEP 280으로 invokedynamic 한 번으로 바꾸고 실제 연결 방법은 실행 시 StringConcatFactory가 정해요. 그래서 한 식 안의 `+`는 걱정할 필요가 없지만, 반복문 안에서 `+=`로 누적하면 매번 새 객체가 생기니 StringBuilder를 써야 해요.
+
+**꼬리질문**
+- Q. 왜 JDK 9에서 바꿨나요? → 최적화를 런타임 쪽으로 옮겨서, 다시 컴파일하지 않아도 JDK만 올리면 연결이 빨라지게 하려고요.
+- Q. 반복문 안의 `+=`는 왜 느린가요? → 반복마다 새 String을 만들고 앞부분 전체를 복사해서, 길어질수록 비용이 커지고 버려지는 객체도 많아 GC 부담이 늘어요.
+</details>
+
+<details>
+<summary>Q. (심화) Compact Strings가 무엇인가요?</summary>
+
+**답변(30초)** JDK 9(JEP 254)부터 String 내부를 `char[]`에서 `byte[]`와 인코딩 플래그로 바꾼 거예요. 내용이 모두 Latin-1이면 글자당 1바이트, 아니면 UTF-16으로 2바이트를 써요. 영문 위주 문자열은 메모리가 절반으로 줄고 GC 부담도 줄어요. 공개 API는 바뀌지 않았어요.
+
+**꼬리질문**
+- Q. 한글 문자열도 줄어드나요? → 아니요. 한글은 Latin-1 밖이라 한 글자만 섞여도 전체가 UTF-16이에요.
+- Q. 끌 수 있나요? → `-XX:-CompactStrings`로요. 거의 멀티바이트 문자열만 쓰거나 업그레이드 후 성능 저하가 확인될 때 비교해 봐요.
+</details>
+
+## 서술형 연습
+
+<details>
+<summary>상황: 10만 행짜리 CSV를 만드는 배치가 너무 느리고, 그동안 GC 로그가 쉴 새 없이 찍힙니다.</summary>
+
+**상황 파악**
+코드를 보니 `result += line + "\n";`을 반복문에서 10만 번 하고 있어요. String은 불변이라 반복마다 새 객체가 생기고, 앞에 쌓인 내용을 매번 통째로 복사해요. 결과가 길어질수록 한 번의 복사가 커지고, 버려지는 중간 문자열이 Young 영역을 계속 채워서 GC가 잦아져요.
+
+**원인 후보**
+1. 반복문 안 `+=` 누적(가장 유력). JEP 280도 한 식 안의 연결만 최적화해요.
+2. 결과 전체를 메모리에 한꺼번에 들고 있어서 힙이 빠듯한 경우
+3. (문자열이 아니라면) DB 조회 등 다른 병목
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. StringBuilder 하나에 `append`, 예상 크기로 용량 지정 | 코드 변경이 작고 복사·중간 객체가 크게 줄어듦 | 결과 전체가 여전히 메모리에 올라감 |
+| B. `BufferedWriter`로 파일에 바로 한 줄씩 씀(스트리밍) | 결과 크기와 상관없이 메모리 사용이 일정 | 파일/스트림 처리 코드가 늘고, 중간에 실패하면 반쯤 쓴 파일 처리가 필요 |
+
+**내가 고를 방법**
+결과가 수십 MB 수준이면 A로 충분해요. 바꾸기 쉽고 효과가 바로 보여요. 행 수가 계속 늘어나거나 결과가 힙에 부담될 만큼 크면 B로 가요. 어느 쪽이든 바꾼 뒤 GC 로그에서 Young GC 횟수가 줄었는지 확인해요.
+
+**채점 포인트**: String 불변이라 매번 새 객체, 앞부분 반복 복사, 중간 객체로 인한 GC 증가, JEP 280은 한 식 단위라 반복문은 못 묶음, StringBuilder와 초기 용량, 아주 크면 스트리밍, 개선 후 측정.
+
+<Aside type="tip" title="비슷한 함정: 로그 문자열">
+`log.debug("user=" + user)`는 debug 레벨이 꺼져 있어도 인자인 문자열 연결이 먼저 실행된다고 알려져 있어요. 그래서 SLF4J 같은 로깅 라이브러리의 `log.debug("user={}", user)` 플레이스홀더를 쓰라고 흔히 권해요.
+</Aside>
+</details>
+
+<details>
+<summary>상황: 관리자 권한 체크가 로컬 테스트에서는 통과하는데 운영에서는 항상 실패합니다.</summary>
+
+**상황 파악**
+코드는 `if (role == "ADMIN")`이에요. 로컬 테스트에선 `role`에 리터럴 `"ADMIN"`을 넣어서, 풀의 같은 객체끼리라 `==`가 true였어요. 운영에선 `role`을 DB나 요청에서 읽어 와서 내용은 같아도 **다른 객체**라 false가 나요.
+
+**원인 후보**
+1. `==`로 참조를 비교(가장 유력)
+2. 값에 공백이나 대소문자 차이가 있음
+3. `role`이 null이라 다른 분기로 빠짐
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. `"ADMIN".equals(role)` | 한 줄 수정, role이 null이어도 예외 없이 false | 오타("ADMN")를 컴파일러가 못 잡음 |
+| B. 역할을 enum으로 바꾸고 `role == Role.ADMIN` | 타입으로 강제돼 오타·잘못된 값이 컴파일/변환 시점에 걸림 | DB·요청 값을 enum으로 바꾸는 매핑 코드가 필요 |
+| C. `intern()`으로 맞춘 뒤 `==` | 동작은 함 | 모든 입력 경로에서 intern을 빠뜨리면 다시 깨짐. 권하지 않음 |
+
+**내가 고를 방법**
+당장은 A로 고쳐서 장애를 막고, 역할 값이 여러 곳에서 쓰인다면 B로 옮겨요. 문자열 비교를 enum으로 바꾸면 이런 실수가 다시 들어올 자리가 없어져요.
+
+**채점 포인트**: `==`는 참조 비교·`equals`는 내용 비교, 리터럴은 인턴돼서 테스트에선 우연히 통과, 외부 입력은 새 객체, null 안전한 호출 순서, enum 대안과 트레이드오프.
+</details>
+
+## 함께 보기
+
+- [JVM 구조와 GC](../jvm-gc/) (문자열 풀이 힙으로 옮겨진 이야기)
+- [기본형·참조형과 Call by Value](../primitive-reference/)
+- [equals와 hashCode](../equals-hashcode/)
+- [동기화와 자바 메모리 모델](../synchronization/)
+
+## 출처
+
+- [Java SE 21 API, java.lang.String](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/lang/String.html)
+- [Java SE 21 API, java.lang.StringBuilder](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/lang/StringBuilder.html)
+- [Java SE 21 API, java.lang.StringBuffer](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/lang/StringBuffer.html)
+- [JLS SE 21, 3.10.5 String Literals / 3.10.6 Text Blocks](https://docs.oracle.com/javase/specs/jls/se21/html/jls-3.html#jls-3.10.5)
+- [JLS SE 21, 4.12.4 final Variables](https://docs.oracle.com/javase/specs/jls/se21/html/jls-4.html#jls-4.12.4)
+- [JLS SE 21, 5.1.11 String Conversion](https://docs.oracle.com/javase/specs/jls/se21/html/jls-5.html#jls-5.1.11)
+- [JLS SE 21, 15.18.1 String Concatenation Operator +](https://docs.oracle.com/javase/specs/jls/se21/html/jls-15.html#jls-15.18.1) / [15.29 Constant Expressions](https://docs.oracle.com/javase/specs/jls/se21/html/jls-15.html#jls-15.29)
+- [JEP 192: String Deduplication in G1](https://openjdk.org/jeps/192)
+- [JEP 254: Compact Strings](https://openjdk.org/jeps/254)
+- [JEP 280: Indify String Concatenation](https://openjdk.org/jeps/280)
+- [`java` 명령 man page (JDK 21)](https://docs.oracle.com/en/java/javase/21/docs/specs/man/java.html)

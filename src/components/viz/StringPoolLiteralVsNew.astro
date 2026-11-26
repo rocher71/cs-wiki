@@ -1,0 +1,68 @@
+---
+// 리터럴은 풀의 한 객체를 공유, new는 풀 밖에 새 객체, intern()은 풀 객체를 돌려준다.
+import Stepper from '../Stepper.astro';
+const vars = [
+  { id: 'a', y: 76 }, { id: 'b', y: 136 }, { id: 'd', y: 196 }, { id: 'c', y: 260 },
+];
+const steps = [
+  { caption: 'String a = "java"; 리터럴이라 힙 안의 문자열 풀에 "java"가 하나 생기고, a가 그걸 가리켜요.', show: ['a', 'arrA', 'pool', 'hl-pool'] },
+  { caption: 'String b = "java"; 풀에 이미 있으니 새로 안 만들고 b도 같은 객체를 가리켜요. 그래서 a == b는 true.', show: ['a', 'arrA', 'pool', 'b', 'arrB', 'resAB'] },
+  { caption: 'String c = new String("java"); new는 풀 밖 힙에 새 객체를 만들어요. 주소가 달라 a == c는 false, 내용은 같아 equals는 true.', show: ['a', 'arrA', 'pool', 'b', 'arrB', 'c', 'arrC', 'obj', 'resAC', 'hl-obj'] },
+  { caption: 'String d = c.intern(); 풀에서 같은 내용의 "java"를 찾아 그 객체를 돌려줘요. 그래서 a == d는 true.', show: ['a', 'arrA', 'pool', 'b', 'arrB', 'c', 'arrC', 'obj', 'd', 'arrD', 'resAD', 'hl-pool'] },
+];
+---
+<Stepper title="리터럴 vs new String: 같은 객체일까?" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 384" role="img" aria-label="문자열 리터럴은 풀의 한 객체를 공유하고 new는 풀 밖에 새 객체를 만드는 과정">
+    <defs>
+      <marker id="spl-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+
+    <text x="44" y="16" style="font-weight:700">변수</text>
+    <text x="212" y="16" style="font-weight:700">힙</text>
+    <rect class="frame" x="110" y="30" width="204" height="276" rx="10" />
+    <rect class="box" x="122" y="44" width="180" height="120" rx="8" />
+    <text class="l" x="132" y="62">문자열 풀</text>
+    <text class="sub l" x="122" y="216">풀 밖 (일반 힙)</text>
+
+    {vars.map((v) => (
+      <g data-id={v.id}>
+        <rect class="box" x="12" y={v.y - 18} width="64" height="36" rx="6" />
+        <text x="44" y={v.y}>{v.id}</text>
+      </g>
+    ))}
+
+    <g data-id="pool" class="hide">
+      <rect class="chip" x="162" y="96" width="100" height="44" rx="8" />
+      <text x="212" y="118">"java"</text>
+    </g>
+    <g data-id="obj" class="hide">
+      <rect class="chip" x="162" y="238" width="100" height="44" rx="8" />
+      <text x="212" y="260">"java"</text>
+    </g>
+
+    <line data-id="arrA" class="line hide" x1="78" y1="76" x2="158" y2="106" marker-end="url(#spl-arr)" />
+    <line data-id="arrB" class="line hide" x1="78" y1="136" x2="158" y2="122" marker-end="url(#spl-arr)" />
+    <line data-id="arrD" class="line hide" x1="78" y1="196" x2="158" y2="134" marker-end="url(#spl-arr)" />
+    <line data-id="arrC" class="line hide" x1="78" y1="260" x2="158" y2="260" marker-end="url(#spl-arr)" />
+
+    <!-- 비교 결과: 같은 자리에 단계별로 하나씩 -->
+    <g data-id="resAB" class="hide">
+      <rect class="badge" x="40" y="322" width="240" height="34" rx="17" />
+      <text class="on-badge" x="160" y="339">a == b → true</text>
+    </g>
+    <g data-id="resAC" class="hide">
+      <rect class="badge" x="40" y="322" width="240" height="34" rx="17" />
+      <text class="on-badge" x="160" y="339">a == c → false</text>
+      <text class="sub" x="160" y="372">a.equals(c) → true (내용은 같음)</text>
+    </g>
+    <g data-id="resAD" class="hide">
+      <rect class="badge" x="40" y="322" width="240" height="34" rx="17" />
+      <text class="on-badge" x="160" y="339">a == d → true</text>
+    </g>
+
+    <rect data-id="hl-pool" class="hl" x="119" y="41" width="186" height="126" rx="10" />
+    <rect data-id="hl-obj" class="hl" x="158" y="234" width="108" height="52" rx="10" />
+  </svg>
+</Stepper>

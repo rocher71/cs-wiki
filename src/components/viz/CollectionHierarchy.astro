@@ -1,0 +1,100 @@
+---
+// 컬렉션 계층도(정적). 폰 폭에 맞춰 가로 트리 대신 들여쓰기 트리로 세로로 쌓는다.
+// k: i=인터페이스(기울임), c=구현 클래스, old=레거시. seq=Java 21 Sequenced* 가 위에 끼는 타입.
+type Row = { d: number; t: string; k: 'i' | 'c' | 'old'; seq?: string; note?: string; dup?: boolean };
+const coll: Row[] = [
+  { d: 0, t: 'Iterable', k: 'i' },
+  { d: 1, t: 'Collection', k: 'i' },
+  { d: 2, t: 'List', k: 'i', seq: 'Collection' },
+  { d: 3, t: 'ArrayList', k: 'c' },
+  { d: 3, t: 'LinkedList', k: 'c' },
+  { d: 3, t: 'Vector', k: 'old', note: '레거시' },
+  { d: 4, t: 'Stack', k: 'old', note: '레거시' },
+  { d: 2, t: 'Set', k: 'i' },
+  { d: 3, t: 'HashSet', k: 'c' },
+  { d: 4, t: 'LinkedHashSet', k: 'c', seq: 'Set' },
+  { d: 3, t: 'SortedSet', k: 'i', seq: 'Set' },
+  { d: 4, t: 'NavigableSet', k: 'i' },
+  { d: 5, t: 'TreeSet', k: 'c' },
+  { d: 2, t: 'Queue', k: 'i' },
+  { d: 3, t: 'Deque', k: 'i', seq: 'Collection' },
+  { d: 4, t: 'ArrayDeque', k: 'c' },
+  { d: 4, t: 'LinkedList', k: 'c', dup: true, note: '↑ List와 같은 클래스' },
+  { d: 3, t: 'PriorityQueue', k: 'c' },
+];
+const map: Row[] = [
+  { d: 0, t: 'Map', k: 'i' },
+  { d: 1, t: 'HashMap', k: 'c' },
+  { d: 2, t: 'LinkedHashMap', k: 'c', seq: 'Map' },
+  { d: 1, t: 'SortedMap', k: 'i', seq: 'Map' },
+  { d: 2, t: 'NavigableMap', k: 'i' },
+  { d: 3, t: 'TreeMap', k: 'c' },
+  { d: 1, t: 'Hashtable', k: 'old', note: '레거시' },
+];
+const RH = 28, IND = 16, X0 = 18, H = 22;
+const w = (t: string) => Math.round(t.length * 8.9 + 14); // ponytail: 라틴 글자 폭 근사
+// 행 배치 + 부모 연결선(가장 가까운 위쪽의 d-1 행)
+const lay = (rows: Row[], y0: number) => {
+  const pos = rows.map((r, i) => ({ ...r, x: X0 + r.d * IND, y: y0 + i * RH }));
+  const links = pos.flatMap((r, i) => {
+    if (r.d === 0) return [];
+    let p = i - 1; while (pos[p].d !== r.d - 1) p--;
+    const px = pos[p].x + 8;
+    return [`M${px} ${pos[p].y + H / 2} V${r.y} H${r.x}`];
+  });
+  return { pos, links };
+};
+const C = lay(coll, 92);
+const cEnd = 92 + coll.length * RH;
+const M = lay(map, cEnd + 64);
+const mEnd = cEnd + 64 + map.length * RH;
+const VH = mEnd + 14;
+---
+<figure class="viz-static">
+  <svg class="viz" viewBox={`0 0 320 ${VH}`} role="img" aria-label="자바 컬렉션 계층도: Collection 트리와 별도의 Map 트리">
+    <!-- 범례 -->
+    <rect class="box" x="4" y="6" width="80" height={H} rx="5" />
+    <text x="44" y="17" style="font-style:italic;font-size:14px">인터페이스</text>
+    <rect class="chip" x="90" y="6" width="84" height={H} rx="5" />
+    <text x="132" y="17" style="font-weight:700;font-size:14px">구현 클래스</text>
+    <rect class="bad" x="180" y="6" width="50" height={H} rx="5" />
+    <text class="sub" x="205" y="17">레거시</text>
+    <rect class="badge" x="236" y="7" width="78" height="20" rx="10" />
+    <text class="on-badge" x="275" y="17" style="font-size:13px">Java 21+</text>
+    <text class="sub l" x="8" y="44" style="font-size:13px">21+ 배지: 위에 Sequenced… 인터페이스가 있음</text>
+    <text class="sub l" x="8" y="60" style="font-size:13px">(첫·마지막 원소를 다루는 공통 메서드)</text>
+
+    <rect class="frame" x="4" y="78" width="312" height={cEnd - 72} rx="10" />
+    <rect class="frame" x="4" y={cEnd + 50} width="312" height={mEnd - cEnd - 40} rx="10" />
+    <rect class="hl" x="4" y={cEnd + 50} width="312" height={mEnd - cEnd - 40} rx="10" />
+    <text class="l" x="14" y={cEnd + 34} style="font-weight:700">Map은 Collection 밖, 별도 계층</text>
+
+    {[C, M].map((T) => (
+      <g>
+        {T.links.map((d) => <path class="line" d={d} />)}
+        {T.pos.map((r) => (
+          <g>
+            <rect class={r.k === 'i' ? 'box' : r.k === 'c' ? 'chip' : 'bad'} x={r.x} y={r.y} width={w(r.t)} height={H} rx="5"
+              style={r.dup ? 'stroke-dasharray:4 3' : undefined} />
+            <text class={r.k === 'old' ? 'sub l' : 'l'} x={r.x + 7} y={r.y + H / 2 + 1}
+              style={r.k === 'i' ? 'font-style:italic' : r.k === 'c' ? 'font-weight:700' : undefined}>{r.t}</text>
+            {r.note && <text class="sub l" x={r.x + w(r.t) + 6} y={r.y + H / 2 + 1} style="font-size:13px">{r.note}</text>}
+            {r.seq && (
+              <g>
+                <rect class="badge" x="222" y={r.y + 1} width="92" height="20" rx="10" />
+                <text class="on-badge" x="268" y={r.y + H / 2 + 1} style="font-size:13px">21+ Seq{r.seq === 'Collection' ? 'Coll' : r.seq}</text>
+              </g>
+            )}
+          </g>
+        ))}
+      </g>
+    ))}
+  </svg>
+  <figcaption>Collection 트리(List·Set·Queue)와 Map 트리는 따로예요. 점선 LinkedList는 위의 LinkedList와 같은 클래스로, List와 Deque를 둘 다 구현해요.</figcaption>
+</figure>
+
+<style>
+  .viz-static { margin: 1.25rem 0; padding: .75rem; border-radius: .75rem; border: 1px solid var(--sl-color-gray-5); }
+  .viz-static svg { width: 100%; height: auto; display: block; }
+  .viz-static figcaption { margin-top: .6rem; font-size: .9rem; line-height: 1.6; color: var(--sl-color-gray-2); }
+</style>

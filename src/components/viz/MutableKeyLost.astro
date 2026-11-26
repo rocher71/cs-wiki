@@ -1,0 +1,56 @@
+---
+// 가변 키를 put한 뒤 필드를 바꾸면, get은 새 해시의 칸을 보고 원래 노드는 옛 칸에 남는다. 인덱스 = hash % 4.
+import Stepper from '../Stepper.astro';
+const Y0 = 104, H = 44;
+const steps = [
+  { caption: 'put(key, "A"): 지금 필드(x=1, y=2)로 계산한 해시 1025로 칸 [1]에 넣어요. 노드는 그때의 해시값도 함께 저장해요.', show: ['call-put', 'k-old', 'h-old', 'node', 'hl-1'] },
+  { caption: 'key.setX(9): 키 객체의 필드가 바뀌어 hashCode()도 1030으로 바뀌어요. 노드는 여전히 [1]에 있어요.', show: ['call-set', 'k-new', 'h-new', 'node', 'hl-key'] },
+  { caption: 'get(key): 같은 객체를 넣어도 새 해시로 칸 [2]를 봐요. 비어 있으니 null이에요.', show: ['call-get', 'k-new', 'h-new', 'node', 'empty', 'hl-2', 'res'] },
+  { caption: '원래 노드는 [1]에 그대로 남아요. 어떤 get·remove로도 닿지 않아 꺼낼 수 없고 메모리에 쌓여요.', show: ['call-get', 'k-new', 'h-new', 'node', 'empty', 'lost', 'hl-1'] },
+];
+---
+<Stepper title="가변 키의 필드를 바꾸면 생기는 일" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 336" role="img" aria-label="HashMap 키 객체의 필드를 바꾸면 값을 다시 찾을 수 없게 되는 과정">
+    <!-- 키 객체 -->
+    <rect class="box" x="10" y="8" width="300" height="58" rx="8" />
+    <text class="l" x="22" y="26" style="font-weight:700">key (Point 객체)</text>
+    <text data-id="k-old" class="hide l" x="22" y="50">x=1, y=2</text>
+    <text data-id="k-new" class="hide l" x="22" y="50">x=9, y=2</text>
+    <text data-id="h-old" class="sub hide" x="298" y="50" style="text-anchor:end">hash 1025 → [1]</text>
+    <text data-id="h-new" class="sub hide" x="298" y="50" style="text-anchor:end">hash 1030 → [2]</text>
+
+    <!-- 호출 -->
+    <text data-id="call-put" class="hide" x="160" y="86">put(key, "A")</text>
+    <text data-id="call-set" class="hide" x="160" y="86">key.setX(9)</text>
+    <text data-id="call-get" class="hide" x="160" y="86">get(key)</text>
+
+    <!-- 버킷 -->
+    {[0, 1, 2, 3].map((i) => (
+      <g>
+        <rect class="box" x="10" y={Y0 + i * H} width="300" height={H - 6} rx="6" />
+        <text class="sub l" x="20" y={Y0 + i * H + 19}>[{i}]</text>
+      </g>
+    ))}
+    <g data-id="node">
+      <rect class="chip" x="50" y={Y0 + H + 5} width="120" height="28" rx="6" />
+      <text x="110" y={Y0 + H + 19}>key → A</text>
+      <text class="sub l" x="180" y={Y0 + H + 19}>저장 해시 1025</text>
+    </g>
+    <text data-id="empty" class="sub hide" x="110" y={Y0 + 2 * H + 19}>비어 있음</text>
+
+    <!-- 결과 -->
+    <g data-id="res" class="hide">
+      <rect class="bad" x="90" y="290" width="140" height="34" rx="17" />
+      <text x="160" y="308" style="font-weight:700">get → null ✗</text>
+    </g>
+    <g data-id="lost" class="hide">
+      <text class="sub" x="160" y="298">[1]의 노드: 꺼낼 수 없음</text>
+      <text class="sub" x="160" y="320">지우지도 못하고 메모리에 남음</text>
+    </g>
+
+    <rect data-id="hl-key" class="hl" x="7" y="5" width="306" height="64" rx="10" />
+    {[1, 2].map((i) => (
+      <rect data-id={`hl-${i}`} class="hl" x="7" y={Y0 + i * H - 3} width="306" height={H} rx="8" />
+    ))}
+  </svg>
+</Stepper>

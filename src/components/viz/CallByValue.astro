@@ -1,0 +1,98 @@
+---
+// Call by Value: 기본형은 값 복사, 참조형은 참조값(화살표) 복사. 상태별 요소를 data-id로 켜고 끈다.
+import Stepper from '../Stepper.astro';
+const steps = [
+  { caption: 'main의 지역변수 x 상자 안에 숫자 3이 그대로 들어 있어요.', show: ['x', 'c1', 'hl-x'] },
+  { caption: 'change(x)를 부르면 스택에 새 프레임이 생기고, 파라미터 p에 x의 값 3이 복사돼요.', show: ['x', 'fchange', 'p3', 'c2', 'hl-p'] },
+  { caption: 'p = 10은 p 상자만 바꿔요. main의 x는 다른 상자라서 그대로 3이에요.', show: ['x', 'fchange', 'p10', 'c3', 'hl-p', 'hl-x'] },
+  { caption: '참조형은 달라요. myCircle 상자에는 객체가 아니라 힙의 Circle(1, 1)을 가리키는 참조값(화살표)이 들어 있어요.', show: ['x', 'mc', 'mcArr', 'obj', 'v11', 'c4'] },
+  { caption: 'moveCircle(myCircle)을 부르면 화살표가 복사돼요. 파라미터 circle과 myCircle이 같은 객체를 가리켜요.', show: ['x', 'mc', 'mcArr', 'obj', 'v11', 'fmove', 'cArr1', 'c5'] },
+  { caption: 'circle.setX(5)는 화살표를 따라가 객체 자체를 고쳐요. 같은 객체라 main에서도 Circle(5, 1)로 보여요.', show: ['x', 'mc', 'mcArr', 'obj', 'v51', 'fmove', 'cArr1', 'c6', 'hl-obj'] },
+  { caption: 'circle = new Circle(0, 0)은 circle의 화살표만 새 객체로 옮겨요. myCircle의 화살표는 그대로예요.', show: ['x', 'mc', 'mcArr', 'obj', 'v51', 'fmove', 'cArr2', 'nobj', 'c7', 'hl-new'] },
+  { caption: '메서드가 끝나면 프레임이 사라져요. myCircle은 고쳐진 원래 객체를 가리키고, Circle(0, 0)은 아무도 안 가리켜 GC 대상이 돼요.', show: ['x', 'mc', 'mcArr', 'obj', 'v51', 'gc', 'c8'] },
+];
+const code = ['int x = 3;', 'change(x);', 'p = 10;', 'myCircle = new Circle(1, 1);', 'moveCircle(myCircle);', 'circle.setX(5);', 'circle = new Circle(0, 0);', '// moveCircle 끝'];
+// 파라미터 행(위 프레임)과 main 행 좌표
+const P = { y: 72, cy: 94 }, X = { y: 178, cy: 198 }, M = { y: 226, cy: 246 };
+---
+<Stepper title="Call by Value: 값 복사 vs 참조값 복사" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 344" role="img" aria-label="메서드 호출 시 기본형 값과 참조값이 복사되는 과정">
+    <defs>
+      <marker id="cbv-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+    </defs>
+
+    <!-- 영역(항상 보임) -->
+    <rect class="frame" x="6" y="6" width="152" height="280" rx="10" />
+    <text class="l" x="16" y="22" style="font-weight:700">스택</text>
+    <rect class="frame" x="166" y="6" width="148" height="280" rx="10" />
+    <text class="l" x="176" y="22" style="font-weight:700">힙</text>
+
+    <!-- main 프레임 -->
+    <rect class="box" x="14" y="146" width="136" height="132" rx="8" />
+    <text class="l" x="24" y="163">main()</text>
+    <g data-id="x">
+      <rect class="slot" x="22" y={X.y} width="120" height="40" rx="6" />
+      <text class="l" x="32" y={X.cy}>x</text>
+      <text x="122" y={X.cy} style="font-weight:700">3</text>
+    </g>
+    <g data-id="mc" class="hide">
+      <rect class="slot" x="22" y={M.y} width="120" height="40" rx="6" />
+      <text class="l" x="32" y={M.cy}>myCircle</text>
+      <circle cx="130" cy={M.cy} r="4" fill="var(--sl-color-accent)" />
+    </g>
+
+    <!-- 호출된 메서드 프레임 -->
+    <g data-id="fchange" class="hide">
+      <rect class="box" x="14" y="36" width="136" height="96" rx="8" />
+      <text class="l" x="24" y="54">change(int p)</text>
+      <rect class="slot" x="22" y={P.y} width="120" height="44" rx="6" />
+      <text class="l" x="32" y={P.cy}>p</text>
+    </g>
+    <text data-id="p3" class="hide" x="122" y={P.cy} style="font-weight:700">3</text>
+    <text data-id="p10" class="hide" x="118" y={P.cy} style="font-weight:700">10</text>
+    <g data-id="fmove" class="hide">
+      <rect class="box" x="14" y="36" width="136" height="96" rx="8" />
+      <text class="l" x="24" y="54">moveCircle()</text>
+      <rect class="slot" x="22" y={P.y} width="120" height="44" rx="6" />
+      <text class="l" x="32" y={P.cy}>circle</text>
+      <circle cx="130" cy={P.cy} r="4" fill="var(--sl-color-accent)" />
+    </g>
+
+    <!-- 힙 객체 -->
+    <rect data-id="obj" class="chip hide" x="176" y="202" width="130" height="44" rx="8" />
+    <text data-id="v11" class="hide" x="241" y="224">Circle(1, 1)</text>
+    <text data-id="v51" class="hide" x="241" y="224" style="font-weight:700">Circle(5, 1)</text>
+    <g data-id="nobj" class="hide">
+      <rect class="chip" x="176" y="62" width="130" height="44" rx="8" />
+      <text x="241" y="84">Circle(0, 0)</text>
+    </g>
+    <g data-id="gc" class="hide">
+      <rect class="bad" x="176" y="62" width="130" height="44" rx="8" />
+      <text class="sub" x="241" y="84">Circle(0, 0)</text>
+      <text class="sub" x="241" y="124">아무도 안 가리킴</text>
+      <text class="sub" x="241" y="144">→ GC 대상</text>
+    </g>
+
+    <!-- 참조 화살표 -->
+    <path data-id="mcArr" class="hide" d={`M134 ${M.cy} L174 232`} fill="none" stroke="var(--sl-color-accent)" stroke-width="2" marker-end="url(#cbv-arr)" />
+    <path data-id="cArr1" class="hide" d={`M134 ${P.cy} C 160 120, 150 190, 174 214`} fill="none" stroke="var(--sl-color-accent)" stroke-width="2" marker-end="url(#cbv-arr)" />
+    <path data-id="cArr2" class="hide" d={`M134 ${P.cy} L174 86`} fill="none" stroke="var(--sl-color-accent)" stroke-width="2" marker-end="url(#cbv-arr)" />
+
+    <rect data-id="hl-x" class="hl" x="19" y={X.y - 3} width="126" height="46" rx="8" />
+    <rect data-id="hl-p" class="hl" x="19" y={P.y - 3} width="126" height="50" rx="8" />
+    <rect data-id="hl-obj" class="hl" x="173" y="199" width="136" height="50" rx="10" />
+    <rect data-id="hl-new" class="hl" x="173" y="59" width="136" height="50" rx="10" />
+
+    <!-- 지금 실행 중인 코드 -->
+    <rect class="box" x="6" y="296" width="308" height="42" rx="8" />
+    {code.map((c, i) => (
+      <text data-id={`c${i + 1}`} class="hide" x="160" y="317" style="font-family:var(--sl-font-mono, monospace);font-size:14px">{c}</text>
+    ))}
+  </svg>
+</Stepper>
+
+<style>
+  svg.viz .slot { fill: var(--sl-color-bg); stroke: var(--sl-color-gray-3); stroke-width: 1.2; }
+</style>
