@@ -1,0 +1,93 @@
+---
+// 가상 스레드 mount/unmount. 위: 대기열(가상 스레드), 가운데: 왼쪽 힙(스택 조각) + 캐리어 C1, C2 레일, 아래: currentThread 메모.
+// VT는 위치마다 복제(.hide)해서 단계별로 켜고 끈다.
+import Stepper from '../Stepper.astro';
+const steps = [
+  { caption: '캐리어 C1, C2는 ForkJoinPool의 워커, 즉 플랫폼(OS) 스레드예요. 보통 CPU 코어 수만큼만 있어요. 가상 스레드 VT-A, B, C는 대기열에서 차례를 기다려요.', show: ['a-q', 'b-q', 'c-q', 'hl-q'] },
+  { caption: '스케줄러가 VT-A를 C1에, VT-B를 C2에 올려요(mount). VT-C는 빈 캐리어가 없어서 계속 기다려요.', show: ['a-c1', 'b-c2', 'c-q', 'm-a1', 'm-b2', 'hl-c1', 'hl-c2'] },
+  { caption: 'VT-A가 DB 쿼리(소켓 read)를 불러요. 런타임은 OS에 논블로킹 호출을 걸어 두고 VT-A를 C1에서 내려요(unmount). VT-A의 스택은 힙에 조각(stack chunk)으로 보관돼요.', show: ['a-heap', 'b-c2', 'c-q', 'um-a', 'e-c1', 'hl-heap'] },
+  { caption: '비어 있는 C1에 기다리던 VT-C가 올라타 실행해요. OS 스레드 C1은 한 번도 놀지 않았어요.', show: ['a-heap', 'b-c2', 'c-c1', 'm-c1', 'hl-c1'] },
+  { caption: 'DB 응답이 도착하면 VT-A는 다시 실행할 수 있는 상태가 되어 스케줄러 대기열로 돌아가요.', show: ['a-q', 'b-c2', 'c-c1', 're-a', 'hl-q0'] },
+  { caption: 'VT-B가 끝나 C2가 비자 VT-A가 C2에 올라타 멈췄던 곳부터 이어서 실행해요. 캐리어가 C1에서 C2로 바뀌어도 Thread.currentThread()는 여전히 VT-A예요.', show: ['a-c2', 'c-c1', 'm-a2', 'cur', 'hl-c2', 'hl-cur'] },
+];
+const Q = [16, 116, 216];                 // 대기열 칸 x (폭 88)
+const col = { heap: 8, c1: 112, c2: 216 }; // 가운데 열 x (폭 96)
+const cx = (x: number) => x + 48;
+const qx = (i: number) => Q[i] + 44;
+const vtOn = (x: number) => x + 8;         // 캐리어 위 VT 칸 x (폭 80)
+const acc = 'fill:none;stroke:var(--sl-color-accent);stroke-width:2';
+const gry = 'fill:none;stroke:var(--sl-color-gray-3);stroke-width:1.6;stroke-dasharray:4 3';
+const vt = [
+  { id: 'a-q', t: 'VT-A', x: Q[0], y: 32, w: 88 },
+  { id: 'b-q', t: 'VT-B', x: Q[1], y: 32, w: 88 },
+  { id: 'c-q', t: 'VT-C', x: Q[2], y: 32, w: 88 },
+  { id: 'a-c1', t: 'VT-A', x: vtOn(col.c1), y: 104, w: 80 },
+  { id: 'b-c2', t: 'VT-B', x: vtOn(col.c2), y: 104, w: 80 },
+  { id: 'c-c1', t: 'VT-C', x: vtOn(col.c1), y: 104, w: 80 },
+  { id: 'a-c2', t: 'VT-A', x: vtOn(col.c2), y: 104, w: 80 },
+];
+---
+<Stepper title="가상 스레드가 캐리어에 올라타고 내리는 과정" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 272" role="img" aria-label="가상 스레드가 캐리어 스레드에 mount되고, 블로킹 I/O 때 unmount되어 스택이 힙에 보관되는 과정">
+    <defs>
+      <marker id="vtm-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+      <marker id="vtm-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+
+    <!-- 고정: 대기열, 힙, 캐리어 레일 -->
+    <text class="l" x="8" y="12" style="font-weight:700">대기열 <tspan style="fill:var(--sl-color-gray-2);font-weight:400;font-size:14px">가상 스레드 (아주 많아도 됨)</tspan></text>
+    <rect class="frame" x="6" y="24" width="308" height="50" rx="8" />
+    <rect class="frame" x={col.heap} y="100" width="96" height="94" rx="8" />
+    <text x={cx(col.heap)} y="114" style="font-weight:700">힙</text>
+    {[['c1', 'C1'], ['c2', 'C2']].map(([k, t]) => (
+      <g>
+        <rect class="box" x={col[k as 'c1' | 'c2']} y="146" width="96" height="48" rx="6" />
+        <text x={cx(col[k as 'c1' | 'c2'])} y="162" style="font-weight:700">{t}</text>
+        <text class="sub" x={cx(col[k as 'c1' | 'c2'])} y="182">캐리어</text>
+      </g>
+    ))}
+    <text class="sub" x="160" y="210">캐리어 = OS 스레드, 코어 수만큼</text>
+
+    <!-- 화살표 -->
+    <path data-id="m-a1" class="hide" d={`M${qx(0)} 68 L${cx(col.c1) - 6} 102`} style={acc} marker-end="url(#vtm-a)" />
+    <path data-id="m-b2" class="hide" d={`M${qx(1)} 68 L${cx(col.c2) - 6} 102`} style={acc} marker-end="url(#vtm-a)" />
+    <path data-id="m-c1" class="hide" d={`M${qx(2)} 68 L${cx(col.c1) + 6} 102`} style={acc} marker-end="url(#vtm-a)" />
+    <path data-id="m-a2" class="hide" d={`M${qx(0)} 68 L${cx(col.c2) - 10} 102`} style={acc} marker-end="url(#vtm-a)" />
+    <path data-id="um-a" class="hide" d="M120 121 L98 136" style={acc} marker-end="url(#vtm-a)" />
+    <g data-id="re-a" class="hide">
+      <path d={`M${cx(col.heap)} 100 L${qx(0)} 70`} style={gry} marker-end="url(#vtm-g)" />
+      <text class="hi" x="96" y="86" style="font-size:14px;text-anchor:start">응답 도착</text>
+    </g>
+
+    <!-- 가상 스레드 (위치별 복제) -->
+    {vt.map((v) => (
+      <g data-id={v.id} class="hide">
+        <rect class="chip" x={v.x} y={v.y} width={v.w} height="34" rx="6" />
+        <text x={v.x + v.w / 2} y={v.y + 17} style="font-weight:700">{v.t}</text>
+      </g>
+    ))}
+    <g data-id="a-heap" class="hide">
+      <rect class="bad" x="16" y="126" width="80" height="34" rx="6" />
+      <text x={cx(col.heap)} y="143" style="font-size:14px">VT-A 스택</text>
+      <text class="sub" x={cx(col.heap)} y="178">응답 대기</text>
+    </g>
+    <text data-id="e-c1" class="sub hide" x={cx(col.c1)} y="121">(비어 있음)</text>
+
+    <g data-id="cur" class="hide">
+      <rect class="box" x="8" y="226" width="304" height="38" rx="8" />
+      <text class="mono" x="160" y="245"><tspan>Thread.currentThread() == </tspan><tspan class="hi">VT-A</tspan></text>
+    </g>
+
+    <!-- 강조 테두리 -->
+    <rect data-id="hl-q" class="hl" x="3" y="21" width="314" height="56" rx="10" />
+    <rect data-id="hl-q0" class="hl" x={Q[0] - 3} y="29" width="94" height="40" rx="8" />
+    <rect data-id="hl-heap" class="hl" x={col.heap - 3} y="97" width="102" height="100" rx="10" />
+    <rect data-id="hl-c1" class="hl" x={col.c1 - 3} y="101" width="102" height="96" rx="8" />
+    <rect data-id="hl-c2" class="hl" x={col.c2 - 3} y="101" width="102" height="96" rx="8" />
+    <rect data-id="hl-cur" class="hl" x="5" y="223" width="310" height="44" rx="10" />
+  </svg>
+</Stepper>

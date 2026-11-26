@@ -1,0 +1,133 @@
+---
+// count++ 경쟁 조건. 행 = 시간 순서, 열 = 스레드 A | 메모리 count | 스레드 B.
+// 시나리오 3개(락 없음 / synchronized / AtomicInteger)를 같은 격자에 겹쳐 그리고 data-id로 켠다.
+import Stepper from '../Stepper.astro';
+type Row = { side: 'A' | 'B'; t: string; cls?: string; tc?: string; c: string; cc?: string; lock?: boolean; wait?: boolean };
+const AX = 62, MX = 160, BX = 258;          // 열 중심
+const CW = 108, CH = 30;                    // 칩 크기
+const ROWY = [120, 158, 196, 234, 272, 310];
+const race: Row[] = [
+  { side: 'A', t: '읽기 0', c: '0' },
+  { side: 'B', t: '읽기 0', c: '0' },
+  { side: 'A', t: '+1 → 1', c: '0' },
+  { side: 'B', t: '+1 → 1', c: '0' },
+  { side: 'A', t: '쓰기 1', c: '1', cc: 'hi' },
+  { side: 'B', t: '쓰기 1', cls: 'err', tc: 'err-t', c: '1', cc: 'lost' },
+];
+const sync: Row[] = [
+  { side: 'A', t: '읽기 0', c: '0', lock: true, wait: true },
+  { side: 'A', t: '+1 → 1', c: '0', lock: true, wait: true },
+  { side: 'A', t: '쓰기 1', c: '1', cc: 'hi', lock: true, wait: true },
+  { side: 'B', t: '읽기 1', c: '1', lock: true },
+  { side: 'B', t: '+1 → 2', c: '1', lock: true },
+  { side: 'B', t: '쓰기 2', c: '2', cc: 'hi', lock: true },
+];
+const atom: Row[] = [
+  { side: 'A', t: '읽기 0', c: '0' },
+  { side: 'B', t: '읽기 0', c: '0' },
+  { side: 'A', t: 'CAS 0→1 성공', c: '1', cc: 'hi' },
+  { side: 'B', t: 'CAS 0→1 실패', cls: 'err', tc: 'err-t', c: '1' },
+  { side: 'B', t: '다시 읽기 1', c: '1' },
+  { side: 'B', t: 'CAS 1→2 성공', c: '2', cc: 'hi' },
+];
+const scen = [
+  { k: 'r', rows: race },
+  { k: 's', rows: sync },
+  { k: 'a', rows: atom },
+];
+const upto = (k: string, n: number) => Array.from({ length: n }, (_, i) => `${k}${i}`);
+const steps = [
+  { caption: '공유 변수 count는 0이에요. 스레드 A와 B가 각각 count++를 한 번씩 해요. count++는 읽기, 더하기, 쓰기 세 단계예요.', show: ['m-r', 'init'] },
+  { caption: 'A가 메모리에서 count를 읽어요. A가 들고 있는 값은 0이에요.', show: ['m-r', 'init', ...upto('r', 1), 'hl0'] },
+  { caption: 'A가 쓰기 전에 B도 count를 읽어요. B가 들고 있는 값도 0이에요.', show: ['m-r', 'init', ...upto('r', 2), 'hl1'] },
+  { caption: 'A가 자기 값에 1을 더해 1을 만들어요. 메모리는 아직 0이에요.', show: ['m-r', 'init', ...upto('r', 3), 'hl2'] },
+  { caption: 'B도 자기가 읽은 0에 1을 더해 1을 만들어요.', show: ['m-r', 'init', ...upto('r', 4), 'hl3'] },
+  { caption: 'A가 1을 메모리에 써요. count = 1.', show: ['m-r', 'init', ...upto('r', 5), 'hl4'] },
+  { caption: 'B도 1을 써서 A가 쓴 1을 덮어요. 두 번 더했는데 count는 1이에요. A의 +1이 사라졌어요(lost update).', show: ['m-r', 'init', ...upto('r', 6), 'hl5', 'res-r'] },
+  { caption: '해결 1, synchronized: A가 자물쇠를 쥐고 읽기~쓰기를 끝낼 때까지 B는 기다려요. B는 A가 쓴 1을 읽고 2를 써요.', show: ['m-s', 'init', ...upto('s', 6), 'res-ok'] },
+  { caption: '해결 2, AtomicInteger: B의 CAS(0이면 1로 바꿔)는 현재 값이 1이라 실패해요. B는 다시 읽고 CAS(1이면 2로)로 성공해요.', show: ['m-a', 'init', ...upto('a', 6), 'hl3', 'res-ok'] },
+];
+// 자물쇠 아이콘 (ConcurrentMapLocks와 같은 모양)
+const lock = (x: number, y: number, s: number) => ({
+  shackle: `M${x + 3 * s} ${y + 8 * s} v${-3 * s} a${4 * s} ${4 * s} 0 0 1 ${8 * s} 0 v${3 * s}`,
+  body: { x, y: y + 8 * s, w: 14 * s, h: 10 * s },
+  sw: 1.6 * s,
+});
+const chipX = (side: 'A' | 'B') => (side === 'A' ? AX : BX) - CW / 2;
+---
+<Stepper title="count++ 두 번인데 결과는 1" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 404" role="img" aria-label="두 스레드가 count를 읽기, 더하기, 쓰기 순서로 끼어들며 실행해 갱신 하나가 사라지는 과정과 synchronized, AtomicInteger 해결">
+    <!-- 모드 표시 -->
+    <g data-id="m-r" class="hide">
+      <rect class="box" x="50" y="6" width="220" height="28" rx="14" />
+      <text x="160" y="20" style="font-weight:700">문제: 락 없이 count++</text>
+    </g>
+    <g data-id="m-s" class="hide">
+      <rect class="badge" x="50" y="6" width="220" height="28" rx="14" />
+      <text class="on-badge" x="160" y="20">해결 1: synchronized</text>
+    </g>
+    <g data-id="m-a" class="hide">
+      <rect class="badge" x="50" y="6" width="220" height="28" rx="14" />
+      <text class="on-badge" x="160" y="20">해결 2: AtomicInteger</text>
+    </g>
+
+    <!-- 열 머리 -->
+    <text x={AX} y="54" style="font-weight:700">스레드 A</text>
+    <text x={MX} y="54" style="font-weight:700">count</text>
+    <text x={BX} y="54" style="font-weight:700">스레드 B</text>
+    <text class="sub" x={MX} y="72">(메모리)</text>
+    <rect class="frame" x={MX - 34} y="80" width="68" height="250" rx="6" />
+    <g data-id="init">
+      <text class="sub" x={AX} y="92">처음 값</text>
+      <text x={MX} y="92" style="font-weight:700">0</text>
+    </g>
+
+    <!-- 현재 행 강조 -->
+    {ROWY.map((y, i) => <rect data-id={`hl${i}`} class="hl" x="4" y={y - 18} width="312" height="36" rx="8" />)}
+
+    <!-- 시나리오별 행 -->
+    {scen.map((s) => s.rows.map((r, i) => {
+      const y = ROWY[i];
+      const x = chipX(r.side);
+      const k = r.lock ? lock(x + 7, y - 10, 0.9) : null;
+      return (
+        <g data-id={`${s.k}${i}`} class="hide">
+          {r.wait && (
+            <g>
+              <rect class="bad" x={chipX('B')} y={y - CH / 2} width={CW} height={CH} rx="6" />
+              <text class="sub" x={BX} y={y}>대기</text>
+            </g>
+          )}
+          <rect class={r.cls ?? 'chip'} x={x} y={y - CH / 2} width={CW} height={CH} rx="6" />
+          {k && (
+            <g>
+              <path d={k.shackle} style={`fill:none;stroke:var(--sl-color-accent);stroke-width:${k.sw}`} />
+              <rect x={k.body.x} y={k.body.y} width={k.body.w} height={k.body.h} rx="2" style="fill:var(--sl-color-accent)" />
+            </g>
+          )}
+          <text class={r.tc} x={(r.side === 'A' ? AX : BX) + (k ? 8 : 0)} y={y} style="font-size:14px;font-weight:700">{r.t}</text>
+          {r.cc === 'lost'
+            ? (
+              <g>
+                <rect class="err" x={MX - 28} y={y - CH / 2} width="56" height={CH} rx="6" />
+                <text class="err-t" x={MX} y={y}>{r.c}</text>
+              </g>
+            )
+            : <text class={r.cc} x={MX} y={y}>{r.c}</text>}
+        </g>
+      );
+    }))}
+
+    <!-- 결과 -->
+    <g data-id="res-r" class="hide">
+      <rect class="err" x="10" y="342" width="300" height="56" rx="8" />
+      <text class="err-t" x="160" y="360">기대 2 · 실제 1</text>
+      <text x="160" y="382" style="font-size:14px">A의 +1이 덮여 사라짐 (lost update)</text>
+    </g>
+    <g data-id="res-ok" class="hide">
+      <rect class="chip" x="10" y="342" width="300" height="56" rx="8" />
+      <text class="hi" x="160" y="360">기대 2 · 실제 2</text>
+      <text x="160" y="382" style="font-size:14px">두 번의 +1이 모두 남음</text>
+    </g>
+  </svg>
+</Stepper>

@@ -1,0 +1,95 @@
+---
+// 자바 LTS 세로 타임라인(정적). 왼쪽: 버전·GA 연월·LTS 배지, 가운데: 축, 오른쪽: 대표 기능, 맨 오른쪽: LTS 간격 괄호.
+// 날짜는 openjdk GA 기준(_workspace/java/java-versions/01_research.md). 기준일 2026-11.
+type Item = { v: string; d: string; f: string[]; lts?: boolean; next?: boolean; now?: boolean };
+const items: Item[] = [
+  { v: '8', d: '2014.3', lts: true, f: ['람다 · 메서드 참조', '스트림 · Optional', 'java.time 날짜 API'] },
+  { v: '10', d: '2018.3', f: ['var'] },
+  { v: '11', d: '2018.9', lts: true, f: ['HTTP Client 정식', '람다 파라미터 var', '단일 파일 바로 실행'] },
+  { v: '14', d: '2020.3', f: ['switch 식'] },
+  { v: '15', d: '2020.9', f: ['text block'] },
+  { v: '16', d: '2021.3', f: ['record · instanceof 패턴'] },
+  { v: '17', d: '2021.9', lts: true, f: ['sealed 클래스', '(switch 패턴은 프리뷰)'] },
+  { v: '21', d: '2023.9', lts: true, f: ['가상 스레드', 'switch · record 패턴', 'Sequenced Collections'] },
+  { v: '24', d: '2025.3', f: ['synchronized 고정 해결'] },
+  { v: '25', d: '2025.9', lts: true, f: ['void main() 바로 쓰기', 'Scoped Values', '유연한 생성자 본문'] },
+  { v: '27', d: '2026.9', now: true, f: ['현재 최신 (LTS 아님)'] },
+  { v: '29', d: '2027.9', lts: true, next: true, f: ['다음 LTS 예정'] },
+];
+const AX = 70, CX = 86, CW = 196, LH = 22, BX = 300;
+let y = 8;
+const rows = items.map((it) => {
+  const cardH = (it.f.length - 1) * LH + 26;
+  const h = it.lts ? Math.max(68, cardH) + 12 : 46;
+  const r = { ...it, y, ny: y + 14, cardH };
+  y += h;
+  if (it.now) y += 30; // "지금" 표시 줄
+  return r;
+});
+const VH = y + 4;
+const lts = rows.filter((r) => r.lts);
+const gaps = lts.slice(1).map((r, i) => ({ y1: lts[i].ny, y2: r.ny, yrs: i === 0 ? '4.5' : String(Math.round(parseFloat(r.d) - parseFloat(lts[i].d))) }));
+// ponytail: 8→11만 6개월 주기 도입 전이라 4.5년(2014.3→2018.9). 나머지는 연도 차로 계산
+const nowRow = rows.find((r) => r.now)!;
+const nowY = nowRow.y + 46 + 8;
+const last = rows[rows.length - 1];
+---
+<figure class="viz-static">
+  <svg class="viz" viewBox={`0 0 320 ${VH}`} role="img" aria-label="자바 LTS 타임라인: 8(2014.3), 11(2018.9), 17(2021.9), 21(2023.9), 25(2025.9)이 LTS이고 다음 LTS는 29(2027.9) 예정. 2026년 11월 현재 최신은 27. LTS 간격은 8에서 11까지 4년 반, 11에서 17까지 3년, 17 이후 2년.">
+    <!-- 축: 27까지 실선, 29까지는 점선(미래) -->
+    <path class="line" d={`M${AX} ${rows[0].ny} V${nowRow.ny}`} />
+    <path class="line" style="stroke-dasharray:5 4" d={`M${AX} ${nowRow.ny} V${last.ny}`} />
+
+    <!-- LTS 간격 괄호 -->
+    {gaps.map((g) => (
+      <g>
+        <path class="line" d={`M${BX - 6} ${g.y1} H${BX} V${g.y2} H${BX - 6}`} />
+        <rect class="box" x={BX - (g.yrs.length > 1 ? 19 : 16)} y={(g.y1 + g.y2) / 2 - 11} width={g.yrs.length > 1 ? 38 : 32} height="22" rx="11" />
+        <text x={BX} y={(g.y1 + g.y2) / 2 + 1} style="font-size:14px;font-weight:700">{g.yrs}년</text>
+      </g>
+    ))}
+
+    {rows.map((r) => r.lts ? (
+      <g>
+        <text class="l" x="60" y={r.ny} style={`text-anchor:end;font-weight:700;font-size:16px`}>Java {r.v}</text>
+        <text class="sub" x="60" y={r.ny + 21} style="text-anchor:end">{r.d}</text>
+        {r.next ? (
+          <g>
+            <rect class="frame" x="16" y={r.ny + 33} width="44" height="20" rx="10" />
+            <text x="38" y={r.ny + 44} style="font-size:14px;font-weight:700">예정</text>
+          </g>
+        ) : (
+          <g>
+            <rect class="badge" x="22" y={r.ny + 33} width="38" height="20" rx="10" />
+            <text class="on-badge" x="41" y={r.ny + 44}>LTS</text>
+          </g>
+        )}
+        <circle class={r.next ? 'frame' : 'badge'} cx={AX} cy={r.ny} r="7" />
+        <rect class={r.next ? 'frame' : 'chip'} x={CX} y={r.ny - 12} width={CW} height={r.cardH} rx="7" />
+        {r.f.map((t, i) => (
+          <text class={t.startsWith('(') ? 'sub l' : 'l'} x={CX + 10} y={r.ny + 1 + i * LH} style={i === 0 && !t.startsWith('(') ? 'font-weight:700' : ''}>{t}</text>
+        ))}
+      </g>
+    ) : (
+      <g>
+        <text class="sub" x="60" y={r.ny} style="text-anchor:end;font-weight:700">Java {r.v}</text>
+        <text class="sub" x="60" y={r.ny + 19} style="text-anchor:end">{r.d}</text>
+        <circle class="box" cx={AX} cy={r.ny} r="4.5" />
+        <text class={r.now ? 'hi l' : 'sub l'} x={CX + 10} y={r.ny + 1}>{r.f[0]}</text>
+      </g>
+    ))}
+
+    <!-- 지금 위치 (2026.11) -->
+    <path class="hl" style="stroke-width:2.5;stroke-dasharray:6 4" d={`M${AX - 12} ${nowY} H${CX + CW}`} />
+    <rect class="badge" x="10" y={nowY - 11} width="46" height="22" rx="11" />
+    <text class="on-badge" x="33" y={nowY + 1}>지금</text>
+    <text class="hi l" x={CX + 10} y={nowY + 15} style="font-size:14px">2026.11 · 최신 LTS는 25</text>
+  </svg>
+  <figcaption>LTS는 진한 칸, 사이의 일반 버전은 작은 점이에요. 8→11은 4년 반, 11→17은 3년 간격이었고, 17부터는 2년마다 LTS가 나와요. 2026년 11월 지금 최신 버전은 27이지만 LTS는 아니고, 다음 LTS는 2027년 9월 예정인 29예요.</figcaption>
+</figure>
+
+<style>
+  .viz-static { margin: 1.25rem 0; padding: .75rem; border-radius: .75rem; border: 1px solid var(--sl-color-gray-5); }
+  .viz-static svg { width: 100%; height: auto; display: block; }
+  .viz-static figcaption { margin-top: .6rem; font-size: .9rem; line-height: 1.6; color: var(--sl-color-gray-2); }
+</style>

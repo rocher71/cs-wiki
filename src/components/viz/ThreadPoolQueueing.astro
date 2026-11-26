@@ -1,0 +1,150 @@
+---
+// ThreadPoolExecutor(core=2, max=4, 큐 용량 2, AbortPolicy)에 작업 1~7이 차례로 들어올 때 어디로 가는지.
+// 행: 도착 / 코어 스레드 2칸 / 큐 2칸 / 추가 스레드 2칸 / 거절, 맨 아래 카운터(실행 중·대기·거절).
+// 칸에 들어간 카드는 위치별 복제 요소(.hide)라 단계에 없으면 완전히 사라진다.
+import Stepper from '../Stepper.astro';
+const LX = 10, S1 = 118, S2 = 218, SW = 94;    // 라벨 x, 슬롯 두 칸 x, 슬롯 폭
+const rows = { arr: 8, core: 56, q: 116, ext: 176, rej: 236 }; // 각 행 top (높이 48)
+const SH = 36, pad = 6;                           // 슬롯 높이, 행 안 위 여백
+// 스레드 칸: T 이름 + 실행 중 카드
+const threads = [
+  { n: 1, x: S1, y: rows.core }, { n: 2, x: S2, y: rows.core },
+  { n: 3, x: S1, y: rows.ext }, { n: 4, x: S2, y: rows.ext },
+];
+// [id, x, y, 글자, 실행 중?]  실행 중 카드는 스레드 칸 오른쪽, 대기 카드는 큐 칸 가운데
+const cards: [string, number, number, string, boolean][] = [
+  ['c1', S1 + 32, rows.core, '작업1', true], ['c2', S2 + 32, rows.core, '작업2', true],
+  ['q3', S1 + 18, rows.q, '작업3', false], ['q4', S2 + 18, rows.q, '작업4', false],
+  ['c5', S1 + 32, rows.ext, '작업5', true], ['c6', S2 + 32, rows.ext, '작업6', true],
+  ['r7', S1 + 18, rows.rej, '작업7', false],
+];
+// 단계별 카운터 [실행 중, 대기, 거절]
+const cnt: (number | string)[][] = [[1, 0, 0], [2, 0, 0], [2, 1, 0], [2, 2, 0], [3, 2, 0], [4, 2, 0], [4, 2, 1], [0, 0, 1], [2, '5+', 0]];
+const notes = [
+  '스레드 0 < core 2 → 새 스레드',
+  'T1이 놀아도 core 미만이면 새로 만듦',
+  '스레드 = core → 큐로',
+  '큐 2/2 가득',
+  '작업3은 큐에 그대로, T3는 작업5부터',
+  '스레드 4 = max',
+  'RejectedExecutionException',
+  'keepAliveTime 지나 T3·T4 종료',
+  '큐가 안 차니 T3·T4는 안 생김',
+];
+const k = (i: number, ...ids: string[]) => [...ids, `a${i}`, `k${i}`, `n${i}`];
+const steps = [
+  { caption: '작업1 도착. 스레드가 0개라 core(2)보다 적으니 T1을 새로 만들어 바로 실행해요.', show: k(1, 't1', 'c1', 'hl-t1') },
+  { caption: '작업2 도착. T1이 놀고 있어도 스레드 수가 core 미만이면 T2를 새로 만들어요. 놀고 있는 스레드를 먼저 쓰지 않아요.', show: k(2, 't1', 'c1', 't2', 'c2', 'hl-t2') },
+  { caption: '작업3 도착. 스레드가 core만큼 찼으니 새 스레드 대신 큐에 넣어요(1/2).', show: k(3, 't1', 'c1', 't2', 'c2', 'q3', 'hl-q1') },
+  { caption: '작업4 도착. 큐에 넣으면 2/2로 가득 차요. 아직 스레드는 2개뿐이에요.', show: k(4, 't1', 'c1', 't2', 'c2', 'q3', 'q4', 'hl-q2') },
+  { caption: '작업5 도착. 큐가 가득이고 스레드가 max(4)보다 적으니 T3를 만들어요. T3는 큐 맨 앞 작업3이 아니라 방금 온 작업5를 바로 실행해요.', show: k(5, 't1', 'c1', 't2', 'c2', 'q3', 'q4', 't3', 'c5', 'hl-t3', 'hl-q1') },
+  { caption: '작업6 도착. 같은 이유로 T4를 만들어 작업6을 실행해요. 이제 스레드 4개 = max예요.', show: k(6, 't1', 'c1', 't2', 'c2', 'q3', 'q4', 't3', 'c5', 't4', 'c6', 'hl-t4') },
+  { caption: '작업7 도착. 큐도 가득, 스레드도 max라 거절해요. AbortPolicy라서 submit()이 RejectedExecutionException을 던져요.', show: k(7, 't1', 'c1', 't2', 'c2', 'q3', 'q4', 't3', 'c5', 't4', 'c6', 'r7', 'hl-r') },
+  { caption: '일이 다 끝나 한가해지면 core를 넘는 T3·T4는 keepAliveTime 동안 일이 없을 때 종료돼요. 다시 스레드 2개로 돌아가요.', show: k(8, 't1', 't2', 'x3', 'x4', 'hl-ext') },
+  { caption: '대조: 큐를 무한(LinkedBlockingQueue 기본)으로 두면 큐가 절대 안 차요. max를 4로 줘도 T3·T4는 생기지 않고 큐만 길어져요. newFixedThreadPool이 이 구조예요.', show: k(9, 't1', 'c1', 't2', 'c2', 'qinf', 'qinf-l', 'noext', 'hl-q') },
+];
+const sub = (y: number, a: string, b: string) => ({ y, a, b });
+const labels = [sub(rows.core, '코어 스레드', 'core=2'), sub(rows.ext, '추가 스레드', 'max=4'), sub(rows.rej, '거절', 'AbortPolicy')];
+const hls: [string, number, number, number][] = [
+  ['hl-t1', S1, rows.core, SW], ['hl-t2', S2, rows.core, SW], ['hl-q1', S1, rows.q, SW], ['hl-q2', S2, rows.q, SW],
+  ['hl-t3', S1, rows.ext, SW], ['hl-t4', S2, rows.ext, SW], ['hl-r', S1, rows.rej, S2 + SW - S1],
+  ['hl-ext', S1, rows.ext, S2 + SW - S1], ['hl-q', S1, rows.q, S2 + SW - S1],
+];
+const KY = 306, KW = 96, kx = (i: number) => 8 + i * 104;
+const kName = ['실행 중', '대기', '거절'];
+---
+<Stepper title="작업이 들어오는 순서: 코어 → 큐 → 추가 스레드 → 거절" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 394" role="img" aria-label="core 2, max 4, 큐 용량 2인 스레드 풀에 작업 1부터 7까지 들어올 때 코어 스레드, 큐, 추가 스레드, 거절 순서로 채워지는 과정">
+    <!-- 행 라벨 -->
+    <text class="l" x={LX} y={rows.arr + 24} style="font-weight:700">도착</text>
+    {labels.map((l) => (
+      <g>
+        <text class="l" x={LX} y={l.y + 16} style="font-weight:700">{l.a}</text>
+        <text class="sub l mono" x={LX} y={l.y + 36}>{l.b}</text>
+      </g>
+    ))}
+    <text class="l" x={LX} y={rows.q + 16} style="font-weight:700">큐</text>
+    <text class="sub l" x={LX} y={rows.q + 36}>용량 2</text>
+
+    <!-- 빈 자리 (항상 보임) -->
+    {[rows.core, rows.q, rows.ext].map((y) => [S1, S2].map((x) => <rect class="frame" x={x} y={y + pad} width={SW} height={SH} rx="6" />))}
+    <rect class="frame" x={S1} y={rows.rej + pad} width={S2 + SW - S1} height={SH} rx="6" />
+
+    <!-- 도착 카드 -->
+    {[1, 2, 3, 4, 5, 6, 7].map((n) => (
+      <g data-id={`a${n}`} class="hide">
+        <rect class="chip" x={S1 + 18} y={rows.arr + pad} width="58" height="32" rx="6" />
+        <text x={S1 + 47} y={rows.arr + 22}>작업{n}</text>
+        <text class="sub l" x={S1 + 86} y={rows.arr + 22}>→ 어디로?</text>
+      </g>
+    ))}
+    <text data-id="a8" class="sub l hide" x={S1} y={rows.arr + 22}>새 작업 없음 (한가함)</text>
+    <text data-id="a9" class="sub l hide" x={S1} y={rows.arr + 22}>작업3, 4, 5, 6, 7 …</text>
+
+    <!-- 스레드 -->
+    {threads.map((t) => (
+      <g data-id={`t${t.n}`} class="hide">
+        <rect class="box" x={t.x} y={t.y + pad} width={SW} height={SH} rx="6" />
+        <text class="mono" x={t.x + 16} y={t.y + 24} style="font-weight:700">T{t.n}</text>
+      </g>
+    ))}
+    {[3, 4].map((n) => (
+      <g data-id={`x${n}`} class="hide">
+        <rect class="bad" x={n === 3 ? S1 : S2} y={rows.ext + pad} width={SW} height={SH} rx="6" />
+        <text class="sub" x={(n === 3 ? S1 : S2) + SW / 2} y={rows.ext + 24}>T{n} 종료</text>
+      </g>
+    ))}
+
+    <!-- 작업 카드 -->
+    {cards.map(([id, x, y, t, run]) => (
+      <g data-id={id} class="hide">
+        <rect class={run ? 'chip' : 'box'} x={x} y={y + pad + 2} width="58" height={SH - 4} rx="5" />
+        <text x={x + 29} y={y + 24}>{t}</text>
+      </g>
+    ))}
+    <g data-id="r7" class="hide">
+      <text class="err-t" x={S2 + 40} y={rows.rej + 24}>✕ 거절</text>
+    </g>
+
+    <!-- 무한 큐 대조 -->
+    <g data-id="qinf" class="hide">
+      <rect class="box" x={S1} y={rows.q + pad} width={S2 + SW - S1} height={SH} rx="6" />
+      {['3', '4', '5', '6', '7'].map((t, i) => (
+        <g>
+          <rect class="box" x={S1 + 6 + i * 32} y={rows.q + pad + 4} width="28" height={SH - 8} rx="4" />
+          <text x={S1 + 20 + i * 32} y={rows.q + 24}>{t}</text>
+        </g>
+      ))}
+      <text x={S1 + 180} y={rows.q + 24} style="font-weight:700">…∞</text>
+    </g>
+    <g data-id="qinf-l" class="hide">
+      <rect class="box" x={LX - 4} y={rows.q + 27} width="78" height="20" rx="4" />
+      <text class="hi l" x={LX} y={rows.q + 37} style="font-size:14px">무한 큐</text>
+    </g>
+    <g data-id="noext" class="hide">
+      <rect class="bad" x={S1} y={rows.ext + pad} width={S2 + SW - S1} height={SH} rx="6" />
+      <text class="sub" x={(S1 + S2 + SW) / 2} y={rows.ext + 24}>T3·T4 생성 안 됨</text>
+    </g>
+
+    <!-- 강조 테두리 -->
+    {hls.map(([id, x, y, w]) => <rect data-id={id} class="hl" x={x - 3} y={y + pad - 3} width={w + 6} height={SH + 6} rx="8" />)}
+
+    <!-- 이번 단계 규칙 한 줄 -->
+    {notes.map((t, i) => (
+      <text data-id={`n${i + 1}`} class={`hide ${i === 6 ? 'err-t mono' : 'hi'}`} x="160" y="293" style="font-size:14px">{t}</text>
+    ))}
+
+    <!-- 카운터 -->
+    {kName.map((name, j) => (
+      <g>
+        <rect class="box" x={kx(j)} y={KY} width={KW} height="80" rx="8" />
+        <text class="sub" x={kx(j) + KW / 2} y={KY + 18}>{name}</text>
+      </g>
+    ))}
+    {cnt.map((c, i) => (
+      <g data-id={`k${i + 1}`} class="hide">
+        {c.map((v, j) => <text x={kx(j) + KW / 2} y={KY + 50} class={j === 2 && v ? 'err-t' : ''} style="font-size:26px;font-weight:700">{v}</text>)}
+      </g>
+    ))}
+  </svg>
+</Stepper>

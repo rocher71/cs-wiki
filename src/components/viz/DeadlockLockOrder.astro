@@ -1,0 +1,147 @@
+---
+// 데드락: 네모 배치(스레드1 ─ 락 B / 락 A ─ 스레드2)에서 보유(실선)·대기(점선) 간선이 원을 이루면 순환 대기.
+// 아래 패널에 4조건 / 해결1(순서 고정) / 해결2(tryLock 반납)를 겹쳐 그린다.
+import Stepper from '../Stepper.astro';
+const L = { x: 20, cx: 75 }, R = { x: 190, cx: 245 };
+const TOP = 56, BOT = 196, BH = 52, BW = 110;
+const steps = [
+  { caption: '락 A, 락 B가 있고 스레드1과 스레드2가 있어요. 두 스레드 모두 락 두 개가 다 있어야 일을 끝낼 수 있어요.', show: [] },
+  { caption: '스레드1이 락 A를 얻어요.', show: ['hA1'] },
+  { caption: '스레드2가 락 B를 얻어요.', show: ['hA1', 'hB2'] },
+  { caption: '스레드1이 락 B를 요청해요. B는 스레드2가 쥐고 있어서 기다려요.', show: ['hA1', 'hB2', 'w1B', 's1-wait'] },
+  { caption: '스레드2가 락 A를 요청해요. A는 스레드1이 쥐고 있어요. 기다림이 원을 이뤄(순환 대기) 둘 다 영원히 멈춰요. 이게 데드락이에요.', show: ['hA1', 'hB2', 'w1B', 'w2A', 'cyc', 'stop', 'dead'] },
+  { caption: '데드락은 네 조건이 모두 성립할 때 생겨요. 하나만 깨도 막을 수 있어요.', show: ['hA1', 'hB2', 'w1B', 'w2A', 'cyc', 'stop', 'conds'] },
+  { caption: '해결 1, 락 순서 고정: 두 스레드 모두 A 다음 B 순서로만 잠가요. 스레드2는 B를 쥐지 않은 채 A부터 기다리니 원이 생기지 않아요.', show: ['hA1', 'h1B', 'w2A', 's1-run', 's2-wait', 'fix1'] },
+  { caption: '해결 2, tryLock: 스레드1이 B를 못 얻으면 쥐고 있던 A를 놓고 잠시 뒤 다시 시도해요. 그사이 스레드2가 A를 얻어 먼저 끝내요.', show: ['hB2', 'h2A', 'f1B', 's1-retry', 's2-run', 'fix2'] },
+];
+const lock = (x: number, y: number, s: number) => ({
+  shackle: `M${x + 3 * s} ${y + 8 * s} v${-3 * s} a${4 * s} ${4 * s} 0 0 1 ${8 * s} 0 v${3 * s}`,
+  body: { x, y: y + 8 * s, w: 14 * s, h: 10 * s },
+  sw: 1.6 * s,
+});
+const locks = [
+  { x: R.x, y: TOP, t: '락 B' },
+  { x: L.x, y: BOT, t: '락 A' },
+].map((b) => ({ ...b, k: lock(b.x + 14, b.y + 15, 1.2) }));
+const threads = [
+  { id: '1', x: L.x, cx: L.cx, y: TOP, st: [['s1-wait', 'B 기다림'], ['s1-run', 'A, B 둘 다 보유'], ['s1-retry', 'A 놓고 재시도']] },
+  { id: '2', x: R.x, cx: R.cx, y: BOT, st: [['s2-wait', 'A부터 기다림'], ['s2-run', 'A, B 얻고 진행']] },
+];
+const TM = TOP + BH / 2, BM = BOT + BH / 2;   // 가로 간선 y
+const hold = 'fill:none;stroke:var(--sl-color-accent);stroke-width:3';
+const wait = 'fill:none;stroke:var(--sl-color-gray-2);stroke-width:2;stroke-dasharray:5 4';
+const fail = 'fill:none;stroke:var(--sl-color-red);stroke-width:2;stroke-dasharray:5 4';
+const conds = [
+  ['상호배제', '락 하나 = 스레드 하나'],
+  ['점유와 대기', 'A 쥔 채 B 기다림'],
+  ['비선점', '남의 락을 못 뺏음'],
+  ['순환 대기', '1 → B → 2 → A → 1'],
+];
+---
+<Stepper title="데드락은 기다림이 원을 이룰 때" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 400" role="img" aria-label="두 스레드가 락 A와 B를 서로 반대 순서로 잡아 순환 대기에 빠지는 과정과 락 순서 고정, tryLock 해결">
+    <defs>
+      <marker id="dlo-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-2)" />
+      </marker>
+      <marker id="dlo-r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-red)" />
+      </marker>
+    </defs>
+
+    <!-- 범례 -->
+    <line x1="40" y1="20" x2="68" y2="20" style={hold} />
+    <text class="sub l" x="74" y="20">보유</text>
+    <line x1="160" y1="20" x2="188" y2="20" style={wait} marker-end="url(#dlo-g)" />
+    <text class="sub l" x="194" y="20">대기(요청)</text>
+
+    <!-- 간선: 보유(실선) -->
+    <g data-id="hA1" class="hide">
+      <line x1={L.cx} y1={TOP + BH} x2={L.cx} y2={BOT} style={hold} />
+      <text class="hi l" x={L.cx + 8} y={(TOP + BH + BOT) / 2} style="font-size:14px">보유</text>
+    </g>
+    <g data-id="hB2" class="hide">
+      <line x1={R.cx} y1={TOP + BH} x2={R.cx} y2={BOT} style={hold} />
+      <text class="hi" x={R.cx - 26} y={(TOP + BH + BOT) / 2} style="font-size:14px">보유</text>
+    </g>
+    <g data-id="h1B" class="hide">
+      <line x1={L.x + BW} y1={TM} x2={R.x} y2={TM} style={hold} />
+      <text class="hi" x="160" y={TM - 14} style="font-size:14px">보유</text>
+    </g>
+    <g data-id="h2A" class="hide">
+      <line x1={R.x} y1={BM} x2={L.x + BW} y2={BM} style={hold} />
+      <text class="hi" x="160" y={BM + 14} style="font-size:14px">보유</text>
+    </g>
+    <!-- 간선: 대기(점선 화살표) -->
+    <g data-id="w1B" class="hide">
+      <line x1={L.x + BW} y1={TM} x2={R.x - 2} y2={TM} style={wait} marker-end="url(#dlo-g)" />
+      <text class="sub" x="160" y={TM - 14}>대기</text>
+    </g>
+    <g data-id="w2A" class="hide">
+      <line x1={R.x} y1={BM} x2={L.x + BW + 2} y2={BM} style={wait} marker-end="url(#dlo-g)" />
+      <text class="sub" x="160" y={BM + 14}>대기</text>
+    </g>
+    <g data-id="f1B" class="hide">
+      <line x1={L.x + BW} y1={TM} x2={R.x - 2} y2={TM} style={fail} marker-end="url(#dlo-r)" />
+      <text class="err-t" x="160" y={TM - 14} style="font-size:14px">실패</text>
+    </g>
+
+    <!-- 순환 표시 -->
+    <g data-id="cyc" class="hide">
+      <path d="M186 152 A26 26 0 1 1 160 126" style="fill:none;stroke:var(--sl-color-red);stroke-width:2.4" marker-end="url(#dlo-r)" />
+      <text class="err-t" x="160" y="152" style="font-size:14px">순환</text>
+    </g>
+
+    <!-- 락 -->
+    {locks.map((b) => (
+      <g>
+        <rect class="box" x={b.x} y={b.y} width={BW} height={BH} rx="8" />
+        <path d={b.k.shackle} style={`fill:none;stroke:var(--sl-color-gray-2);stroke-width:${b.k.sw}`} />
+        <rect x={b.k.body.x} y={b.k.body.y} width={b.k.body.w} height={b.k.body.h} rx="2" style="fill:var(--sl-color-gray-2)" />
+        <text x={b.x + 66} y={b.y + BH / 2} style="font-weight:700">{b.t}</text>
+      </g>
+    ))}
+
+    <!-- 스레드 -->
+    {threads.map((t) => (
+      <g>
+        <rect class="chip" x={t.x} y={t.y} width={BW} height={BH} rx="8" />
+        <rect data-id="stop" class="err hide" x={t.x} y={t.y} width={BW} height={BH} rx="8" />
+        <text x={t.cx} y={t.y + 16} style="font-weight:700">스레드{t.id}</text>
+        {t.st.map(([id, s]) => <text data-id={id} class="hide" x={t.cx} y={t.y + 37} style="font-size:14px">{s}</text>)}
+        <text data-id="stop" class="err-t hide" x={t.cx} y={t.y + 37} style="font-size:14px">멈춤</text>
+      </g>
+    ))}
+
+    <!-- 아래 패널 -->
+    <g data-id="dead" class="hide">
+      <rect class="err" x="10" y="270" width="300" height="56" rx="8" />
+      <text class="err-t" x="160" y="288">데드락</text>
+      <text x="160" y="310" style="font-size:14px">서로 상대 락을 기다리며 영원히 멈춤</text>
+    </g>
+    <g data-id="conds" class="hide">
+      {conds.map(([n, d], i) => {
+        const x = 10 + (i % 2) * 152, y = 266 + Math.floor(i / 2) * 64;
+        return (
+          <g>
+            <rect class="box" x={x} y={y} width="148" height="58" rx="8" />
+            <text x={x + 74} y={y + 19} style="font-weight:700">{i + 1}. {n}</text>
+            <text class="sub" x={x + 74} y={y + 41}>{d}</text>
+          </g>
+        );
+      })}
+    </g>
+    <g data-id="fix1" class="hide">
+      <rect class="chip" x="10" y="270" width="300" height="80" rx="8" />
+      <text class="hi" x="160" y="290">해결 1: 순서 고정 (A → B)</text>
+      <text x="160" y="314" style="font-size:14px">B만 쥔 채 A를 기다리는 스레드가 없음</text>
+      <text class="sub" x="160" y="336">순환 대기가 깨짐</text>
+    </g>
+    <g data-id="fix2" class="hide">
+      <rect class="chip" x="10" y="270" width="300" height="80" rx="8" />
+      <text class="hi" x="160" y="290">해결 2: tryLock 실패 → 반납</text>
+      <text x="160" y="314" style="font-size:14px">못 얻으면 쥔 락을 놓고 다시 시도</text>
+      <text class="sub" x="160" y="336">비선점이 깨짐 (스스로 반납)</text>
+    </g>
+  </svg>
+</Stepper>

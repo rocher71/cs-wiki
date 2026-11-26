@@ -1,0 +1,376 @@
+---
+title: 가상 스레드 (Java 21)
+description: 가상 스레드는 JVM이 관리하는 가벼운 스레드라서 수백만 개를 만들 수 있고, 블로킹 I/O를 기다리는 동안 OS 스레드를 놓아줘서 처리량을 늘려요. 빨라지는 게 아니라 동시에 더 많이 처리하는 거예요.
+sidebar: { order: 13 }
+tags: [면접빈출, 서술형]
+---
+import { Aside } from '@astrojs/starlight/components';
+import VirtualThreadMount from '~/components/viz/VirtualThreadMount.astro';
+import VirtualThreadPinning from '~/components/viz/VirtualThreadPinning.astro';
+
+:::tip[한 줄 요약]
+가상 스레드는 OS 스레드에 묶이지 않고 JVM이 스케줄링하는 가벼운 스레드예요. I/O를 기다리는 동안 자기가 올라타 있던 OS 스레드(캐리어)에서 내려와 다른 가상 스레드에게 자리를 내줘서, 적은 OS 스레드로 많은 요청을 동시에 처리해요. 목적은 속도가 아니라 처리량이에요.
+:::
+
+## 쉽게 이해하기
+
+식당에 요리사(OS 스레드)가 4명뿐이라고 해 볼게요. 예전 방식은 주문 하나마다 요리사 한 명을 붙여서, 오븐에 빵을 넣고 20분 기다리는 동안에도 요리사가 오븐 앞에 서 있었어요. 손님이 몰리면 요리사가 모자라서 주문을 못 받아요.
+
+가상 스레드 방식은 주문서(가상 스레드)를 수천 장 만들어 두고, 요리사는 주문서를 하나 집어 손을 쓰는 일만 해요. 오븐에 넣고 기다려야 하면 주문서를 걸어 두고 바로 다음 주문서를 집어요. 오븐이 "땡" 하면 그 주문서는 다시 줄에 서고, 그때 손이 빈 요리사가 이어서 처리해요. 요리 한 접시가 나오는 시간은 똑같지만, 같은 시간에 처리하는 주문 수가 크게 늘어요.
+
+단, 실제로는 "기다리는 시간"이 길어야 이득이에요. 재료 손질처럼 손을 계속 써야 하는 일(CPU 계산)만 있다면 요리사 4명이 한계라서 주문서를 늘려도 소용없어요.
+
+## 그림으로 보기
+
+<VirtualThreadMount />
+
+<VirtualThreadPinning />
+
+## 제대로 알기
+
+### 1. 왜 필요한가
+
+서버가 동시에 몇 개의 요청을 처리해야 하는지는 **리틀의 법칙**(Little's Law, 동시 처리 수 = 처리량 × 응답 시간)으로 계산해요.
+
+- 요청 하나가 평균 50ms 걸리고 동시에 10개를 처리하면 초당 200건이에요.
+- 초당 2000건을 원하면 동시에 100개를 처리해야 해요.
+
+**요청당 스레드**(thread-per-request, 요청 하나를 스레드 하나가 끝까지 맡는 방식)라면 처리량을 늘리려면 스레드 수도 같이 늘어야 해요. 그런데 기존 자바 스레드는 OS 스레드를 감싼 거라 비싸고 개수에 한계가 있어요. 그래서 CPU나 네트워크가 남아도는데 스레드가 먼저 바닥나요. [스레드 풀](../thread-pool/)은 만드는 비용을 아낄 뿐 총 개수를 늘려 주지는 않아요.
+
+이걸 피하려고 나온 게 **비동기(리액티브) 스타일**이에요. 기다리는 동안 스레드를 놓아줘서 확장성은 좋지만, 요청 하나가 여러 스레드를 옮겨 다녀서 스택 트레이스·디버거·프로파일러로 흐름을 따라가기 어려워요.
+
+가상 스레드의 목표는 **코드는 요청당 스레드처럼 단순하게 쓰면서, 확장성은 비동기 수준으로** 얻는 거예요.
+
+### 2. 플랫폼 스레드 vs 가상 스레드
+
+**플랫폼 스레드**(platform thread)는 지금까지 쓰던 `new Thread()`예요. OS 스레드를 얇게 감싼 것이고, 살아 있는 내내 OS 스레드 하나를 붙잡아요. **가상 스레드**(virtual thread)도 똑같이 `java.lang.Thread` 객체지만, 특정 OS 스레드에 묶이지 않고 JVM이 직접 스케줄링해요.
+
+공식 문서의 비유가 좋아요. 가상 메모리가 큰 주소 공간을 적은 RAM에 나눠 올리듯, 많은 가상 스레드를 적은 OS 스레드에 나눠 올려요.
+
+| 비교 | 플랫폼 스레드 | 가상 스레드 |
+|---|---|---|
+| 정체 | OS 스레드의 얇은 래퍼 | JVM이 스케줄링하는 사용자 모드 스레드 |
+| OS 스레드 | 평생 하나를 점유 | CPU로 계산할 때만 캐리어를 빌려 씀 |
+| 개수 | OS 스레드 수로 제한 | JVM 하나에 수백만 개 가능 |
+| 스택 | 크고 고정 | 힙에 "stack chunk" 객체로 저장, 필요한 만큼 늘고 줄어듦 |
+| 만드는 법 | `Thread.ofPlatform()`, `new Thread()` | `Thread.ofVirtual()`, `Thread.startVirtualThread()` |
+| 데몬 여부 | 선택 가능 | 항상 데몬(바꿀 수 없음) |
+| 우선순위 | 설정 가능 | `NORM_PRIORITY` 고정 |
+| 풀링 | 풀로 재사용 | 풀링하지 않음, 작업마다 새로 |
+| 잘 맞는 일 | CPU를 오래 쓰는 계산 | 대부분 기다리는(I/O) 일 |
+
+<Aside type="note" title="스레드 자체가 처음이라면">
+프로세스와 스레드의 차이, 스레드 상태, 컨텍스트 스위칭은 [스레드 기초](../thread-basics/)에서 먼저 보고 오세요.
+</Aside>
+
+### 3. 캐리어 스레드와 mount / unmount
+
+가상 스레드도 실제로 실행되려면 결국 OS 스레드 위에 올라가야 해요.
+
+- **스케줄러**: JDK에 들어 있는 전용 `ForkJoinPool`(FIFO 모드, 놀고 있는 워커가 다른 워커의 일을 가져가는 work-stealing 방식)이에요. 병렬 스트림이 쓰는 공용 풀과는 **별개**예요.
+- **캐리어**(carrier thread): 스케줄러의 워커, 즉 가상 스레드를 태워 실행하는 플랫폼 스레드예요. 기본 개수는 CPU 코어 수이고 `jdk.virtualThreadScheduler.parallelism`으로 바꿀 수 있어요.
+- **mount**: 가상 스레드를 캐리어에 올려 실행하는 것.
+- **unmount**: 가상 스레드가 캐리어에서 내려오는 것. 빈 캐리어엔 곧바로 다른 가상 스레드가 올라가요.
+
+블로킹되는 순간이 핵심이에요.
+
+1. 가상 스레드가 소켓 읽기 같은 java.* 블로킹 I/O를 호출해요.
+2. 런타임은 속으로 **논블로킹** OS 호출을 걸어 두고, 가상 스레드를 일시 정지시켜 unmount해요.
+3. 데이터가 도착하면 가상 스레드는 스케줄러 줄에 다시 서고, 아마 **다른** 캐리어에 mount되어 이어서 실행돼요.
+
+`BlockingQueue.take()`나 `ReentrantLock`, `Semaphore`처럼 `LockSupport`로 기다리는 도구들도 같은 식으로 캐리어를 놓아줘요.
+
+가상 스레드는 살면서 여러 캐리어를 옮겨 다닐 수 있지만, 코드에서 `Thread.currentThread()`를 부르면 항상 **가상 스레드 자신**이 나와요. 캐리어의 ThreadLocal이나 스택도 보이지 않아요.
+
+<Aside type="caution" title="unmount를 못 하는 블로킹도 있어요">
+많은 파일 시스템 연산(OS 한계 때문)과 JDK 21의 `Object.wait()`는 unmount하지 못하고 캐리어를 붙잡아요. 이때 JDK는 캐리어를 잠시 더 만들어 **보상**해요(상한 `jdk.virtualThreadScheduler.maxPoolSize`, 기본 256). 그래서 플랫폼 스레드 수가 코어 수를 잠깐 넘을 수 있어요. 다음 절의 pinning은 이런 보상이 **없다**는 점이 달라요.
+</Aside>
+
+### 4. Pinning (고정)
+
+**pinning**은 가상 스레드가 블로킹되는데도 캐리어에서 내려오지 못하고 붙어 버리는 상태예요. JDK 21에서는 두 경우에 생겨요.
+
+1. `synchronized` 블록이나 메서드 안에서 실행 중일 때
+2. 네이티브 메서드나 외부 함수(FFM API)를 실행 중일 때
+
+**왜 synchronized에서 생겼나요?** JDK 21~23의 JVM은 모니터(synchronized의 자물쇠, [동기화](../synchronization/) 참고)의 주인을 가상 스레드가 아니라 **캐리어**로 기록했어요. 만약 그대로 unmount를 허용하면, 같은 캐리어에 다음으로 올라탄 다른 가상 스레드가 자물쇠를 가진 것처럼 보여 상호배제가 깨져요. 그래서 JVM이 아예 내리지 못하게 막았어요.
+
+**무엇이 문제인가요?** 결과가 틀리지는 않아요. 확장성만 망가져요.
+
+- pinned 상태로 I/O를 기다리면 캐리어(OS 스레드)도 그동안 같이 놀아요.
+- 스케줄러는 pinning에 대해선 캐리어를 늘려 보상하지 않아요.
+- 캐리어가 코어 수만큼밖에 없으니 몇 개만 묶여도 처리량이 확 떨어지고, 전부 묶이면 기아(starvation)나 데드락까지 갈 수 있어요.
+
+**JDK 21에서 어떻게 피하나요?**
+
+- **자주 실행되면서 긴 I/O를 감싸는** synchronized만 `ReentrantLock`으로 바꿔요.
+- 시작할 때 한 번만 돌거나 메모리 연산만 감싸는 짧은 synchronized는 그대로 둬도 돼요.
+- 찾을 때는 JFR 이벤트 `jdk.VirtualThreadPinned`(기본 켜짐, 20ms 이상이면 기록)나 `-Djdk.tracePinnedThreads=full|short`(pinned 상태로 막히면 스택 트레이스 출력)를 써요.
+
+```java
+// JDK 21: synchronized 안에서 I/O → pinning
+synchronized (this) {
+    response = httpClient.send(request, handler); // 캐리어까지 같이 막힘
+}
+
+// ReentrantLock으로 바꾸면 기다리는 동안 unmount 가능
+lock.lock();
+try {
+    response = httpClient.send(request, handler);
+} finally {
+    lock.unlock();
+}
+```
+
+### 5. JDK 24 (JEP 491): synchronized pinning 해소
+
+JDK 24부터는 JVM이 가상 스레드가 캐리어와 상관없이 모니터를 잡고, 들고, 놓을 수 있게 바뀌었어요. 그래서 synchronized 안에서 I/O를 기다리거나 자물쇠를 기다릴 때도 unmount돼요. `Object.wait()`도 기다리는 동안 unmount돼요.
+
+| 항목 | JDK 21~23 | JDK 24+ |
+|---|---|---|
+| synchronized 안 블로킹 | pinning | unmount 가능 |
+| `Object.wait()` | 캐리어 점유(보상 있음) | unmount 가능 |
+| 네이티브/FFM 실행 중 | pinning | 여전히 pinning |
+| `-Djdk.tracePinnedThreads` | 사용 가능 | 제거(설정해도 효과 없음) |
+| JFR `jdk.VirtualThreadPinned` | 있음 | 유지, pinning 이유와 캐리어 정보 추가 |
+
+JDK 24에도 남은 pinning은 이런 경우예요.
+
+- 네이티브 메서드/FFM에서 자바로 다시 불려 온 코드가 블로킹하거나 자물쇠에서 막힐 때
+- 클래스를 로딩하는 도중 블로킹할 때
+- static 초기화 블록 안에서 블로킹할 때, 다른 스레드의 클래스 초기화를 기다릴 때
+
+JEP 491의 권고는 이래요. 이미 `ReentrantLock`으로 바꾼 코드는 되돌릴 필요 없어요. 새 코드는 웬만하면 synchronized를 쓰고, 타임아웃이나 공정성 같은 유연함이 필요할 때 `ReentrantLock`을 써요. 어느 쪽이든 **락 범위를 좁히고, 락을 쥔 채 I/O를 하지 않는 것**이 기본이에요.
+
+### 6. 빨라지는 게 아니라 처리량이 늘어요
+
+가상 스레드는 **더 빠른 스레드가 아니에요.** 코드 한 줄 한 줄을 플랫폼 스레드보다 빨리 실행하지 않아요. 요청 하나의 응답 시간은 그대로이고, **동시에 처리하는 개수**가 늘어서 초당 처리량이 올라가요.
+
+JEP 444의 예제가 이걸 잘 보여 줘요.
+
+```java
+// 1초 자는 작업 10,000개
+try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+    IntStream.range(0, 10_000).forEach(i ->
+        executor.submit(() -> {
+            Thread.sleep(Duration.ofSeconds(1));
+            return i;
+        }));
+} // close()가 모든 작업이 끝날 때까지 기다림
+```
+
+- 고정 크기 200짜리 플랫폼 스레드 풀: 초당 약 200건
+- 가상 스레드: 워밍업 후 초당 약 10,000건
+- `newCachedThreadPool()`로 플랫폼 스레드 10,000개를 만들면 환경에 따라 크래시할 수 있어요.
+
+이득이 큰 조건은 두 가지예요.
+
+1. 동시에 도는 작업이 **많을 때**(수천 개 이상). 공식 가이드는 동시에 10,000개 이상 생기지 않는 앱이라면 이득이 거의 없을 가능성이 크다고 해요.
+2. 작업이 **CPU 바운드가 아닐 때**. 1초 내내 계산만 하는 작업이라면 코어 수가 한계라 스레드를 늘려도 소용없어요.
+
+또 코드를 **동기·블로킹 스타일**로 짜야 이득이 커요. `CompletableFuture` 체인 같은 비동기 코드를 가상 스레드에 올려 봐야 얻는 게 별로 없어요.
+
+### 7. 풀링하지 마세요
+
+플랫폼 스레드는 비싸서 [스레드 풀](../thread-pool/)로 재사용했어요. 가상 스레드는 싸고 많이 만들 수 있으니 **절대 풀링하지 않고 작업마다 새로 만들어요.** 대부분 HTTP 호출 한 번, JDBC 쿼리 한 번 정도 하고 사라지는 짧은 스레드예요.
+
+그런데 예전엔 풀 크기로 **동시 접근 수를 제한**하기도 했어요(외부 서비스가 동시 20개까지만 받으면 풀 크기 20). 이걸 가상 스레드 풀 20개로 흉내 내지 말고 `Semaphore`(세마포어, 동시에 들어갈 수 있는 허가증 개수를 정하는 도구)를 써요.
+
+```java
+Semaphore permits = new Semaphore(20); // 외부 API 동시 20개 제한
+
+String callPayment(Request req) throws Exception {
+    permits.acquire();      // 허가증이 없으면 여기서 대기(캐리어는 놓아줌)
+    try {
+        return client.call(req);
+    } finally {
+        permits.release();
+    }
+}
+```
+
+공식 가이드 설명으로는, 풀 큐에 쌓인 작업들과 세마포어 앞에서 기다리는 가상 스레드들은 컴퓨터 안에서 사실상 같은 모습이에요. 그리고 **DB 커넥션 풀 자체가 세마포어 역할**을 해요. 커넥션이 10개면 11번째 스레드는 커넥션을 얻을 때 기다려요. 그 위에 세마포어를 또 둘 필요는 없어요.
+
+### 8. ThreadLocal 주의
+
+가상 스레드도 `ThreadLocal`을 지원해요. 트랜잭션이나 사용자 ID 같은 **요청 문맥**을 담는 건 괜찮아요.
+
+문제는 **비싼 객체를 스레드별로 캐시**하던 패턴이에요. 예전엔 풀의 스레드 하나가 여러 작업을 처리하니 `SimpleDateFormat` 같은 객체를 ThreadLocal에 넣어 두고 재사용했어요. 가상 스레드는 작업마다 새것이라 매번 객체가 새로 만들어지고, 스레드가 수천~수백만 개라 메모리를 크게 먹어요.
+
+- `SimpleDateFormat` 캐시 → 불변인 `DateTimeFormatter` 하나를 공유해요.
+- `-Djdk.traceVirtualThreadLocals=true`를 켜면 가상 스레드가 ThreadLocal에 값을 넣을 때 스택 트레이스를 찍어서 찾기 쉬워요.
+- 대안으로 **Scoped Values**(아래 10절)가 있어요.
+
+### 9. 만들고 쓰는 법
+
+```java
+Thread.startVirtualThread(() -> work());              // 만들고 바로 시작
+Thread.ofVirtual().name("duke").start(() -> work());  // Builder로 설정
+ThreadFactory factory = Thread.ofVirtual().factory();
+Executors.newVirtualThreadPerTaskExecutor();           // 작업마다 새 가상 스레드
+Thread.currentThread().isVirtual();                   // 가상인지 확인
+```
+
+`newVirtualThreadPerTaskExecutor()`는 풀이 아니라 **작업마다 새 스레드**를 만드는 ExecutorService예요. 만드는 개수에 제한이 없어요.
+
+가상 스레드가 수백만 개일 수 있어서, 스레드 덤프는 `jcmd <pid> Thread.dump_to_file -format=json <파일>`처럼 새 JSON 형식을 써요.
+
+**Spring Boot**에서는 3.2부터, Java 21 이상에서 설정 한 줄로 켜요.
+
+```properties
+spring.threads.virtual.enabled=true
+```
+
+- Tomcat·Jetty가 요청을 가상 스레드로 처리해요(컨트롤러가 가상 스레드에서 실행).
+- `@Async` 등에 쓰는 기본 실행기가 가상 스레드를 쓰는 `SimpleAsyncTaskExecutor`로 바뀌고, 풀 관련 `spring.task.execution.*` 속성은 무시돼요.
+- `server.tomcat.threads.max`(기본 200)는 효과가 없어져요. 즉 **동시 요청 수의 상한이 사라져요.** 서술형 연습에서 이게 왜 중요한지 봐요.
+- 가상 스레드는 항상 데몬이라 다른 스레드가 모두 가상이면 JVM이 꺼질 수 있어요. 이를 막는 `spring.main.keep-alive=true`가 있어요.
+
+### 10. 함께 나오는 기능들의 버전 상태
+
+| 기능 | 하는 일 | 상태 |
+|---|---|---|
+| 구조적 동시성(Structured Concurrency) | 함께 도는 작업 묶음을 하나의 단위로 다뤄 오류 처리·취소를 단순하게 | JDK 21 프리뷰 → JDK 25 5차 프리뷰(`StructuredTaskScope.open()`으로 API 변경) → JDK 26 6차 프리뷰 → JDK 27 7차 프리뷰. **아직 정식 아님** |
+| Scoped Values | 메서드 인자 없이 값을 안전하게 공유. 가상 스레드가 많을 때 ThreadLocal보다 권장 | JDK 21 프리뷰 → **JDK 25 정식** |
+
+## 면접 질문
+
+<details>
+<summary>Q. 가상 스레드가 뭔가요? 플랫폼 스레드와 뭐가 다른가요?</summary>
+
+**답변(30초)** 가상 스레드는 Java 21에 정식으로 들어온, JVM이 스케줄링하는 가벼운 스레드예요. 플랫폼 스레드는 OS 스레드를 감싼 거라 평생 OS 스레드 하나를 붙잡고 개수에 한계가 있어요. 가상 스레드는 스택을 힙에 두고 필요할 때만 캐리어라는 플랫폼 스레드에 올라가 실행돼서 수백만 개까지 만들 수 있어요. 둘 다 같은 `Thread` API라서 기존 동기 코드를 거의 그대로 쓸 수 있어요.
+
+**꼬리질문**
+- Q. 가상 스레드는 OS 스레드 없이 도나요? → 아니요. 실행은 항상 캐리어(플랫폼 스레드) 위에서 해요. CPU로 계산하는 동안만 OS 스레드를 쓰고, 기다리는 동안엔 놓아줘요.
+- Q. 캐리어는 몇 개인가요? → 기본은 CPU 코어 수예요. 전용 ForkJoinPool이고 병렬 스트림의 공용 풀과는 별개예요.
+- Q. 코루틴이나 async/await랑 같은 건가요? → 자바는 새 문법을 추가하지 않고 기존 Thread API 그대로 동작하게 했어요. JEP 444는 async/await 같은 방식을 검토했지만 채택하지 않았어요.
+</details>
+
+<details>
+<summary>Q. 적은 OS 스레드로 어떻게 많은 요청을 처리하나요?</summary>
+
+**답변(30초)** 블로킹될 때 캐리어에서 내려오기 때문이에요. 가상 스레드가 소켓 읽기 같은 블로킹 I/O를 부르면, 런타임이 속으로 논블로킹 호출을 걸어 두고 가상 스레드를 unmount해요. 빈 캐리어에는 다른 가상 스레드가 mount돼서 일해요. 데이터가 오면 원래 가상 스레드가 다시 줄에 서서 아무 캐리어에나 올라가 이어서 실행돼요.
+
+**꼬리질문**
+- Q. 캐리어가 바뀌면 `Thread.currentThread()` 값도 바뀌나요? → 아니요. 항상 가상 스레드 자신을 돌려줘요. 캐리어의 ThreadLocal도 보이지 않아요.
+- Q. 모든 블로킹에서 unmount되나요? → 아니요. 파일 시스템 연산 상당수와 JDK 21의 `Object.wait()`는 캐리어를 붙잡아요. 대신 이때는 JDK가 캐리어를 잠시 늘려 보상해요.
+</details>
+
+<details>
+<summary>Q. 가상 스레드를 쓰면 응답이 빨라지나요?</summary>
+
+**답변(30초)** 아니요. 가상 스레드는 더 빠른 스레드가 아니라 더 많이 만들 수 있는 스레드예요. 요청 하나의 응답 시간은 그대로이고, 동시에 처리하는 요청 수가 늘어서 처리량이 올라가요. 리틀의 법칙상 응답 시간이 같을 때 처리량을 올리려면 동시 처리 수를 늘려야 하는데, 그 동시 처리 수의 한계를 스레드 개수에서 풀어 주는 거예요. 그래서 동시 작업이 수천 개 이상이고 대부분 I/O를 기다리는 서버에서 효과가 커요.
+
+**꼬리질문**
+- Q. 언제 쓰면 안 되나요? → CPU 바운드 작업이에요. 계산만 하면 코어 수가 한계라 스레드를 늘려도 소용없으니, 코어 수에 맞춘 플랫폼 스레드 풀이 맞아요. 동시 작업이 적은 앱도 이득이 거의 없어요.
+- Q. CompletableFuture로 짠 비동기 코드에 가상 스레드를 쓰면? → 이득이 별로 없어요. 가상 스레드는 동기 블로킹 스타일로 짤 때 효과가 커요.
+</details>
+
+<details>
+<summary>Q. pinning이 뭔가요? 왜 생기고 어떻게 피하나요?</summary>
+
+**답변(30초)** pinning은 가상 스레드가 블로킹되는데도 캐리어에서 내려오지 못하고 같이 묶이는 상태예요. JDK 21에서는 synchronized 안에 있을 때와 네이티브 메서드를 실행할 때 생겨요. synchronized는 JVM이 자물쇠 주인을 캐리어로 기록해서, 내려오면 다른 가상 스레드가 자물쇠를 가진 것처럼 보이기 때문이에요. 결과가 틀리진 않지만 캐리어가 코어 수뿐이라 처리량이 크게 떨어져요. 자주 실행되며 I/O를 감싸는 synchronized를 ReentrantLock으로 바꾸거나 JDK 24 이상으로 올려서 피해요.
+
+**꼬리질문**
+- Q. 어떻게 찾나요? → JFR 이벤트 `jdk.VirtualThreadPinned`를 봐요. JDK 21에선 `-Djdk.tracePinnedThreads`도 쓸 수 있지만 JDK 24에서 제거됐어요.
+- Q. 파일 I/O로 캐리어를 붙잡는 것과 pinning은 같은가요? → 달라요. 파일 I/O는 JDK가 캐리어를 늘려 보상하지만, pinning은 보상이 없어요.
+</details>
+
+<details>
+<summary>Q. JDK 24에서는 무엇이 바뀌었나요?</summary>
+
+**답변(30초)** JEP 491로 synchronized pinning이 해소됐어요. JVM이 가상 스레드가 캐리어와 상관없이 모니터를 잡고 놓을 수 있게 바꿔서, synchronized 안에서 I/O를 기다려도 unmount돼요. `Object.wait()`도 unmount돼요. 다만 네이티브 코드에서 자바로 돌아온 콜백, 클래스 로딩과 static 초기화 중 블로킹은 여전히 pinning이에요.
+
+**꼬리질문**
+- Q. 그럼 JDK 21 때 ReentrantLock으로 바꾼 코드를 되돌려야 하나요? → 되돌릴 필요는 없어요. 새 코드는 synchronized를 기본으로 쓰고 유연함이 필요할 때 ReentrantLock을 써요. 어느 쪽이든 락을 쥔 채 I/O를 하지 않는 게 기본이에요.
+</details>
+
+<details>
+<summary>Q. 가상 스레드는 왜 풀링하지 말라고 하나요?</summary>
+
+**답변(30초)** 풀은 비싼 스레드를 재사용하려는 장치인데, 가상 스레드는 싸서 재사용할 이유가 없어요. 대부분 쿼리 한 번, HTTP 호출 한 번 하고 끝나는 짧은 스레드라 작업마다 새로 만드는 게 맞아요. 풀 크기로 동시 접근 수를 제한하던 목적이라면 Semaphore를 써요. 풀 큐에서 기다리는 작업과 세마포어 앞에서 기다리는 가상 스레드는 사실상 같은 모습이에요.
+
+**꼬리질문**
+- Q. DB 호출에도 세마포어를 둬야 하나요? → 아니요. 커넥션 풀이 이미 세마포어 역할을 해요. 커넥션이 다 쓰이면 다음 스레드는 커넥션을 얻을 때 기다려요.
+- Q. `newVirtualThreadPerTaskExecutor()`는 풀 아닌가요? → 이름은 Executor지만 작업마다 새 가상 스레드를 만들고 개수 제한도 없어요. 재사용하지 않아요.
+</details>
+
+<details>
+<summary>Q. 가상 스레드에서 ThreadLocal을 쓸 때 주의할 점은?</summary>
+
+**답변(30초)** ThreadLocal은 지원되고 요청 문맥을 담는 용도는 괜찮아요. 문제는 비싼 객체를 스레드마다 캐시해서 재사용하던 패턴이에요. 가상 스레드는 작업마다 새로 생기니 캐시가 재사용되지 않고, 스레드 수가 많아 메모리만 크게 먹어요. 그래서 `SimpleDateFormat` 같은 건 불변인 `DateTimeFormatter`를 공유하고, 값 전달에는 JDK 25에서 정식이 된 Scoped Values를 검토해요.
+
+**꼬리질문**
+- Q. 이런 코드를 어떻게 찾나요? → `-Djdk.traceVirtualThreadLocals=true`로 가상 스레드가 ThreadLocal에 값을 넣을 때 스택 트레이스를 찍어요.
+</details>
+
+<details>
+<summary>Q. Spring Boot에서는 어떻게 켜고, 켜면 무엇이 바뀌나요?</summary>
+
+**답변(30초)** Spring Boot 3.2 이상, Java 21 이상에서 `spring.threads.virtual.enabled=true`로 켜요. Tomcat이 요청을 가상 스레드로 처리하고, `@Async` 같은 기본 실행기도 가상 스레드를 쓰는 `SimpleAsyncTaskExecutor`로 바뀌어요. 그래서 `server.tomcat.threads.max`나 풀 관련 속성은 효과가 없어져요. 동시 요청 수의 상한이 사라지는 셈이라, 그다음 병목인 DB 커넥션 풀을 꼭 확인해야 해요.
+
+**꼬리질문**
+- Q. `spring.main.keep-alive`는 왜 있나요? → 가상 스레드는 항상 데몬이라, 다른 스레드가 모두 가상이면 JVM이 그냥 꺼질 수 있어서예요.
+</details>
+
+## 서술형 연습
+
+<details>
+<summary>상황: 트래픽이 늘어 Tomcat 스레드 200개가 꽉 차자 spring.threads.virtual.enabled=true로 가상 스레드를 켰습니다. 요청은 더 많이 받아지는데, 오히려 응답 시간이 늘고 DB 커넥션 타임아웃(30초) 에러가 크게 늘었습니다.</summary>
+
+**상황 파악**
+가상 스레드를 켜기 전에는 Tomcat 스레드 200개가 **입구에서** 동시 요청 수를 막아 주고 있었어요. 켜고 나니 `server.tomcat.threads.max`가 효과를 잃어서 수천 개의 요청이 한꺼번에 안으로 들어와요. 그런데 HikariCP 커넥션 풀은 기본 10개 그대로예요. 결국 병목이 "스레드 수"에서 "커넥션 수"로 옮겨 갔을 뿐이에요.
+
+**원인 후보**
+1. **커넥션 풀 고갈**: 커넥션이 10개면 11번째부터는 `getConnection()`에서 기다려요. `connectionTimeout`(기본 30초)을 넘기면 예외가 나요. 이게 에러의 직접 원인이에요.
+2. **느린 쿼리**: 커넥션 하나를 오래 쥐고 있을수록 줄이 길어져요. 리틀의 법칙상 커넥션 10개로 낼 수 있는 처리량은 쿼리 시간에 반비례해요.
+3. (JDK 21이라면) 커넥션 풀이나 드라이버 안의 synchronized에서 pinning이 일어나 캐리어가 묶였을 수도 있어요. JFR `jdk.VirtualThreadPinned`로 확인해요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. 커넥션 풀 크기 늘리기 | 설정만 바꾸면 돼서 빠름 | DB의 최대 커넥션 수 한도가 있고, 커넥션마다 DB 메모리·부하가 늘어요. 서버 여러 대면 곱절로 늘어요 |
+| B. 쿼리 시간 줄이기(인덱스, 쿼리 개선) | 커넥션을 빨리 돌려줘서 같은 풀로 처리량이 늘어요 | 분석과 수정에 시간이 걸려요 |
+| C. 캐시로 DB 호출 자체를 줄이기 | DB 부하가 근본적으로 줄어요 | 데이터 정합성(오래된 값) 관리가 필요해요 |
+| D. 빨리 실패 + 입구 상한(HikariCP `connectionTimeout`을 짧게, 필요하면 요청 입구 전체에 `Semaphore.tryAcquire(timeout)`로 동시 요청 상한) | 30초씩 쌓이지 않고 넘치는 요청은 빨리 거절해서 시스템을 지켜요. 입구 상한은 Tomcat 200 스레드가 하던 제한을 되살리는 것이지 커넥션 풀을 한 번 더 감싸는 게 아니에요 | 일부 요청은 실패로 돌려보내야 해요 |
+
+가상 스레드를 다시 끄는 것도 방법이지만, 그건 200개 상한으로 돌아가 원래 문제(스레드 고갈)로 되돌아가는 거예요.
+
+**내가 고를 방법**
+먼저 B와 D를 같이 해요. 느린 쿼리를 찾아 커넥션 점유 시간을 줄이고, HikariCP `connectionTimeout`을 짧게 줄여서 넘치는 요청이 30초씩 쌓이지 않고 빨리 실패하게 해요. 커넥션 풀이 이미 세마포어 역할을 하니까 DB 앞에 세마포어를 또 두지는 않아요. 대신 요청이 너무 몰려 서버 전체가 버거우면 요청 입구에 `Semaphore`로 동시 요청 상한을 두고, `tryAcquire(timeout)`에 실패한 요청은 바로 거절해요. Tomcat 200 스레드가 해 주던 제한을 되살리는 셈이에요. 그다음 DB의 최대 커넥션 수와 서버 대수를 계산해서 감당되는 범위 안에서만 A로 풀을 늘려요. 같은 데이터를 반복 조회한다면 C를 더해요. 핵심은 가상 스레드는 "스레드 병목"을 없앨 뿐이고, DB가 동시에 처리할 수 있는 양은 그대로라는 거예요.
+
+**채점 포인트**: Tomcat 200 스레드가 하던 동시성 제한이 사라짐(`server.tomcat.threads.max` 무효), 병목이 커넥션 풀로 이동, HikariCP 기본 10개·`connectionTimeout` 30초, 커넥션 풀 = 세마포어(DB 앞에 세마포어 중복 금지), `connectionTimeout` 단축으로 빠른 실패, 입구 동시 요청 상한(`tryAcquire(timeout)`)으로 Tomcat 200 제한 복원, 풀 크기 증가의 트레이드오프(DB 커넥션 한도·부하), 쿼리 시간 단축/캐시, 빠른 실패·백프레셔, pinning 가능성 확인, 해결책 2개 이상 비교.
+</details>
+
+## 필기 포인트
+
+- 가상 스레드 정식: JDK 21(JEP 444). synchronized pinning 해소: JDK 24(JEP 491).
+- 스케줄러: FIFO 모드 ForkJoinPool, 병렬 스트림 공용 풀과 별개. 캐리어 기본 수 = 코어 수, maxPoolSize 기본 256.
+- 가상 스레드는 항상 데몬, 우선순위 `NORM_PRIORITY` 고정.
+- JDK 21 pinning 두 경우: synchronized 안, 네이티브/FFM 실행 중.
+- `-Djdk.tracePinnedThreads`는 JDK 24에서 제거, JFR `jdk.VirtualThreadPinned`는 유지.
+- Scoped Values: JDK 25 정식. 구조적 동시성: 아직 프리뷰.
+- Spring Boot 3.2+: `spring.threads.virtual.enabled=true`.
+
+## 함께 보기
+
+- [스레드 기초](../thread-basics/)
+- [스레드 풀과 비동기](../thread-pool/)
+- [동기화와 자바 메모리 모델](../synchronization/)
+
+## 출처
+
+- [JEP 444: Virtual Threads](https://openjdk.org/jeps/444)
+- [JEP 491: Synchronize Virtual Threads without Pinning](https://openjdk.org/jeps/491)
+- [Oracle Java SE 21 Core Libraries, Virtual Threads](https://docs.oracle.com/en/java/javase/21/core/virtual-threads.html)
+- [Java SE 21 API, java.lang.Thread](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/lang/Thread.html)
+- [Java SE 21 API, java.util.concurrent.Executors](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/Executors.html)
+- [Spring Boot 3.2 Release Notes](https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-3.2-Release-Notes)
+- [Spring Boot Reference, Task Execution and Scheduling](https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html)
+- [Spring Boot Reference, Common Application Properties](https://docs.spring.io/spring-boot/appendix/application-properties/index.html)
+- [HikariCP README](https://github.com/brettwooldridge/HikariCP)
+- [JEP 505: Structured Concurrency (Fifth Preview)](https://openjdk.org/jeps/505)
+- [JEP 525: Structured Concurrency (Sixth Preview)](https://openjdk.org/jeps/525)
+- [JEP 533: Structured Concurrency (Seventh Preview)](https://openjdk.org/jeps/533)
+- [JEP 506: Scoped Values](https://openjdk.org/jeps/506)

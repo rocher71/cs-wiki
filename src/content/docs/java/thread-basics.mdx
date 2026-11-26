@@ -1,0 +1,355 @@
+---
+title: 스레드 기초
+description: 프로세스는 메모리를 따로 쓰는 실행 단위이고, 스레드는 한 프로세스 안에서 코드·힙을 공유하며 스택·PC만 따로 갖는 실행 흐름이에요. 자바 스레드는 start()로 시작하고 6가지 상태를 오가요.
+sidebar: { order: 10 }
+tags: [면접빈출, 서술형, 필기]
+---
+import { Aside } from '@astrojs/starlight/components';
+import ThreadStateFlow from '~/components/viz/ThreadStateFlow.astro';
+import ContextSwitchSteps from '~/components/viz/ContextSwitchSteps.astro';
+
+:::tip[한 줄 요약]
+프로세스는 자기만의 메모리 공간을 가진 실행 중인 프로그램이고, 스레드는 그 안에서 코드·데이터·힙을 공유하면서 스택과 레지스터만 따로 갖는 실행 흐름이에요. 공유가 많아서 스레드는 만들기도, 전환하기도 프로세스보다 싸지만 서로의 데이터를 망가뜨릴 수 있어요.
+:::
+
+## 쉽게 이해하기
+
+프로세스는 **식당 하나**, 스레드는 그 식당의 **요리사**라고 생각해 보세요. 식당마다 주방, 냉장고, 재료가 따로 있어서 옆 식당 재료를 마음대로 꺼내 쓸 수 없어요. 반면 한 식당 안의 요리사들은 주방과 냉장고(코드, 힙)를 같이 써요. 대신 각자 손에 든 레시피 메모와 "지금 몇 번째 단계"(스택, PC)는 따로 가져요.
+
+요리사를 한 명 더 뽑는 건 식당을 새로 여는 것보다 훨씬 싸요. 주방이 이미 있으니까요. 하지만 같은 냉장고를 쓰다 보니 한 요리사가 다른 요리사의 재료를 엉망으로 만들 수도 있어요.
+
+단, 실제로는 CPU 코어 수보다 스레드가 많으면 요리사들이 화구 하나를 번갈아 써요. 번갈아 쓸 때마다 "어디까지 했더라"를 적어 두고 다시 읽는 시간이 드는데, 이게 **컨텍스트 스위칭** 비용이에요.
+
+## 그림으로 보기
+
+<ThreadStateFlow />
+
+<ContextSwitchSteps />
+
+## 제대로 알기
+
+### 1. 프로세스와 스레드
+
+**프로세스**(process, 실행 중인 프로그램)는 디스크에 있던 프로그램이 메모리에 올라와 실행되는 상태예요. 프로세스의 메모리는 네 칸으로 나뉘어요.
+
+| 영역 | 들어가는 것 |
+|---|---|
+| 코드(텍스트) | 실행할 명령어 |
+| 데이터 | 전역 변수, 정적 변수 |
+| 힙 | 실행 중에 동적으로 만든 것 (자바의 `new`) |
+| 스택 | 지역 변수, 매개변수, 리턴값. 함수를 부를 때 생기고 끝나면 사라짐 |
+
+OS는 프로세스마다 **PCB**(Process Control Block, 프로세스의 신상 카드)를 만들어요. 여기에 프로세스 ID, 상태, 프로그램 카운터, 레지스터 값, 우선순위, 메모리 정보(페이지 테이블 등), 열린 파일 목록이 들어가요.
+
+**스레드**(thread, 프로세스 안의 실행 흐름)는 프로세스가 가진 "자원"과 "실행" 중 실행만 떼어 낸 단위예요. 모든 프로세스는 스레드를 1개 이상 가져요. 그래서 스레드를 **경량 프로세스**(LWP)라고도 불러요. 스레드도 **TCB**(Thread Control Block)를 가지는데, 레지스터·PC·스택 포인터·상태·우선순위와 소속 PCB를 가리키는 포인터가 들어 있어요.
+
+### 2. 스레드끼리 공유하는 것, 따로 갖는 것
+
+면접에서 가장 많이 나오는 표예요.
+
+| | 공유 (프로세스 단위) | 스레드마다 따로 |
+|---|---|---|
+| OS 관점 | 코드, 데이터(전역·정적), 힙, 열린 파일 | 스택, PC, 레지스터(SP 등) |
+| JVM 관점 | 힙, 메서드 영역 | JVM 스택, PC 레지스터, 네이티브 메서드 스택 |
+
+"스레드는 스택만 따로"라고 외우면 반쪽짜리예요. 다음에 실행할 위치(PC)와 레지스터도 스레드마다 있어야 각자 다른 코드를 실행할 수 있어요. JVM 메모리 구조는 [JVM 구조와 GC](../jvm-gc/)에서 더 자세히 봐요.
+
+| 비교 | 멀티프로세스 | 멀티스레드 |
+|---|---|---|
+| 메모리 | 서로 독립. 데이터를 주고받으려면 IPC 필요 | 같은 주소 공간 공유. 변수로 바로 주고받음 |
+| 생성·종료 비용 | 큼 (자원을 새로 초기화) | 작음 (이미 있는 자원 재사용) |
+| 전환 비용 | 큼 | 작음 |
+| 안정성 | 한 프로세스가 죽어도 다른 프로세스는 무사 | 서로 보호가 없어서 한 스레드가 다른 스레드 데이터를 망가뜨릴 수 있음 |
+
+멀티스레드의 장점은 응답성(한 스레드가 기다려도 다른 스레드가 일함), 자원 공유, 경제성, 멀티코어 활용이에요. 단점은 공유 데이터를 동시에 건드리는 문제인데, 이건 [동기화와 자바 메모리 모델](../synchronization/)에서 다뤄요.
+
+### 3. 컨텍스트 스위칭
+
+**컨텍스트 스위칭**(context switching, 문맥 교환)은 CPU가 실행하던 작업을 바꾸는 과정이에요. 지금 작업의 레지스터 같은 상태를 PCB(스레드면 TCB)에 저장하고, 다음 작업의 PCB에서 상태를 꺼내 CPU에 올려요.
+
+1. 실행 중에 타이머 인터럽트나 시스템 호출이 생겨 커널 모드로 들어가요.
+2. 현재 작업 상태를 PCB에 저장해요.
+3. 스케줄러가 다음 작업을 골라요.
+4. 그 작업의 PCB에서 상태를 복원하고 사용자 모드로 돌아가 실행해요.
+
+**왜 비쌀까요?** 저장하고 복원하는 동안 CPU는 사용자 일을 하나도 못 해요. 순수한 오버헤드예요. 그 크기는 메모리 속도, 레지스터 수, 특수 명령어 유무에 따라 달라요. 그래서 불필요한 문맥 교환을 줄이는 게 OS 설계 목표 중 하나예요.
+
+**스레드 전환이 더 싼 이유**는 같은 프로세스 스레드끼리는 공유하는 게 많아서예요. 주소 공간이 그대로라 페이지 테이블을 바꿀 필요가 없고, 그에 따른 TLB(주소 변환 캐시)·캐시 무효화도 피할 수 있다고 흔히 설명해요.
+
+<Aside type="caution" title="인터럽트 = 문맥 교환이 아니에요">
+인터럽트가 와도 처리 루틴을 실행한 뒤 원래 작업으로 그대로 돌아갈 수 있어요. 문맥 교환은 인터럽트 이후 "다른 작업을 실행하기로" 했을 때만 일어나요.
+</Aside>
+
+### 4. 자바에서 스레드 만들기
+
+자바에서 스레드는 `Thread` 클래스 객체로 표현되고, `start()`를 불러야 시작해요. 할 일을 정의하는 방법은 두 가지예요.
+
+```java
+// ① Runnable 구현 (권장)
+Runnable task = () -> System.out.println(Thread.currentThread().getName());
+Thread t1 = new Thread(task);
+t1.start();
+
+// ② Thread 상속 후 run() 오버라이드
+class MyThread extends Thread {
+    @Override public void run() { System.out.println("상속 방식"); }
+}
+new MyThread().start();
+
+// Java 21 빌더
+Thread t2 = Thread.ofPlatform().name("worker").start(task);
+```
+
+**Runnable 방식을 권장**하는 이유는 세 가지예요. 자바는 클래스를 하나만 상속할 수 있어서, Thread를 상속하면 다른 클래스를 못 물려받아요. 또 "할 일"(Runnable)과 "일하는 스레드"(Thread)가 분리돼요. 그리고 같은 Runnable을 나중에 스레드 풀(Executor)에 그대로 넘길 수 있어요. Java 21 javadoc도 "대부분의 애플리케이션은 Thread를 상속할 필요가 거의 없다"고 해요.
+
+| | `Runnable` | `Callable<V>` |
+|---|---|---|
+| 메서드 | `void run()` | `V call() throws Exception` |
+| 결과 반환 | 없음 | 있음 |
+| checked 예외 | 던질 수 없음 | 던질 수 있음 |
+| 실행 방법 | `new Thread(r)`, Executor | `ExecutorService.submit()`, `FutureTask`. 결과는 `Future.get()` |
+
+`Thread` 생성자는 `Runnable`만 받아요. `Callable`은 스레드 풀과 함께 쓰는데, 이건 [스레드 풀과 비동기](../thread-pool/)에서 다뤄요.
+
+<Aside type="note" title="플랫폼 스레드와 가상 스레드">
+`new Thread()`로 만드는 **플랫폼 스레드**는 보통 OS 스레드와 1:1로 연결돼 OS가 스케줄링해요. Java 21의 **가상 스레드**는 OS가 아니라 자바 런타임이 스케줄링하는 가벼운 스레드예요. 자세한 건 [가상 스레드](../virtual-threads/)에서 봐요.
+</Aside>
+
+### 5. start()와 run()의 차이
+
+| | `t.start()` | `t.run()` |
+|---|---|---|
+| 새 스레드 | 생김. 새 스택에서 run()이 실행됨 | 안 생김. 호출한 스레드에서 일반 메서드처럼 실행 |
+| 실행 확인 | `Thread-0`에서 실행 | `main`에서 실행 |
+| 여러 번 호출 | 두 번째부터 `IllegalThreadStateException` | 그냥 여러 번 실행됨 |
+
+`run()`은 스레드가 시작되면 그 스레드가 알아서 부르는 메서드예요. 우리가 직접 부르라고 만든 게 아니에요. 스레드는 **딱 한 번만** 시작할 수 있고, 끝난 스레드를 다시 시작할 수도 없어요. 다시 일을 시키려면 새 Thread를 만들거나 스레드 풀을 써요.
+
+### 6. 스레드 상태 6가지
+
+`Thread.State`에는 상태가 6개 있고, 스레드는 한 시점에 하나의 상태만 가져요. `t.getState()`로 확인할 수 있어요.
+
+| 상태 | 뜻 | 들어가는 경우 |
+|---|---|---|
+| `NEW` | 아직 시작 안 함 | `new Thread(...)` 직후, `start()` 전 |
+| `RUNNABLE` | JVM에서 실행 중 (CPU를 기다리는 중일 수도 있음) | `start()` 후 |
+| `BLOCKED` | **모니터 락**(synchronized가 쓰는 잠금)을 기다림 | 남이 쥔 `synchronized`에 들어가려 할 때, `wait()`에서 깨어나 다시 들어갈 때 |
+| `WAITING` | 다른 스레드의 행동을 기한 없이 기다림 | `wait()`, `join()`, `LockSupport.park()` |
+| `TIMED_WAITING` | 정해진 시간만큼 기다림 | `sleep(ms)`, `wait(ms)`, `join(ms)`, `parkNanos`, `parkUntil` |
+| `TERMINATED` | 실행을 마침 | `run()`이 정상 종료되거나 예외로 빠져나옴 |
+
+헷갈리기 쉬운 점이 세 가지 있어요.
+
+- **RUNNABLE은 "지금 CPU에서 돌고 있음"이 아니에요.** 이 상태들은 JVM 상태이고 OS 상태를 반영하지 않아요. OS의 준비(ready)와 실행(running)이 자바에서는 둘 다 RUNNABLE이에요. 그래서 소켓 read처럼 I/O를 기다리는 스레드도 스레드 덤프에서 RUNNABLE로 보이는 경우가 많아요.
+- **BLOCKED는 synchronized 전용이에요.** `ReentrantLock.lock()`처럼 java.util.concurrent 락을 기다리는 스레드는 내부적으로 `park`를 쓰기 때문에 WAITING이나 TIMED_WAITING으로 보여요.
+- **BLOCKED와 WAITING의 차이**는 무엇을 기다리느냐예요. BLOCKED는 락이 풀리길, WAITING은 다른 스레드가 notify하거나 끝나길 기다려요.
+
+### 7. sleep, wait, join
+
+| | `Thread.sleep(ms)` | `obj.wait()` |
+|---|---|---|
+| 소속 | `Thread`의 static 메서드 | `Object`의 메서드 |
+| 락 | **쥔 채로** 잠듦 | **놓고** 기다림 |
+| 깨어나는 조건 | 시간 만료, interrupt | `notify()`/`notifyAll()`, 시간 만료(`wait(ms)`), interrupt |
+| 상태 | TIMED_WAITING | WAITING (시간 지정 시 TIMED_WAITING) |
+| 호출 위치 | 어디서나 | 그 객체의 synchronized 안 |
+
+`sleep`이 락을 놓지 않는다는 점이 핵심이에요. synchronized 안에서 sleep하면 그동안 같은 락을 원하는 스레드는 전부 BLOCKED예요. 또 sleep 시간은 OS 타이머 정밀도에 따라 달라서 "정확히 그만큼"이라고 가정하면 안 돼요.
+
+<Aside type="caution" title="sleep 루프와 종료 플래그">
+`sleep`에는 동기화 효과가 없어요. 그래서 일반 `boolean done` 필드로 `while (!done) Thread.sleep(1000);`을 돌리면, 다른 스레드가 `done = true`로 바꿔도 루프가 영원히 안 끝날 수 있어요. `volatile`을 붙이거나 interrupt를 써요.
+</Aside>
+
+`t.join()`은 현재 스레드가 t가 끝날 때까지 기다리는 거예요. `join(ms)`는 최대 그 시간만 기다리고, `join(0)`은 무한 대기예요.
+
+### 8. interrupt: 협조적 취소
+
+실행 중인 스레드를 밖에서 강제로 멈추는 안전한 방법은 없어요. 예전의 `Thread.stop()`은 본질적으로 위험해서, Java 21에서는 호출하면 항상 `UnsupportedOperationException`이 나요(`suspend`, `resume`도 같음).
+
+대신 **interrupt**를 써요. 인터럽트는 "하던 일 멈춰 줄래?"라는 **요청**일 뿐이고, 어떻게 반응할지는 대상 스레드 코드가 정해요. 내부적으로는 **interrupt status**라는 플래그 하나예요.
+
+| 대상 스레드가 하던 일 | `t.interrupt()`의 효과 |
+|---|---|
+| `sleep`, `wait`, `join`으로 대기 중 | 플래그가 **지워지고** `InterruptedException` 발생 |
+| `InterruptibleChannel` I/O 중 | 채널이 닫히고 `ClosedByInterruptException` |
+| 그 외 (계산 루프 등) | 플래그만 true가 됨. 코드가 확인하지 않으면 아무 일도 없음 |
+
+```java
+public void run() {
+    while (!Thread.currentThread().isInterrupted()) {   // 계산 루프는 직접 확인
+        try {
+            doWork();
+            Thread.sleep(100);
+        } catch (InterruptedException e) {
+            // 이 시점에 플래그는 이미 false로 지워져 있음
+            Thread.currentThread().interrupt();   // 플래그 복구 → 루프 조건에서 종료
+        }
+    }
+    cleanup();
+}
+```
+
+`catch (InterruptedException e) {}`처럼 비워 두면 취소 요청이 사라져요. 정리하고 return하거나, 직접 처리할 게 없으면 `Thread.currentThread().interrupt()`로 플래그를 되살려 위 코드가 알 수 있게 해요.
+
+| 메서드 | 종류 | 플래그 |
+|---|---|---|
+| `Thread.interrupted()` | static, 현재 스레드 | 확인하고 **지움** (두 번 연속 부르면 두 번째는 false) |
+| `t.isInterrupted()` | 인스턴스 | 확인만 함 |
+
+### 9. 데몬 스레드와 우선순위
+
+**데몬 스레드**(daemon thread, 보조 스레드)는 JVM 종료를 막지 않는 스레드예요. JVM은 비데몬 스레드가 모두 끝나면 종료를 시작해요. 이때 데몬 스레드는 일하던 중이어도 함께 끝나요. main 스레드는 비데몬이에요.
+
+- `setDaemon(true)`는 `start()` 전에만 부를 수 있어요. 이미 시작한 스레드에 부르면 `IllegalThreadStateException`이에요.
+- 새 스레드는 만든 스레드의 데몬 여부와 우선순위를 물려받아요.
+- 가상 스레드는 항상 데몬이에요.
+
+우선순위는 1(`MIN_PRIORITY`)부터 10(`MAX_PRIORITY`)까지고 기본은 5(`NORM_PRIORITY`)예요. 실제 효과는 OS에 따라 달라서, 높인다고 먼저 실행된다는 보장은 없어요.
+
+## 면접 질문
+
+<details>
+<summary>Q. 프로세스와 스레드의 차이는 무엇인가요?</summary>
+
+**답변(30초)** 프로세스는 실행 중인 프로그램으로, 코드·데이터·힙·스택을 갖춘 독립된 메모리 공간을 가져요. 스레드는 프로세스 안의 실행 흐름이고, 같은 프로세스의 스레드끼리 코드·데이터·힙을 공유하면서 스택과 PC·레지스터만 따로 가져요. 그래서 스레드는 생성과 전환 비용이 작고 데이터를 바로 주고받을 수 있지만, 서로 보호가 없어 동기화가 필요해요.
+
+**꼬리질문**
+- Q. JVM 기준으로 스레드가 공유하는 영역과 따로 갖는 영역은? → 힙과 메서드 영역은 공유하고, JVM 스택·PC 레지스터·네이티브 메서드 스택은 스레드마다 있어요.
+- Q. 멀티스레드 대신 멀티프로세스를 쓰는 경우는? → 한 작업이 죽어도 다른 작업에 영향이 없어야 할 때요. 프로세스는 메모리가 분리돼 있어서 서로를 망가뜨리지 않아요. 대신 통신에 IPC가 필요하고 비용이 커요.
+</details>
+
+<details>
+<summary>Q. 컨텍스트 스위칭이란 무엇이고, 왜 비용이 드나요?</summary>
+
+**답변(30초)** CPU가 실행하던 작업의 레지스터 같은 상태를 PCB나 TCB에 저장하고, 다음 작업의 상태를 복원해 실행을 넘기는 과정이에요. 저장·복원하는 동안 CPU는 사용자 일을 못 하니 순수한 오버헤드예요. 같은 프로세스 스레드끼리는 주소 공간이 그대로라 페이지 테이블 교체가 없어서 프로세스 전환보다 싸요.
+
+**꼬리질문**
+- Q. 언제 문맥 교환이 일어나나요? → 할당 시간이 끝나 준비 상태로 갈 때(타임아웃), I/O 등으로 대기 상태로 갈 때, 준비에서 실행으로 갈 때요.
+- Q. 스레드를 많이 만들수록 빨라지나요? → 아니요. 코어 수보다 훨씬 많으면 전환 비용과 스레드당 스택 메모리가 늘어서 오히려 느려질 수 있어요. 그래서 스레드 풀을 써요.
+</details>
+
+<details>
+<summary>Q. start()와 run()의 차이는 무엇인가요?</summary>
+
+**답변(30초)** `start()`는 새 스레드를 만들어 그 스레드의 새 스택에서 `run()`을 실행하게 해요. `run()`을 직접 부르면 새 스레드 없이 호출한 스레드에서 일반 메서드처럼 실행돼요. 실제로 `run()`을 직접 부르면 스레드 이름이 main으로 찍혀요.
+
+**꼬리질문**
+- Q. start()를 두 번 부르면? → `IllegalThreadStateException`이 나요. 스레드는 한 번만 시작할 수 있고, 끝난 스레드도 다시 시작할 수 없어요.
+- Q. Runnable과 Callable의 차이는? → Runnable은 결과가 없고 checked 예외를 못 던져요. Callable은 `call()`로 결과를 반환하고 예외를 던질 수 있으며, ExecutorService에 제출해 Future로 결과를 받아요.
+</details>
+
+<details>
+<summary>Q. 자바 스레드의 상태와 전이를 설명해 주세요.</summary>
+
+**답변(30초)** 6가지예요. 만들기만 한 NEW, `start()` 후 실행 중이거나 CPU를 기다리는 RUNNABLE, synchronized 락을 기다리는 BLOCKED, `wait()`나 `join()`으로 기한 없이 기다리는 WAITING, `sleep(ms)`처럼 시간을 정해 기다리는 TIMED_WAITING, 끝난 TERMINATED예요. 대기 상태에서 깨어나면 RUNNABLE로 돌아가고, `wait()`에서 깨어난 스레드는 락을 다시 잡아야 해서 BLOCKED를 거칠 수 있어요.
+
+**꼬리질문**
+- Q. BLOCKED와 WAITING의 차이는? → BLOCKED는 synchronized 모니터 락이 풀리길 기다리는 것이고, WAITING은 notify나 다른 스레드 종료 같은 행동을 기다리는 거예요. ReentrantLock 대기는 BLOCKED가 아니라 WAITING이에요.
+- Q. RUNNABLE이면 지금 CPU에서 돌고 있나요? → 아니요. 자바 상태는 OS 상태를 반영하지 않아서, CPU를 기다리는 준비 상태도 RUNNABLE이에요.
+</details>
+
+<details>
+<summary>Q. sleep()과 wait()의 차이는 무엇인가요?</summary>
+
+**답변(30초)** 가장 큰 차이는 락이에요. `sleep()`은 쥐고 있는 락을 놓지 않고 정해진 시간 동안 잠들고, `wait()`는 락을 놓고 다른 스레드가 `notify()`할 때까지 기다려요. 그래서 `wait()`는 그 객체의 synchronized 안에서만 부를 수 있어요. `sleep()`은 Thread의 static 메서드, `wait()`는 Object의 메서드예요.
+
+**꼬리질문**
+- Q. synchronized 안에서 sleep하면 어떻게 되나요? → 락을 쥔 채 잠들어서, 같은 락을 원하는 다른 스레드가 모두 BLOCKED로 멈춰요.
+- Q. sleep(1000)은 정확히 1초 뒤에 깨어나나요? → 보장되지 않아요. OS 타이머와 스케줄러 정밀도에 달려 있어요.
+</details>
+
+<details>
+<summary>Q. 실행 중인 스레드를 안전하게 멈추려면 어떻게 하나요?</summary>
+
+**답변(30초)** `interrupt()`로 취소를 요청하고, 대상 스레드가 그 신호를 확인해 스스로 정리하고 끝나게 해요. 대기 중인 스레드는 `InterruptedException`으로 깨어나고, 계산 루프는 `isInterrupted()`나 `Thread.interrupted()`로 플래그를 주기적으로 확인해야 해요. `stop()`은 작업 중간에 강제로 끊어 위험해서 Java 21에서는 호출하면 항상 예외가 나요.
+
+**꼬리질문**
+- Q. InterruptedException을 잡으면 어떻게 처리하나요? → 예외가 던져질 때 플래그는 이미 지워져 있어요. 비워 두면 취소 신호가 사라지니, 정리 후 종료하거나 `Thread.currentThread().interrupt()`로 플래그를 복구해요.
+- Q. interrupted()와 isInterrupted()의 차이는? → `interrupted()`는 static이고 현재 스레드 플래그를 확인한 뒤 지워요. `isInterrupted()`는 확인만 해요.
+</details>
+
+<details>
+<summary>Q. 데몬 스레드란 무엇인가요?</summary>
+
+**답변(30초)** JVM 종료를 막지 않는 보조 스레드예요. JVM은 비데몬 스레드가 모두 끝나면 종료하고, 데몬 스레드는 일하던 중이어도 함께 끝나요. 그래서 중간에 끊겨도 괜찮은 작업에만 써요. `setDaemon(true)`는 `start()` 전에 불러야 해요.
+
+**꼬리질문**
+- Q. main 스레드는 데몬인가요? → 아니요, 비데몬이에요. 새 스레드는 만든 스레드의 데몬 여부를 물려받아요.
+</details>
+
+## 서술형 연습
+
+<details>
+<summary>상황: 운영 중인 API 서버가 갑자기 응답을 멈췄습니다. CPU 사용률은 낮고 프로세스는 살아 있습니다. 재시작 전에 원인을 찾으려면 어떻게 하시겠어요?</summary>
+
+**상황 파악**
+CPU가 낮은데 응답이 없다는 건 스레드들이 일하는 게 아니라 **무언가를 기다리고 있다**는 뜻이에요. 재시작하면 증거가 사라지니, 먼저 `jstack <pid>`나 `jcmd <pid> Thread.print`로 **스레드 덤프**(모든 스레드의 상태와 스택을 찍은 스냅샷)를 몇 초 간격으로 2~3번 떠요. 여러 번 떠야 "잠깐 기다린 것"과 "계속 멈춘 것"을 구분할 수 있어요.
+
+**원인 후보 (덤프의 스레드 상태로 좁히기)**
+
+| 덤프에서 보이는 것 | 의심할 원인 |
+|---|---|
+| 요청 스레드 다수가 `BLOCKED`, 같은 모니터를 기다림 | 락을 쥔 스레드가 오래 걸림(예: synchronized 안에서 sleep이나 외부 호출). 두 스레드가 서로의 락을 기다리면 데드락 |
+| 다수가 `WAITING (parking)` | 커넥션 풀·스레드 풀·큐가 바닥나서 자원을 기다림, 또는 ReentrantLock 경합 |
+| `RUNNABLE`인데 덤프마다 같은 소켓 read 위치 | 외부 API·DB 응답 대기. 타임아웃 미설정으로 블로킹 I/O에서 묶임 (자바 상태는 OS 상태를 반영하지 않아 RUNNABLE로 보임) |
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. 락 범위 줄이기: synchronized 안의 sleep·외부 호출을 락 밖으로 빼고, 대기가 필요하면 wait/Condition 사용 | 경합 자체가 사라져 처리량 회복 | 코드 구조를 바꿔야 하고 동시성 버그가 생기지 않게 검증 필요 |
+| B. 외부 호출·커넥션 획득에 타임아웃 설정, 풀 크기 점검 | 한 의존성이 느려도 스레드가 무한정 묶이지 않음 | 타임아웃이 너무 짧으면 정상 요청도 실패. 값 튜닝 필요 |
+| C. 우선 재시작으로 복구 | 가장 빠른 복구 | 원인이 그대로라 다시 재발. 덤프를 먼저 남기지 않으면 증거도 사라짐 |
+
+**내가 고를 방법**
+먼저 덤프를 여러 번 떠서 증거를 남기고, 급하면 C로 서비스를 살려요. 그다음 덤프 상태별로 원인을 정해요. BLOCKED가 몰려 있으면 락을 쥔 스레드의 스택을 찾아 A로 고치고, RUNNABLE인 채 I/O에 묶여 있거나 WAITING이 몰려 있으면 B로 타임아웃과 풀 크기를 손봐요. 재발 방지로는 둘 다 필요한 경우가 많아요. 외부 의존성은 언젠가 느려지니 B는 기본으로 깔고, A는 덤프로 확인된 락에 적용해요.
+
+**채점 포인트**: 재시작 전 스레드 덤프(jstack/jcmd) 여러 번, CPU 낮음 = 대기 상태라는 추론, BLOCKED = synchronized 경합·데드락, WAITING(parking) = 풀/락/큐 대기, RUNNABLE이어도 I/O 대기일 수 있음, synchronized 안 sleep은 락을 놓지 않음, 타임아웃 설정, 해결책 2개 이상의 트레이드오프.
+</details>
+
+## 필기 포인트
+
+운영체제 과목과 겹치는 부분이에요. 객관식에서 자주 나오는 함정 위주로 정리했어요.
+
+- **스레드가 공유하는 것**: 코드, 데이터, 힙, 열린 파일. **따로 갖는 것**: 스택, PC, 레지스터. "스레드끼리 스택을 공유한다"는 틀린 보기예요.
+- 스레드는 **경량 프로세스**(LWP)라고도 해요. 한 프로세스는 스레드를 1개 이상 가져요.
+- 스레드끼리는 **보호가 없어요**. 한 스레드가 다른 스레드의 데이터를 망가뜨릴 수 있어요.
+- 한 스레드가 대기 상태가 돼도 **프로세스 전체가 대기하지는 않아요**. 다른 스레드가 실행될 수 있어요.
+- PCB에 들어가는 것: 프로세스 ID, 상태, PC, 레지스터, 스케줄링 정보(우선순위), 메모리 관리 정보, 입출력 상태. 프로세스 생성 시 만들어지고 종료 시 삭제돼요.
+- OS 프로세스 상태 전이 용어
+
+| 전이 | 이름 |
+|---|---|
+| 준비 → 실행 | dispatch |
+| 실행 → 준비 | timeout (할당 시간 만료) |
+| 실행 → 대기 | block (I/O 등) |
+| 대기 → 준비 | wakeup |
+
+- 대기 → 실행으로 **바로 가는 전이는 없어요**. 깨어나면 준비 상태로 가요.
+- 문맥 교환 오버헤드는 메모리 속도, 레지스터 수, 특수 명령어 유무에 따라 달라요.
+- 인터럽트가 항상 문맥 교환으로 이어지지는 않아요.
+- 자바 `Thread.State`는 6개(NEW, RUNNABLE, BLOCKED, WAITING, TIMED_WAITING, TERMINATED)이고, OS의 준비·실행 구분이 없어요.
+
+## 함께 보기
+
+- [JVM 구조와 GC](../jvm-gc/)
+- [동기화와 자바 메모리 모델](../synchronization/)
+- [스레드 풀과 비동기](../thread-pool/)
+- [가상 스레드 (Java 21)](../virtual-threads/)
+
+## 출처
+
+- [Java SE 21 API, java.lang.Thread](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/lang/Thread.html)
+- [Java SE 21 API, java.lang.Thread.State](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/lang/Thread.State.html)
+- [Java SE 21 API, java.lang.Object#wait](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/lang/Object.html#wait(long,int))
+- [Java SE 21 API, java.util.concurrent.locks.LockSupport](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/locks/LockSupport.html)
+- [Java SE 21 API, java.util.concurrent.ExecutorService](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/ExecutorService.html)
+- [JDK 21 Tool Specs, jcmd](https://docs.oracle.com/en/java/javase/21/docs/specs/man/jcmd.html)
+- [Java SE 21 API, java.lang.Runnable](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/lang/Runnable.html)
+- [Java SE 21 API, java.util.concurrent.Callable](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/Callable.html)
+- [JLS SE 21, Chapter 17 Threads and Locks](https://docs.oracle.com/javase/specs/jls/se21/html/jls-17.html)
+- [The Java Tutorials, Processes and Threads](https://docs.oracle.com/javase/tutorial/essential/concurrency/procthread.html)
+- [The Java Tutorials, Defining and Starting a Thread](https://docs.oracle.com/javase/tutorial/essential/concurrency/runthread.html)
+- [The Java Tutorials, Interrupts](https://docs.oracle.com/javase/tutorial/essential/concurrency/interrupt.html)
+- [The Java Tutorials, Joins](https://docs.oracle.com/javase/tutorial/essential/concurrency/join.html)
+- 해커스공무원 컴퓨터일반 기본서, 운영체제 2장 "프로세스와 스레드", 3장 "프로세스 관리"

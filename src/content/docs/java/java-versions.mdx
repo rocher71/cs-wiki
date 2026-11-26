@@ -1,0 +1,477 @@
+---
+title: 자바 버전별 핵심 기능
+description: 자바는 8, 11, 17, 21, 25를 LTS로 지원하고, 버전이 올라갈수록 코드를 짧고 안전하게 쓰는 문법(var, record, sealed, switch 패턴)과 가상 스레드 같은 실행 기능이 더해졌어요.
+sidebar: { order: 14 }
+tags: [면접빈출, 서술형]
+---
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+import JavaLtsTimeline from '~/components/viz/JavaLtsTimeline.astro';
+
+:::tip[한 줄 요약]
+자바 LTS는 8, 11, 17, 21, 25이고 다음은 29(2027년 9월)예요. 8은 람다·스트림, 11~17 사이에는 var·switch 식·text block·record·sealed, 21에는 가상 스레드와 switch 패턴 매칭이 들어왔어요.
+:::
+
+## 쉽게 이해하기
+
+자바 버전은 **스마트폰 OS 업데이트**와 비슷해요. 6개월마다 새 버전이 나오지만, 회사는 매번 따라가지 않고 오래 보안 패치를 받을 수 있는 버전에 머물러요. 이렇게 오래 지원받는 버전이 **LTS**(Long-Term Support, 장기 지원 버전)예요.
+
+새 기능은 대개 바로 확정되지 않아요. 먼저 "체험판"으로 나와 몇 버전 동안 의견을 받은 뒤 정식이 돼요. 그래서 "이 기능은 몇 버전 거야?"라는 질문에는 **정식이 된 버전**으로 답해야 정확해요.
+
+단, 실제로는 LTS가 자바 언어 자체의 약속은 아니에요. Oracle, Adoptium 같은 **배포사(벤더)가 정한 지원 정책**이에요.
+
+## 그림으로 보기
+
+<JavaLtsTimeline />
+
+## 제대로 알기
+
+### 1. 릴리스 주기와 LTS
+
+- 새 버전은 **6개월마다**(3월, 9월) 나와요. LTS가 아닌 버전은 다음 버전이 나오면 바로 대체돼요.
+- LTS 간격은 출시일로 보면 8 → 11이 4년 반(2014.3 → 2018.9), 11 → 17이 3년(2018.9 → 2021.9)이었어요. 17 이후로는 **2년**(17 → 21 → 25)이고, Oracle은 앞으로도 2년마다 LTS를 내서 다음은 29(2027년 9월)라고 밝혔어요.
+- 2026년 11월 기준 최신 버전은 **27**(non-LTS), 최신 LTS는 **25**예요.
+
+| LTS | 출시 | Oracle Premier 지원 종료 | 대표 기능 |
+|---|---|---|---|
+| 8 | 2014.3 | 2022.3 | 람다, 스트림, Optional, java.time |
+| 11 | 2018.9 | 2023.9 | HTTP Client, `java Hello.java` 바로 실행 |
+| 17 | 2021.9 | 2026.9 | sealed, (10~16의 var·switch 식·text block·record 포함) |
+| 21 | 2023.9 | 2028.9 | 가상 스레드, switch 패턴, record 패턴, Sequenced Collections |
+| 25 | 2025.9 | 2030.9 | instance main, Scoped Values, 생성자 앞 문장 허용 |
+
+**프리뷰**(preview, 명세와 구현은 끝났지만 아직 확정되지 않은 기능)는 컴파일과 실행 때 `--enable-preview`를 켜야 써져요. 다음 버전에서 바뀌거나 빠질 수 있어서 운영 코드에는 쓰지 않는 게 보통이에요.
+
+### 2. 버전별 기능 한눈에
+
+| 기능 | 정식 버전 | 거쳐 온 프리뷰 |
+|---|---|---|
+| 람다, 스트림, Optional, java.time | 8 | - |
+| `var` | 10 | - |
+| 람다 파라미터에 `var`, HTTP Client | 11 | HTTP Client는 9·10 인큐베이터 |
+| switch 식, Helpful NPE | 14 | switch 식은 12·13 |
+| text block | 15 | 13·14 |
+| record, instanceof 패턴 | 16 | 14·15 |
+| sealed | 17 | 15·16 |
+| switch 패턴, record 패턴, 가상 스레드, Sequenced Collections | 21 | switch 패턴은 17~20 |
+| synchronized pinning 해결 | 24 | - |
+| instance main, Scoped Values, 생성자 앞 문장, module import | 25 | 21~24 등 |
+
+<Aside type="caution" title="자주 틀리는 버전">
+`var`는 11이 아니라 **10**이에요(11은 람다 파라미터에 var). switch 패턴은 17에선 **프리뷰**였고 정식은 **21**이에요. switch 식은 17이 아니라 **14**예요.
+</Aside>
+
+### 3. Java 8: 함수형 스타일
+
+**람다**(lambda, 메서드 하나짜리 인터페이스를 짧게 구현하는 식)와 **스트림**(stream, 컬렉션을 filter·map 같은 연산으로 이어서 처리하는 도구)이 들어왔어요. 인터페이스에 구현을 넣는 **디폴트 메서드**도 이때 생겼어요. 자세한 건 [람다와 스트림](../lambda-stream/)에서 다뤄요.
+
+**Optional**은 "값이 없을 수도 있음"을 담는 상자예요.
+
+<Tabs>
+<TabItem label="전">
+
+```java
+String city = "unknown";
+User u = repo.find(id);
+if (u != null && u.getAddress() != null) {
+  city = u.getAddress().getCity();
+}
+```
+
+</TabItem>
+<TabItem label="후 (8)">
+
+```java
+String city = repo.findById(id)
+  .map(User::getAddress)
+  .map(Address::getCity)
+  .orElse("unknown");
+```
+
+</TabItem>
+</Tabs>
+
+**java.time**은 불변 객체로 된 새 날짜·시간 API예요(`LocalDate` 등).
+
+### 4. Java 9~11: var와 HTTP Client
+
+**var**(지역 변수 타입 추론)는 오른쪽을 보고 컴파일러가 타입을 정해 줘요. 동적 타입이 아니라 **컴파일 때 타입이 고정**돼요.
+
+<Tabs>
+<TabItem label="전">
+
+```java
+Map<String, List<Order>> byUser =
+  new HashMap<String, List<Order>>();
+```
+
+</TabItem>
+<TabItem label="후 (10)">
+
+```java
+var byUser = new HashMap<String, List<Order>>();
+// 필드, 메서드 파라미터, 반환 타입엔 못 씀
+```
+
+</TabItem>
+</Tabs>
+
+초기값이 있는 지역 변수와 for문 변수에만 쓸 수 있어요.
+
+**HTTP Client**(`java.net.http`)가 11에서 표준이 됐어요. 예전 `HttpURLConnection`보다 짧고, `sendAsync`로 비동기 호출도 돼요.
+
+<Tabs>
+<TabItem label="전">
+
+```java
+HttpURLConnection con = (HttpURLConnection)
+  new URL(u).openConnection();
+// InputStream을 직접 열어 읽어야 함
+```
+
+</TabItem>
+<TabItem label="후 (11)">
+
+```java
+var req = HttpRequest.newBuilder(URI.create(u)).build();
+String body = HttpClient.newHttpClient()
+  .send(req, BodyHandlers.ofString()).body();
+```
+
+</TabItem>
+</Tabs>
+
+11에서는 그 밖에 Java EE·CORBA 모듈 제거, `java Hello.java`로 컴파일 없이 단일 파일 실행, TLS 1.3 지원, ZGC(실험적)도 들어왔어요.
+
+### 5. Java 12~17: 문법이 짧아지다
+
+**switch 식**(14)은 switch가 값을 돌려줘요. `case ... ->`는 다음 case로 흘러내리는 **fall through**(break를 빼먹으면 아래 case까지 실행되는 현상)가 없어요. 블록에서 값을 돌려줄 땐 `yield`를 써요.
+
+<Tabs>
+<TabItem label="전">
+
+```java
+int days;
+switch (m) {
+  case FEB: days = 28; break;
+  case APR: case JUN: days = 30; break;
+  default: days = 31;
+}
+```
+
+</TabItem>
+<TabItem label="후 (14)">
+
+```java
+int days = switch (m) {
+  case FEB -> 28;
+  case APR, JUN, SEP, NOV -> 30;
+  default -> 31;
+};
+```
+
+</TabItem>
+</Tabs>
+
+**text block**(15)은 `"""`로 여러 줄 문자열을 그대로 써요. `\n`과 `\"`가 사라져요.
+
+<Tabs>
+<TabItem label="전">
+
+```java
+String json = "{\n  \"name\": \"kim\"\n}";
+```
+
+</TabItem>
+<TabItem label="후 (15)">
+
+```java
+String json = """
+    {
+      "name": "kim"
+    }
+    """;
+```
+
+</TabItem>
+</Tabs>
+
+**instanceof 패턴**(16)은 타입 검사와 형변환을 한 번에 해요.
+
+<Tabs>
+<TabItem label="전">
+
+```java
+if (obj instanceof String) {
+  String s = (String) obj;
+  print(s.length());
+}
+```
+
+</TabItem>
+<TabItem label="후 (16)">
+
+```java
+if (obj instanceof String s) {
+  print(s.length());
+}
+```
+
+</TabItem>
+</Tabs>
+
+**record**(16)는 불변 데이터를 담는 클래스를 한 줄로 만들어요. 생성자, 접근자, `equals`/`hashCode`/`toString`을 컴파일러가 만들어 줘요.
+
+<Tabs>
+<TabItem label="전">
+
+```java
+final class Point {
+  private final int x, y;
+  Point(int x, int y) { this.x = x; this.y = y; }
+  int getX() { return x; }
+  int getY() { return y; }
+  // equals, hashCode, toString 직접 작성...
+}
+```
+
+</TabItem>
+<TabItem label="후 (16)">
+
+```java
+record Point(int x, int y) {}
+
+var p = new Point(1, 2);
+p.x();  // getX()가 아니라 x()
+```
+
+</TabItem>
+</Tabs>
+
+record에서 주의할 점이에요.
+
+- **얕은 불변**: 컴파일러가 만드는 필드는 `private final`이라 다시 대입할 수 없어요. 하지만 `final`은 참조만 고정하므로, 필드가 `List` 같은 가변 객체를 가리키면 그 안은 바뀔 수 있어요. 막으려면 생성자에서 `List.copyOf`로 복사해요.
+- **JPA 엔티티에는 맞지 않는다**고 알려져 있어요. JPA 엔티티는 인자 없는 생성자가 있어야 하고, 지연 로딩 프록시를 만들려면 클래스와 필드가 final이 아니어야 하는데, record는 클래스도 필드도 final이에요. 대신 DTO나 값 객체에 써요.
+
+**sealed**(17)는 "이 타입을 상속할 수 있는 건 이 목록뿐"이라고 못 박아요. 하위 타입이 닫혀 있으니 컴파일러가 switch에서 빠진 경우를 잡을 수 있어요.
+
+```java
+sealed interface Shape permits Circle, Square {}
+record Circle(double r) implements Shape {}
+record Square(double side) implements Shape {}
+```
+
+17에는 이 밖에 JDK 내부 API의 **강한 캡슐화**(JEP 403)도 들어왔어요. 리플렉션으로 JDK 내부를 건드리던 오래된 라이브러리가 깨질 수 있는 지점이에요.
+
+### 6. Java 21: 패턴 매칭 완성과 가상 스레드
+
+**switch 패턴 + record 패턴**(21)으로 위 sealed `Shape`를 분해하면서 분기해요. permits 목록을 다 다뤘으니 `default`가 필요 없어요. 나중에 `Triangle`을 추가하면 이 switch가 컴파일 에러로 알려 줘요.
+
+<Tabs>
+<TabItem label="전">
+
+```java
+double area;
+if (s instanceof Circle c) area = PI * c.r() * c.r();
+else if (s instanceof Square q) area = q.side() * q.side();
+else throw new IllegalStateException();
+```
+
+</TabItem>
+<TabItem label="후 (21)">
+
+```java
+double area = switch (s) {
+  case Circle(double r) -> PI * r * r;
+  case Square(double side) -> side * side;
+};
+```
+
+</TabItem>
+</Tabs>
+
+**가상 스레드**(virtual thread, JVM이 관리하는 아주 가벼운 스레드)는 I/O를 기다리는 작업이 많은 서버의 처리량을 늘려요. CPU 계산을 빠르게 해 주는 건 아니에요. 풀에 담아 재사용하지 말고 작업마다 새로 만들어요.
+
+```java
+try (var ex = Executors.newVirtualThreadPerTaskExecutor()) {
+  for (var id : ids) ex.submit(() -> callApi(id));
+}
+```
+
+21에서는 가상 스레드가 `synchronized` 안에서 블로킹되면 실제 OS 스레드에 붙잡히는 **pinning**(고정) 문제가 있었고, 24에서 거의 해결됐어요. 자세한 건 [가상 스레드](../virtual-threads/)에서 다뤄요.
+
+**Sequenced Collections**(21)로 `list.getLast()`, `list.reversed()`처럼 순서 있는 컬렉션의 앞뒤를 바로 꺼내요. [컬렉션 프레임워크](../collections/)에서 이어서 봐요.
+
+### 7. Java 25: 진입 장벽 낮추기
+
+**instance main**(compact source file)은 클래스 선언 없이 `main`만으로 프로그램을 써요. 내부적으로는 이름 없는 클래스로 컴파일돼요.
+
+<Tabs>
+<TabItem label="전">
+
+```java
+public class Hello {
+  public static void main(String[] args) {
+    System.out.println("Hi");
+  }
+}
+```
+
+</TabItem>
+<TabItem label="후 (25)">
+
+```java
+void main() {
+  IO.println("Hi");  // IO. 생략 불가
+}
+```
+
+</TabItem>
+</Tabs>
+
+**생성자 앞 문장 허용**(Flexible Constructor Bodies)으로 `super(...)` 호출 전에 인자 검증을 할 수 있어요. 단, 아직 만들어지는 중인 객체(`this`)는 건드릴 수 없어요.
+
+<Tabs>
+<TabItem label="전">
+
+```java
+Child(int v) {
+  super(check(v));  // super가 첫 줄이어야 해서
+}                   // static 헬퍼로 우회
+```
+
+</TabItem>
+<TabItem label="후 (25)">
+
+```java
+Child(int v) {
+  if (v <= 0) throw new IllegalArgumentException();
+  super(v);
+}
+```
+
+</TabItem>
+</Tabs>
+
+**Scoped Values**는 요청 정보(사용자 ID 등)를 호출 흐름에 불변으로 흘려보내요. `ThreadLocal`처럼 `remove()`를 잊을 일이 없고, 가상 스레드와 함께 쓸 때 비용이 낮아요.
+
+<Tabs>
+<TabItem label="전">
+
+```java
+CURRENT.set(user);  // ThreadLocal
+try { handle(); }
+finally { CURRENT.remove(); }  // 잊으면 누수
+```
+
+</TabItem>
+<TabItem label="후 (25)">
+
+```java
+ScopedValue.where(CURRENT, user)
+  .run(() -> handle());  // 범위 끝나면 자동 해제
+```
+
+</TabItem>
+</Tabs>
+
+25에서는 `import module java.base;`처럼 모듈 단위 import도 정식이 됐어요.
+
+### 8. Spring과의 관계
+
+- **Spring Boot 3.0은 Java 17 이상**이 필요해요(2022년 11월 GA, Java 8 지원 종료). 그래서 Boot 3로 가려면 자바부터 17 이상으로 올려야 해요.
+- Boot 3는 Jakarta EE 10 기반이라 `javax.*` 패키지가 `jakarta.*`로 바뀌어요(예: `javax.persistence` → `jakarta.persistence`). import 문과 의존성 좌표를 모두 바꿔야 해요.
+- 현재 Spring Boot 4.2는 Java 17 이상, 27까지 호환돼요.
+
+## 면접 질문
+
+<details>
+<summary>Q. 자바 8과 17(또는 21)의 차이를 말해 보세요.</summary>
+
+**답변(30초)** 8은 람다·스트림·Optional로 함수형 스타일을 들여온 버전이에요. 17까지 오면서 var, switch 식, text block, record, instanceof 패턴, sealed가 들어와서 데이터 클래스와 분기 코드가 훨씬 짧고 안전해졌어요. 21에서는 switch 패턴 매칭이 정식이 돼서 sealed와 record를 빠짐없이 분기할 수 있고, 가상 스레드로 I/O가 많은 서버의 처리량을 늘릴 수 있어요.
+
+**꼬리질문**
+- Q. var는 몇 버전 기능이에요? → 10이에요. 11은 람다 파라미터에 var를 쓰게 한 거예요.
+- Q. switch 패턴은 17 기능 아닌가요? → 17에선 프리뷰였고 정식은 21이에요.
+- Q. var를 쓰면 동적 타입인가요? → 아니요. 컴파일 때 타입이 정해지고 바뀌지 않아요.
+</details>
+
+<details>
+<summary>Q. 왜 자바 버전을 올려야 하나요?</summary>
+
+**답변(30초)** 가장 현실적인 이유는 Spring Boot 3가 Java 17 이상을 요구해서예요. 8과 11은 Oracle의 Premier 지원이 이미 끝났고, 17도 2026년 9월에 끝났어요. 문법 개선으로 코드가 짧아지고 컴파일러가 실수를 더 잡아 주며, 21 이상이면 가상 스레드로 블로킹 I/O가 많은 서버의 처리량도 늘릴 수 있어요.
+
+**꼬리질문**
+- Q. 지금 새 프로젝트면 몇 버전을 고르겠어요? → 최신 LTS인 25요. 27은 non-LTS라 다음 버전이 나오면 지원이 끝나요.
+- Q. LTS가 뭐예요? → 벤더가 오래 패치를 내주는 버전이에요. 17 이후 2년마다 나오고 다음은 29예요.
+- Q. 프리뷰 기능은 운영에 써도 되나요? → `--enable-preview`가 필요하고 다음 버전에 바뀔 수 있어서 보통 안 써요.
+</details>
+
+<details>
+<summary>Q. record의 특징과 주의할 점은요?</summary>
+
+**답변(30초)** record는 불변 데이터를 담는 클래스로, 생성자·접근자·equals·hashCode·toString을 컴파일러가 만들어 줘요. 접근자 이름은 `getX()`가 아니라 `x()`예요. 다만 불변이 얕아서 필드가 가변 List를 가리키면 그 안은 바뀔 수 있으니 생성자에서 복사해요. 또 인자 없는 생성자와 프록시(상속)가 필요한 JPA 엔티티에는 맞지 않아서 DTO나 값 객체에 써요.
+
+**꼬리질문**
+- Q. record를 상속할 수 있나요? → 없어요. record는 final이에요. 인터페이스 구현은 돼요.
+- Q. 생성자에서 검증하려면? → 파라미터 목록을 생략한 **컴팩트 생성자**(`Point { if (x < 0) throw ...; }`)에서 검사하면 돼요. 본문이 끝나면 필드 대입은 자동이에요.
+- Q. sealed와는 어떻게 같이 쓰나요? → sealed 인터페이스의 하위 타입을 record로 두고 switch 패턴으로 분해하면 default 없이 빠짐없는 분기가 돼요.
+</details>
+
+<details>
+<summary>Q. sealed 클래스는 왜 필요한가요?</summary>
+
+**답변(30초)** 상속할 수 있는 하위 타입을 permits 목록으로 못 박아서 도메인을 닫기 위해서예요. 예를 들어 결제 결과를 Success, Failed, Pending 셋으로 고정하면, 컴파일러가 switch에서 모든 경우를 다뤘는지 확인해 줘요. 새 상태를 추가하면 처리하지 않은 switch가 컴파일 에러로 드러나서 빠뜨릴 걱정이 줄어요.
+
+**꼬리질문**
+- Q. 그냥 enum을 쓰면 안 되나요? → enum은 정해진 **값**(인스턴스) 몇 개를 고정하고, sealed는 정해진 **종류**(하위 타입)를 고정해요. 그래서 sealed + record는 종류마다 다른 필드를 갖고 인스턴스를 여러 개 만들 수 있어요.
+</details>
+
+## 서술형 연습
+
+<details>
+<summary>상황: Java 8 + Spring Boot 2.x로 운영 중인 서비스를 Java 21 + Spring Boot 3로 올리는 과제를 맡았습니다. 어떤 순서로, 무엇을 확인하겠습니까?</summary>
+
+**상황 파악**
+Boot 3는 Java 17 이상이 필수라 두 가지를 같이 올려야 해요. 하지만 한 번에 둘 다 바꾸면 문제가 생겼을 때 어디서 깨졌는지 알기 어려워요. 걸릴 만한 곳은 패키지 이름, 오래된 라이브러리, 동시성 동작이에요.
+
+**원인 후보(깨질 수 있는 지점)**
+1. `javax.*` → `jakarta.*` 패키지 변경. import와 설정, 이를 쓰는 라이브러리가 모두 영향을 받아요.
+2. 의존성 호환성. JDK 내부를 리플렉션으로 쓰던 오래된 라이브러리가 17의 강한 캡슐화(JEP 403)로 깨질 수 있어요. 11에서 빠진 Java EE 모듈(JAXB 등)에 기대던 코드도 마찬가지예요.
+3. 가상 스레드를 켤 경우 21의 pinning. `synchronized` 안에서 오래 기다리는 I/O가 있으면 OS 스레드가 붙잡혀 효과가 줄어요. DB 커넥션 풀이 새 병목이 될 수도 있어요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. 단계별: 의존성 점검 → JDK만 21로 올려 Boot 2.x에서 테스트 → Boot 3·jakarta 전환 → 가상 스레드는 마지막에 선택 | 단계마다 원인을 좁힐 수 있음, 롤백 쉬움 | 기간이 길고 중간 상태를 여러 번 배포 |
+| B. 한 번에 21 + Boot 3 + 가상 스레드 | 작업 기간이 짧음 | 장애 시 원인 추적이 어려움, 롤백 범위가 큼 |
+
+**내가 고를 방법**
+A를 골라요. 운영 서비스라 원인을 빨리 좁히는 게 기간보다 중요해요. 가상 스레드는 기능 업그레이드와 분리해서, `synchronized`로 감싼 블로킹 I/O를 `ReentrantLock`으로 바꾸고 커넥션 풀 한도를 확인한 뒤 켜요. 처음부터 25로 가면 pinning 걱정이 거의 없으니 대상 버전도 함께 검토해요.
+
+**채점 포인트**: Boot 3는 Java 17+, javax → jakarta, 의존성 호환 확인, 강한 캡슐화(JEP 403)로 리플렉션 라이브러리 깨짐, 단계적 업그레이드와 테스트, 가상 스레드 pinning(21)과 24/25 해결, 커넥션 풀 병목, 롤백 계획.
+</details>
+
+## 함께 보기
+
+- [람다와 스트림](../lambda-stream/)
+- [가상 스레드 (Java 21)](../virtual-threads/)
+- [컬렉션 프레임워크 한눈에](../collections/) (Sequenced Collections, 불변 컬렉션)
+- [equals와 hashCode](../equals-hashcode/) (record가 자동으로 만드는 것)
+
+## 출처
+
+- [Oracle Java SE Support Roadmap](https://www.oracle.com/java/technologies/java-se-support-roadmap.html)
+- [OpenJDK JDK 17](https://openjdk.org/projects/jdk/17/), [JDK 21](https://openjdk.org/projects/jdk/21/), [JDK 25](https://openjdk.org/projects/jdk/25/)
+- [JEP 12: Preview Features](https://openjdk.org/jeps/12)
+- [JEP 286: Local-Variable Type Inference](https://openjdk.org/jeps/286)
+- [JEP 361: Switch Expressions](https://openjdk.org/jeps/361)
+- [JEP 395: Records](https://openjdk.org/jeps/395)
+- [JEP 409: Sealed Classes](https://openjdk.org/jeps/409)
+- [JLS 25 8장: 8.1.1.2 sealed, 8.10.4.2 Compact Canonical Constructors](https://docs.oracle.com/javase/specs/jls/se25/html/jls-8.html)
+- [JEP 441: Pattern Matching for switch](https://openjdk.org/jeps/441)
+- [JEP 444: Virtual Threads](https://openjdk.org/jeps/444), [JEP 491](https://openjdk.org/jeps/491)
+- [JEP 512: Compact Source Files and Instance Main Methods](https://openjdk.org/jeps/512)
+- [JEP 506: Scoped Values](https://openjdk.org/jeps/506), [JEP 513: Flexible Constructor Bodies](https://openjdk.org/jeps/513)
+- [Spring Boot 3.0 Release Notes](https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-3.0-Release-Notes), [Migration Guide](https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-3.0-Migration-Guide)
+- [Spring Boot System Requirements](https://docs.spring.io/spring-boot/system-requirements.html)

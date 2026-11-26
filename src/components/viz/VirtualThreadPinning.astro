@@ -1,0 +1,119 @@
+---
+// pinning(JDK 21): synchronized 안에서 블로킹하면 VT가 캐리어에서 못 내려와 캐리어까지 막힌다.
+// 배치는 VirtualThreadMount와 같다(위 대기열, 왼쪽 힙, C1·C2 레일). 아래 메모 칸은 단계별로 바뀐다.
+import Stepper from '../Stepper.astro';
+const steps = [
+  { caption: 'C1 위의 VT-A가 synchronized 블록에 들어가서, 그 안에서 소켓 read(DB 응답 대기)를 해요.', show: ['a-c1', 'b-c2', 'c-q', 'd-q', 'n-code', 'hl-c1'] },
+  { caption: 'JDK 21~23에서는 JVM이 모니터(락) 주인을 VT-A가 아니라 캐리어 C1로 기록해요. 그래서 VT-A를 내릴 수 없고, VT-A와 C1이 함께 막혀요. 이걸 pinned(고정)라고 해요.', show: ['a-c1', 'b-c2', 'c-q', 'd-q', 'pin-a', 'n-mon', 'hl-c1'] },
+  { caption: '대기열의 VT-C는 C1을 쓸 수 없어요. 스케줄러는 pinning 때문에 캐리어를 더 만들어 메워 주지 않아요.', show: ['a-c1', 'b-c2', 'c-q', 'd-q', 'pin-a', 'x-c', 'n-nocomp', 'hl-q'] },
+  { caption: 'VT-B도 같은 synchronized 코드에서 I/O를 하면 C2까지 pinned돼요. 캐리어가 전부 막히면 처리량이 뚝 떨어지고, 최악엔 기아나 데드락까지 생겨요.', show: ['a-c1', 'b-c2', 'c-q', 'd-q', 'pin-a', 'pin-b', 'n-starve', 'hl-c2'] },
+  { caption: '대비: 락을 ReentrantLock으로 바꾸거나 JDK 24 이상에서 돌리면(JEP 491) I/O 동안 VT-A, VT-B가 내려와 힙에서 기다리고, 빈 캐리어에 VT-C, VT-D가 올라타요.', show: ['a-heap', 'b-heap', 'c-c1', 'd-c2', 'm-c1', 'm-d2', 'n-fix', 'hl-heap'] },
+];
+const Q = [16, 116, 216];
+const col = { heap: 8, c1: 112, c2: 216 };
+const cx = (x: number) => x + 48;
+const qx = (i: number) => Q[i] + 44;
+const vtOn = (x: number) => x + 8;
+const acc = 'fill:none;stroke:var(--sl-color-accent);stroke-width:2';
+const gry = 'fill:none;stroke:var(--sl-color-gray-3);stroke-width:1.6;stroke-dasharray:4 3';
+const vt = [
+  { id: 'c-q', t: 'VT-C', x: Q[0], y: 32, w: 88 },
+  { id: 'd-q', t: 'VT-D', x: Q[1], y: 32, w: 88 },
+  { id: 'a-c1', t: 'VT-A', x: vtOn(col.c1), y: 104, w: 80 },
+  { id: 'b-c2', t: 'VT-B', x: vtOn(col.c2), y: 104, w: 80 },
+  { id: 'c-c1', t: 'VT-C', x: vtOn(col.c1), y: 104, w: 80 },
+  { id: 'd-c2', t: 'VT-D', x: vtOn(col.c2), y: 104, w: 80 },
+];
+// 자물쇠 아이콘 (ConcurrentMapLocks와 같은 모양). x, y는 왼쪽 위
+const lock = (x: number, y: number) => ({ shackle: `M${x + 3} ${y + 8} v-3 a4 4 0 0 1 8 0 v3`, x, y: y + 8 });
+const pins = [
+  { id: 'pin-a', x: col.c1, t: 'C1' },
+  { id: 'pin-b', x: col.c2, t: 'C2' },
+].map((p) => ({ ...p, k: lock(p.x + 10, 152) }));
+const NY = 222; // 메모 칸 y
+const notes = [
+  { id: 'n-mon', a: '모니터 주인 = 캐리어 C1', b: '→ VT-A만 따로 내릴 수 없음' },
+  { id: 'n-nocomp', a: '캐리어 수는 그대로', b: '막힌 만큼 보상해 주지 않음' },
+  { id: 'n-starve', a: '모든 캐리어 pinned', b: '→ 처리량 급감, 기아·데드락 위험' },
+  { id: 'n-fix', a: 'ReentrantLock 또는 JDK 24+', b: '→ I/O 동안 내려와서 캐리어 양보' },
+];
+---
+<Stepper title="pinning: synchronized 안에서 I/O를 하면 (JDK 21)" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 278" role="img" aria-label="synchronized 안에서 블로킹한 가상 스레드가 캐리어에 고정되어 다른 가상 스레드가 캐리어를 쓰지 못하는 모습과 해결책">
+    <defs>
+      <marker id="vtp-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+      <marker id="vtp-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+
+    <!-- 고정: 대기열, 힙, 캐리어 레일 -->
+    <text class="l" x="8" y="12" style="font-weight:700">대기열 <tspan style="fill:var(--sl-color-gray-2);font-weight:400;font-size:14px">가상 스레드</tspan></text>
+    <rect class="frame" x="6" y="24" width="308" height="50" rx="8" />
+    <text class="sub" x={qx(2)} y="49">…</text>
+    <rect class="frame" x={col.heap} y="100" width="96" height="94" rx="8" />
+    <text x={cx(col.heap)} y="114" style="font-weight:700">힙</text>
+    {[['c1', 'C1'], ['c2', 'C2']].map(([k, t]) => (
+      <g>
+        <rect class="box" x={col[k as 'c1' | 'c2']} y="146" width="96" height="48" rx="6" />
+        <text x={cx(col[k as 'c1' | 'c2'])} y="162" style="font-weight:700">{t}</text>
+        <text class="sub" x={cx(col[k as 'c1' | 'c2'])} y="182">캐리어</text>
+      </g>
+    ))}
+
+    <!-- 화살표 -->
+    <g data-id="x-c" class="hide">
+      <path d={`M${qx(0)} 68 L${cx(col.c1) - 6} 102`} style={gry} marker-end="url(#vtp-g)" />
+      <text class="err-t" x="96" y="84" style="font-size:18px">✕</text>
+    </g>
+    <path data-id="m-c1" class="hide" d={`M${qx(0)} 68 L${cx(col.c1) - 6} 102`} style={acc} marker-end="url(#vtp-a)" />
+    <path data-id="m-d2" class="hide" d={`M${qx(1)} 68 L${cx(col.c2) - 6} 102`} style={acc} marker-end="url(#vtp-a)" />
+
+    <!-- 가상 스레드 (위치별 복제) -->
+    {vt.map((v) => (
+      <g data-id={v.id} class="hide">
+        <rect class="chip" x={v.x} y={v.y} width={v.w} height="34" rx="6" />
+        <text x={v.x + v.w / 2} y={v.y + 17} style="font-weight:700">{v.t}</text>
+      </g>
+    ))}
+    {['a', 'b'].map((n, i) => (
+      <g data-id={`${n}-heap`} class="hide">
+        <rect class="bad" x="16" y={124 + i * 34} width="80" height="30" rx="6" />
+        <text x={cx(col.heap)} y={139 + i * 34} style="font-size:14px">VT-{n.toUpperCase()} 스택</text>
+      </g>
+    ))}
+
+    <!-- pinned 표시: 캐리어 레일을 빨갛게 덮고 자물쇠 + 라벨 -->
+    {pins.map((p) => (
+      <g data-id={p.id} class="hide">
+        <rect x={vtOn(p.x) - 3} y="101" width="86" height="40" rx="8" style="fill:none;stroke:var(--sl-color-red);stroke-width:2" />
+        <rect class="err" x={p.x} y="146" width="96" height="48" rx="6" />
+        <path d={p.k.shackle} style="fill:none;stroke:var(--sl-color-red-high);stroke-width:1.8" />
+        <rect x={p.k.x} y={p.k.y} width="14" height="10" rx="2" style="fill:var(--sl-color-red-high)" />
+        <text class="err-t" x={cx(p.x) + 10} y="162">pinned</text>
+        <text class="err-t" x={cx(p.x)} y="182" style="font-size:14px;font-weight:400">{p.t} 막힘</text>
+      </g>
+    ))}
+
+    <!-- 메모 칸 (단계별) -->
+    <rect class="box" x="8" y={NY} width="304" height="50" rx="8" />
+    <g data-id="n-code" class="hide">
+      <text class="mono l" x="20" y={NY + 15}>synchronized (lock) {'{'}</text>
+      <text class="mono l" x="36" y={NY + 35}>socket.read(); <tspan style="fill:var(--sl-color-gray-2)">// I/O 대기</tspan> {'}'}</text>
+    </g>
+    {notes.map((n) => (
+      <g data-id={n.id} class="hide">
+        <text x="160" y={NY + 15} style="font-weight:700">{n.a}</text>
+        <text class="sub" x="160" y={NY + 35}>{n.b}</text>
+      </g>
+    ))}
+
+    <!-- 강조 테두리 -->
+    <rect data-id="hl-q" class="hl" x="3" y="21" width="314" height="56" rx="10" />
+    <rect data-id="hl-heap" class="hl" x={col.heap - 3} y="97" width="102" height="100" rx="10" />
+    <rect data-id="hl-c1" class="hl" x={col.c1 - 3} y="98" width="102" height="99" rx="8" />
+    <rect data-id="hl-c2" class="hl" x={col.c2 - 3} y="98" width="102" height="99" rx="8" />
+  </svg>
+</Stepper>
