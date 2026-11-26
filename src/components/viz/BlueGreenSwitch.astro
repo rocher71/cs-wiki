@@ -1,0 +1,82 @@
+---
+// 블루그린: 라우터(activeService)가 Blue/Green 중 한쪽에만 100% 보낸다. 공유 DB는 하나.
+import Stepper from '../Stepper.astro';
+const B = ['base', 'names', 'b-v1'];
+const steps = [
+  { caption: '시작: 라우터가 사용자 요청 100%를 Blue(v1)로 보내요. Green 환경은 아직 비어 있어요.', show: [...B, 'a-blue', 'bf-live', 'b-live', 'gf-empty', 'g-empty'] },
+  { caption: 'Green에 v2를 배포해요. 사용자는 계속 Blue로 가고, Green은 내부 테스트(previewService)로만 확인해요.', show: [...B, 'a-blue', 'bf-live', 'b-live', 'tester', 'a-test', 'gf-test', 'g-v2', 'g-test'] },
+  { caption: '스위치! 라우터가 가리키는 곳을 Green으로 바꿔요. 그 순간 사용자 100%가 v2를 만나요.', show: [...B, 'a-green', 'gf-live', 'g-v2', 'g-live', 'bf-wait', 'b-wait'] },
+  { caption: 'Blue는 끄지 않고 그대로 둬요(롤백 대비). 그래서 이 동안 자원은 두 벌이 들어요. 두 환경은 DB 하나를 같이 써요.', show: [...B, 'a-green', 'gf-live', 'g-v2', 'g-live', 'bf-wait', 'b-wait', 'db', 'cost'] },
+  { caption: 'v2에서 문제 발견 → 라우터만 Blue로 되돌려요. 즉시 다시 v1이 100%를 받아요. 다시 배포할 필요가 없어서 가장 빠른 롤백이에요.', show: [...B, 'a-blue', 'bf-live', 'b-live', 'gf-err', 'g-v2', 'g-err', 'db'] },
+];
+---
+<Stepper title="블루그린 배포: 라우터 스위치 한 번" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 420" role="img" aria-label="라우터가 Blue(v1)에서 Green(v2)으로 트래픽 100%를 한 번에 넘기고, 문제가 생기면 다시 Blue로 되돌리는 블루그린 배포">
+    <defs>
+      <marker id="bg-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0L10 5L0 10z" style="fill:var(--sl-color-accent)" />
+      </marker>
+      <marker id="bg-arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0L10 5L0 10z" style="fill:var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+
+    <g data-id="base">
+      <rect class="box" x="60" y="8" width="140" height="40" rx="8" />
+      <text x="130" y="28" style="font-weight:700">사용자</text>
+      <line class="line" x1="130" y1="48" x2="130" y2="78" marker-end="url(#bg-arr2)" />
+      <rect class="box" x="60" y="80" width="140" height="50" rx="8" />
+      <text x="130" y="98" style="font-weight:700">라우터</text>
+      <text class="sub" x="130" y="118">activeService</text>
+    </g>
+
+    <!-- 라우터 → 환경 화살표 -->
+    <line data-id="a-blue" class="flow hide" x1="110" y1="130" x2="86" y2="186" marker-end="url(#bg-arr)" />
+    <line data-id="a-green" class="flow hide" x1="150" y1="130" x2="214" y2="186" marker-end="url(#bg-arr)" />
+
+    <!-- 내부 테스트 -->
+    <g data-id="tester" class="hide">
+      <rect class="box" x="216" y="80" width="96" height="50" rx="8" />
+      <text x="264" y="98">내부 테스트</text>
+      <text class="sub" x="264" y="118">preview</text>
+    </g>
+    <line data-id="a-test" class="line dash hide" x1="264" y1="130" x2="264" y2="186" marker-end="url(#bg-arr2)" />
+
+    <!-- Blue 환경 배경(상태별) -->
+    <rect data-id="bf-live" class="chip hide" x="16" y="190" width="136" height="100" rx="10" />
+    <rect data-id="bf-wait" class="box hide" x="16" y="190" width="136" height="100" rx="10" />
+    <!-- Green 환경 배경(상태별) -->
+    <rect data-id="gf-empty" class="frame hide" x="168" y="190" width="136" height="100" rx="10" />
+    <rect data-id="gf-test" class="box hide" x="168" y="190" width="136" height="100" rx="10" />
+    <rect data-id="gf-live" class="chip hide" x="168" y="190" width="136" height="100" rx="10" />
+    <rect data-id="gf-err" class="err hide" x="168" y="190" width="136" height="100" rx="10" />
+
+    <!-- 글자는 배경 위에 -->
+    <g data-id="names">
+        <text x="84" y="212" style="font-weight:700">Blue</text>
+        <text x="236" y="212" style="font-weight:700">Green</text>
+    </g>
+    <text data-id="b-v1" x="84" y="240" style="font-weight:700;font-size:18px">v1</text>
+    <text data-id="b-live" class="hi hide" x="84" y="268">사용자 100%</text>
+    <text data-id="b-wait" class="sub hide" x="84" y="268">대기(롤백용)</text>
+
+    <text data-id="g-empty" class="sub hide" x="236" y="248">비어 있음</text>
+    <text data-id="g-v2" class="hide" x="236" y="240" style="font-weight:700;font-size:18px">v2</text>
+    <text data-id="g-test" class="sub hide" x="236" y="268">테스트 중</text>
+    <text data-id="g-live" class="hi hide" x="236" y="268">사용자 100%</text>
+    <text data-id="g-err" class="err-t hide" x="236" y="268">✗ 에러 발견</text>
+
+    <g data-id="db" class="hide">
+      <line class="line" x1="84" y1="290" x2="120" y2="330" />
+      <line class="line" x1="236" y1="290" x2="200" y2="330" />
+      <rect class="box" x="60" y="330" width="200" height="48" rx="10" />
+      <text x="160" y="354" style="font-weight:700">공유 DB (하나)</text>
+    </g>
+    <text data-id="cost" class="sub hide" x="160" y="402">전환 동안 서버 자원은 두 벌</text>
+  </svg>
+</Stepper>
+
+<style>
+  svg :global(.flow) { stroke: var(--sl-color-accent); stroke-width: 3.5; fill: none; }
+  svg :global(.dash) { stroke-dasharray: 5 4; }
+</style>

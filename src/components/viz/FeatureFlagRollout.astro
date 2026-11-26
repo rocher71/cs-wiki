@@ -1,0 +1,74 @@
+---
+// 피처 플래그 단계적 출시: off → 직원 → 1% → 10% → 100% → 플래그·옛 코드 삭제.
+import Stepper from '../Stepper.astro';
+const N = 6;
+// 같은 값이 이어지는 단계는 같은 data-id를 써서, 실제로 바뀐 것만 강조되게 한다.
+const runId = (k: string, v: string[], i: number) => { let s = i; while (s > 0 && v[s - 1] === v[i]) s--; return k + s; };
+const runs = (k: string, v: string[]) => v.map((x, i) => ({ id: k + i, x, i })).filter(({ i }) => !i || v[i - 1] !== v[i]);
+const V: Record<string, string[]> = {
+  st: ['sub|off', 'hi|직원만 on', 'hi|1% on', 'hi|10% on', 'hi|100% on', 'sub|삭제됨'],
+  cnt: ['0 / 100', '0 / 100', '1 / 100', '10 / 100', '100 / 100', '100 / 100'],
+  m1: ['sub|켠 사람 없음', 'sub|직원 의견 확인', 'hi|에러율 정상', 'hi|에러율 정상', 'hi|에러율 정상', 'sub|확인 끝'],
+  m2: ['sub|', 'sub|', 'hi|응답 시간 정상', 'hi|응답 시간 정상', 'hi|응답 시간 정상', 'sub|'],
+  code: ['a', 'a', 'a', 'a', 'a', 'b'],
+};
+// 1%는 11번, 10%는 그 1명 + 9명(사용자 ID로 정해져 매번 같다)
+const p10 = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => (11 + 37 * i) % 100);
+const g1 = [11], g10 = p10.slice(1), g100 = [...Array(100).keys()].filter((i) => !p10.includes(i));
+const GX = 8, GY = 88, C = 17;
+const cx = (i: number) => GX + C / 2 + (i % 10) * C, cy = (i: number) => GY + C / 2 + Math.floor(i / 10) * C;
+const on: Record<string, number[]> = { staff: [1, 2, 3, 4, 5], g1: [2, 3, 4, 5], g10: [3, 4, 5], g100: [4, 5], ring: [3] };
+const captions = [
+  '새 코드를 운영 서버에 배포했지만 플래그는 off예요. 100명 모두 옛 화면을 봐요. 배포는 끝났고 출시는 아직이에요.',
+  '먼저 내부 직원에게만 켜요. 직원이 실제 운영 환경에서 새 화면을 써 봐요. 일반 사용자는 그대로예요.',
+  '사용자 1%에게 켜요. 에러율과 응답 시간을 지켜보고, 이상이 없을 때만 다음으로 넘어가요.',
+  '10%로 넓혀요. 앞서 켜진 1명(테두리)은 그대로 포함돼요. 사용자 ID로 정하니 같은 사람은 매번 같은 결과를 받아요.',
+  '100% 켜요. 모두 새 화면을 봐요. 이 플래그는 할 일을 다 했어요.',
+  '플래그와 옛 코드를 지워요. if 분기가 사라지고 새 코드만 남아요. 안 지우면 토글 부채가 쌓여요.',
+];
+const steps = captions.map((caption, i) => ({
+  caption,
+  show: [...Object.keys(on).filter((k) => on[k].includes(i)), ...Object.keys(V).map((k) => runId(k, V[k], i))],
+}));
+---
+<Stepper title="1% → 10% → 100% 단계적 출시" steps={steps}>
+  <svg class="viz ffr" viewBox="0 0 320 360" role="img" aria-label="플래그를 끈 채 배포한 뒤 직원, 사용자 1%, 10%, 100% 순서로 켜고, 마지막에 플래그와 옛 코드를 지운다">
+    <text class="l" x="8" y="18" style="font-weight:700">플래그</text>
+    <text class="l mono" x="62" y="18">new-checkout</text>
+    {runs('st', V.st).map(({ id, x }) => { const [c, t] = x.split('|'); return <text data-id={id} class={`l hide ${c}`} x="186" y="18" style="font-size:15px">: {t}</text>; })}
+
+    <text class="sub l" x="8" y="50">직원</text>
+    {[0, 1, 2, 3].map((j) => <circle class="dot-off" cx={58 + j * 17} cy="50" r="6" />)}
+    <g data-id="staff" class="hide">{[0, 1, 2, 3].map((j) => <circle class="dot-on" cx={58 + j * 17} cy="50" r="6" />)}</g>
+
+    <text class="sub l" x="8" y="76">사용자 100명</text>
+    {[...Array(100).keys()].map((i) => <circle class="dot-off" cx={cx(i)} cy={cy(i)} r="6" />)}
+    <g data-id="g1" class="hide">{g1.map((i) => <circle class="dot-on" cx={cx(i)} cy={cy(i)} r="6" />)}</g>
+    <g data-id="g10" class="hide">{g10.map((i) => <circle class="dot-on" cx={cx(i)} cy={cy(i)} r="6" />)}</g>
+    <g data-id="g100" class="hide">{g100.map((i) => <circle class="dot-on" cx={cx(i)} cy={cy(i)} r="6" />)}</g>
+    <circle data-id="ring" class="hl" cx={cx(11)} cy={cy(11)} r="9.5" />
+
+    <circle class="dot-on" cx="200" cy="96" r="6" /><text class="l" x="212" y="96" style="font-size:14px">켜짐: 새 화면</text>
+    <circle class="dot-off" cx="200" cy="120" r="6" /><text class="l" x="212" y="120" style="font-size:14px">꺼짐: 옛 화면</text>
+    <text class="sub l" x="192" y="156">켜진 사용자</text>
+    {runs('cnt', V.cnt).map(({ id, x }) => <text data-id={id} class="l hide hi" x="192" y="180" style="font-size:17px">{x}</text>)}
+    <text class="sub l" x="192" y="214">지표</text>
+    {['m1', 'm2'].map((k, r) => runs(k, V[k]).map(({ id, x }) => { const [c, t] = x.split('|'); return <text data-id={id} class={`l hide ${c}`} x="192" y={238 + r * 22} style="font-size:14px">{t}</text>; }))}
+
+    <rect class="box" x="4" y="274" width="312" height="80" rx="6" />
+    <g data-id="code0" class="hide">
+      <text class="l mono" x="14" y="294">if (flag.on("new-checkout"))</text>
+      <text class="l mono" x="34" y="314">새결제화면();</text>
+      <text class="l mono" x="14" y="334">else 옛결제화면();</text>
+    </g>
+    <g data-id="code5" class="hide">
+      <text class="l mono hi" x="14" y="300">새결제화면();</text>
+      <text class="l mono sub" x="14" y="326">// if 분기와 옛 코드 삭제</text>
+    </g>
+  </svg>
+</Stepper>
+
+<style>
+  .ffr :global(.dot-off) { fill: none; stroke: var(--sl-color-gray-3); stroke-width: 1.4; }
+  .ffr :global(.dot-on) { fill: var(--sl-color-accent); stroke: var(--sl-color-accent-high); stroke-width: 1.2; }
+</style>

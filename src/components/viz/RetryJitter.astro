@@ -1,0 +1,67 @@
+---
+// 재시도 시점 분포: 위 = 지터 없는 지수 백오프, 아래 = Full jitter. 막대 높이 = 같은 1ms에 도착한 재시도 수(천장 = 100건).
+// Full jitter 막대는 빌드 때 시드 고정 난수로 실제 계산(클라이언트 100개 × 재시도 5번, 대기 = random(0, 100ms·2^k)).
+import Stepper from '../Stepper.astro';
+const rnd = ((a: number) => () => { a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; })(1);
+const hits = new Map<number, number>();
+for (let c = 0; c < 100; c++) { let t = 0; for (let k = 0; k < 5; k++) { t += rnd() * 100 * 2 ** k; const ms = Math.floor(t); hits.set(ms, (hits.get(ms) ?? 0) + 1); } }
+const maxHit = Math.max(...hits.values()); // 시드 1 → 5 (실험값과 같음)
+const X0 = 24, X1 = 306, T = 3200;
+const x = (ms: number) => X0 + (ms / T) * (X1 - X0);
+const P = { nj: { top: 54, base: 136 }, fj: { top: 196, base: 278 } }; // 천장(100건) ~ 바닥
+const h = (n: number, p: { top: number; base: number }) => ((p.base - p.top) * n) / 100;
+const NJ = [100, 300, 700, 1500, 3100];
+const steps = [
+  { caption: 't=0에 서버가 잠깐 멈춰서 클라이언트 100개가 동시에 실패했어요. 다들 "조금 있다 다시"를 준비해요.', show: ['t0', 't0lab'] },
+  { caption: '지터 없는 지수 백오프: 다 같이 100ms·200ms·400ms…씩 기다리니 100·300·700·1500·3100ms 다섯 순간에 100개가 같은 1ms에 몰려요.', show: ['t0', 'nj', 'njLab', 'hl-nj'] },
+  { caption: 'Full jitter: 기다리는 시간을 0~백오프 사이에서 각자 무작위로 골라요. 같은 500번의 재시도가 시간축에 낮게 흩어져서 1ms당 최대 5건이에요.', show: ['t0', 'nj', 'njLab', 'fj', 'fjLab', 'hl-fj'] },
+  { caption: '재시도 횟수는 같아도, 지터가 "한순간에 몰리는 것"을 없애서 막 회복하는 서버를 다시 쓰러뜨리지 않아요.', show: ['t0', 'nj', 'njLab', 'fj', 'fjLab', 'nEnd'] },
+];
+---
+<Stepper title="재시도 시점: 지터 없음 vs Full jitter" steps={steps}>
+  <svg class="viz rj" viewBox="0 0 320 340" role="img" aria-label={`클라이언트 100개가 동시에 실패한 뒤 재시도 시점. 지터가 없으면 다섯 순간에 100개씩 같은 1ms에 몰리고, full jitter를 쓰면 500번이 흩어져 1ms당 최대 ${maxHit}건이다.`}>
+    <!-- 패널 제목 -->
+    <text class="l" x="10" y="14" style="font-weight:700">지터 없는 지수 백오프</text>
+    <text data-id="njLab" class="l err-t hide" x="10" y="36" style="font-size:14px">5번 × 100건이 같은 1ms에</text>
+    <text class="l" x="10" y="160" style="font-weight:700">Full jitter</text>
+    <text data-id="fjLab" class="l hi hide" x="10" y="180" style="font-size:14px">500건이 흩어짐 · 1ms당 최대 {maxHit}건</text>
+
+    <!-- 천장(100건)·바닥 -->
+    {Object.values(P).map((p) => (
+      <g>
+        <line class="line" x1={X0} y1={p.top} x2={X1} y2={p.top} style="stroke-dasharray:3 4;stroke-width:1" />
+        <text class="sub" x="290" y={p.top - 8} style="text-anchor:end">100건</text>
+        <line class="line" x1={X0} y1={p.base} x2={X1} y2={p.base} />
+      </g>
+    ))}
+
+    <!-- t=0 동시 실패 -->
+    <g data-id="t0">
+      {Object.values(P).map((p) => <rect class="err" x={X0 - 3} y={p.top} width="6" height={p.base - p.top} />)}
+    </g>
+    <g data-id="t0lab" class="hide">
+      <rect class="box" x="40" y="80" width="150" height="34" rx="8" />
+      <text x="115" y="97" class="err-t" style="font-size:14px">100개 동시 실패</text>
+    </g>
+
+    <!-- 지터 없음: 다섯 막대 -->
+    <g data-id="nj">
+      {NJ.map((ms) => <rect class="bar" x={x(ms) - 3} y={P.nj.top} width="6" height={h(100, P.nj)} />)}
+    </g>
+    <!-- full jitter: 1ms 칸마다 선 하나 -->
+    <g data-id="fj">
+      {[...hits].map(([ms, n]) => <line class="tick" x1={x(ms)} x2={x(ms)} y1={P.fj.base} y2={P.fj.base - Math.max(h(n, P.fj), 3)} />)}
+    </g>
+    <rect data-id="hl-nj" class="hl" x="6" y="44" width="308" height="98" rx="8" />
+    <rect data-id="hl-fj" class="hl" x="6" y="186" width="308" height="98" rx="8" />
+
+    <!-- 시간축 -->
+    {[0, 1000, 2000, 3000].map((ms, i) => <text class="sub" x={x(ms)} y="296">{i === 0 ? '0' : `${i}초`}</text>)}
+    <text data-id="nEnd" class="hide hi" x="160" y="326" style="font-size:15px">지터 = 같은 순간 몰림을 없앤다</text>
+  </svg>
+</Stepper>
+
+<style>
+  .rj :global(.bar) { fill: var(--sl-color-red); }
+  .rj :global(.tick) { stroke: var(--sl-color-accent); stroke-width: 1.5; }
+</style>

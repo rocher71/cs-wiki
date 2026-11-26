@@ -1,0 +1,77 @@
+---
+// 상태 있는 서버(세션을 서버 메모리에) vs 무상태 서버(세션을 Redis에). 위·아래 두 판을 같은 단계로 나란히 비교한다.
+import Stepper from '../Stepper.astro';
+const SX = [14, 118, 222], SW = 84, SH = 54;
+const P = [0, 196]; // 판 시작 y
+const cx = (i: number) => SX[i] + SW / 2;
+type St = { srv?: [number, string, 'chip' | 'err'][]; to: number[]; db?: number[]; out: string; ok: boolean };
+// 판별 단계 상태. srv: [서버, 문구, 종류], to: LB가 보내는 서버, db: Redis로 가는 서버
+const scenes: St[][] = [
+  [
+    { srv: [[0, '세션 있음', 'chip']], to: [0], out: 'A 메모리에만 세션이 있어요', ok: true },
+    { srv: [[0, '세션 있음', 'chip'], [1, '세션 없음', 'err']], to: [1], out: '✕ B엔 세션 없음 → 로그인 풀림', ok: false },
+    { srv: [[0, '재시작 중', 'err']], to: [1, 2], out: '✕ A 세션 소멸 → A 사용자 전원 로그아웃', ok: false },
+    { to: [0, 1, 2], out: '✕ 서버를 빼거나 바꿀 때마다 피해', ok: false },
+  ],
+  [
+    { to: [0], db: [0], out: '세션은 Redis에 저장해요', ok: true },
+    { to: [1], db: [1], out: '✓ B가 Redis에서 찾음 → 로그인 유지', ok: true },
+    { srv: [[0, '재시작 중', 'err']], to: [1, 2], db: [1, 2], out: '✓ Redis 세션 그대로 → 영향 없음', ok: true },
+    { to: [0, 1, 2], db: [0, 1, 2], out: '✓ 마음대로 늘리고·줄이고·교체', ok: true },
+  ],
+];
+const captions = [
+  '① 로그인 요청을 로드밸런서가 서버 A로 보내요. 상태 있음: 세션이 A의 메모리에 저장돼요. 무상태: A는 세션을 Redis(외부 저장소)에 저장해요.',
+  '② 서버를 1대에서 3대로 늘렸고, 다음 요청이 B로 갔어요. 상태 있음: B 메모리엔 세션이 없어 로그인이 풀려요. 무상태: B가 Redis에서 세션을 찾아 로그인이 유지돼요.',
+  '③ 배포나 스케일 인으로 A가 재시작돼요. 상태 있음: A 메모리의 세션이 사라져 A에 붙어 있던 사용자가 모두 로그아웃돼요. 무상태: 세션은 Redis에 그대로라 영향이 없어요.',
+  '④ 정리: 서버가 아무것도 기억하지 않으면(무상태) 서버를 자유롭게 늘리고, 줄이고, 갈아 끼울 수 있어요. 기억할 건 Redis·DB 같은 외부 저장소에 맡겨요.',
+];
+const steps = captions.map((caption, i) => ({ caption, show: ['p0', 'p1', `s0-${i}`, `s1-${i}`, ...(i ? ['bc'] : [])] }));
+const halo = 'paint-order:stroke;stroke:var(--sl-color-gray-7, var(--sl-color-black));stroke-width:5px;stroke-linejoin:round';
+---
+<Stepper title="상태 있는 서버 vs 무상태 서버" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 420" role="img" aria-label="세션을 서버 메모리에 두면 다른 서버로 가거나 재시작할 때 로그인이 풀리고, 세션을 Redis에 두면 어느 서버로 가도, 서버가 재시작돼도 로그인이 유지된다">
+    <defs><marker id="sfl-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" style="fill:var(--sl-color-accent)" /></marker></defs>
+    <line class="frame" x1="0" y1="186" x2="320" y2="186" />
+    {P.map((y, p) => (
+      <g>
+        <text class="l" x="4" y={y + 12} style="font-weight:700">{p ? '[무상태] 세션은 Redis에' : '[상태 있음] 세션은 서버 메모리에'}</text>
+        <rect class="box" x="100" y={y + 28} width="120" height="28" rx="8" />
+        <text x="160" y={y + 42} style="font-size:14px">로드밸런서</text>
+        {[0, 1, 2].map((i) => (
+          <g data-id={i ? 'bc' : undefined}>
+            <rect class="box" x={SX[i]} y={y + 84} width={SW} height={SH} rx="6" />
+            <text x={cx(i)} y={y + 100} style="font-weight:700">서버 {'ABC'[i]}</text>
+          </g>
+        ))}
+        {p === 1 && (
+          <g>
+            <rect class="box" x="70" y={y + 164} width="180" height="32" rx="8" />
+            <text x="110" y={y + 180} style="font-weight:700">Redis</text>
+          </g>
+        )}
+        {scenes[p].map((sc, k) => (
+          <g data-id={`s${p}-${k}`} class="hide">
+            {sc.to.map((i) => <line x1="160" y1={y + 56} x2={cx(i) + (i - 1) * -6} y2={y + 82} style="stroke:var(--sl-color-accent);stroke-width:2" marker-end="url(#sfl-arr)" />)}
+            {sc.db?.map((i) => <line x1={cx(i)} y1={y + 138} x2={160 + (i - 1) * 40} y2={y + 162} style="stroke:var(--sl-color-accent);stroke-width:2" marker-end="url(#sfl-arr)" />)}
+            {sc.srv?.map(([i, t, c]) => (
+              <g>
+                {t === '재시작 중' && <rect class="err" x={SX[i]} y={y + 84} width={SW} height={SH} rx="6" />}
+                {t === '재시작 중' && <text class="err-t" x={cx(i)} y={y + 100}>서버 A</text>}
+                <rect class={c} x={SX[i] + 4} y={y + 112} width={SW - 8} height="22" rx="11" />
+                <text class={c === 'err' ? 'err-t' : ''} x={cx(i)} y={y + 123} style="font-size:14px">{t}</text>
+              </g>
+            ))}
+            {p === 1 && (
+              <g>
+                <rect class="chip" x="140" y={y + 169} width="104" height="22" rx="11" />
+                <text x="192" y={y + 180} style="font-size:14px">세션 user42</text>
+              </g>
+            )}
+            <text class={`l ${sc.ok ? 'hi' : 'err-t'}`} x="4" y={y + (p ? 212 : 160)} style={`font-size:14px;${halo}`}>{sc.out}</text>
+          </g>
+        ))}
+      </g>
+    ))}
+  </svg>
+</Stepper>

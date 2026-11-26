@@ -1,0 +1,58 @@
+---
+// gRPC 4가지 RPC 타입: 클라이언트·서버 세로줄(시간은 위→아래)에 요청/응답 화살표 개수로 비교.
+// 네 그림이 같은 자리에 번갈아 나오므로 class="hide".
+import Stepper from '../Stepper.astro';
+const C = 60, S = 260;
+type M = { req: boolean; y1: number; y2: number; t: string };
+const req = (y1: number, y2: number, t: string): M => ({ req: true, y1, y2, t });
+const res = (y1: number, y2: number, t: string): M => ({ req: false, y1, y2, t });
+const kinds = [
+  { id: 'unary', title: 'Unary', note: '평범한 함수 호출과 같아요', ms: [req(110, 110, '요청'), res(180, 180, '응답')],
+    caption: 'Unary: 요청 하나 → 응답 하나. 평범한 함수 호출과 같아요(예: 주문 하나 조회).' },
+  { id: 'server', title: 'Server streaming', note: '요청 1 → 응답 여러 개', ms: [req(104, 104, '요청'), res(152, 152, '응답1'), res(196, 196, '응답2'), res(240, 240, '응답3 …')],
+    caption: 'Server streaming: 요청 하나를 보내면 서버가 응답을 여러 개 연달아 흘려 보내요(예: 주문 목록을 하나씩).' },
+  { id: 'client', title: 'Client streaming', note: '요청 여러 개 → 응답 1', ms: [req(104, 104, '요청1'), req(148, 148, '요청2'), req(192, 192, '요청3 …'), res(240, 240, '응답')],
+    caption: 'Client streaming: 클라이언트가 요청을 여러 개 연달아 보내고, 다 받은 서버가 응답 하나를 돌려줘요(예: 로그 여러 개 올리고 "몇 건 받음").' },
+  { id: 'bidi', title: 'Bidirectional', note: '두 방향은 서로 독립', ms: [req(92, 110, '요청1'), req(136, 154, '요청2'), res(140, 158, '응답1'), res(196, 212, '응답2'), req(240, 256, '요청3 …')],
+    caption: 'Bidirectional: 양쪽이 각자 아무 때나 보내요. 두 방향은 서로 독립이지만, 한 방향 안에서는 보낸 순서대로 도착해요(예: 채팅).' },
+];
+const steps = kinds.map((k) => ({ caption: k.caption, show: ['base', k.id] }));
+const halo = 'paint-order:stroke;stroke:var(--sl-color-gray-7, var(--sl-color-black));stroke-width:5px;stroke-linejoin:round';
+const acc = 'stroke:var(--sl-color-accent);stroke-width:2.4;fill:none';
+---
+<Stepper title="gRPC 4가지 RPC 타입" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 300" role="img" aria-label="Unary, 서버 스트리밍, 클라이언트 스트리밍, 양방향 스트리밍에서 요청과 응답 화살표 개수 비교">
+    <defs>
+      <marker id="gsk-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+      <marker id="gsk-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+    <g data-id="base">
+      <rect class="box" x={C - 50} y="8" width="100" height="36" rx="8" />
+      <text x={C} y="26" style="font-weight:700">클라이언트</text>
+      <rect class="box" x={S - 50} y="8" width="100" height="36" rx="8" />
+      <text x={S} y="26" style="font-weight:700">서버</text>
+      <line class="line" x1={C} y1="44" x2={C} y2="266" style="stroke-dasharray:4 4" />
+      <line class="line" x1={S} y1="44" x2={S} y2="266" style="stroke-dasharray:4 4" />
+    </g>
+    {kinds.map((k) => (
+      <g data-id={k.id} class="hide">
+        <text class="hi" x="160" y="64">{k.title}</text>
+        {k.ms.map((m) => (
+          <>
+            {m.req
+              ? <line x1={C + 2} y1={m.y1} x2={S - 4} y2={m.y2} style={acc} marker-end="url(#gsk-a)" />
+              : <line class="line" x1={S - 2} y1={m.y1} x2={C + 4} y2={m.y2} style="stroke-width:2.2" marker-end="url(#gsk-g)" />}
+            {m.req
+              ? <text class="hi l" x={C + 8} y={m.y1 - 12} style={halo}>{m.t} →</text>
+              : <text x={S - 8} y={m.y1 - 12} style={`text-anchor:end;font-size:14px;${halo}`}>← {m.t}</text>}
+          </>
+        ))}
+        <text class="sub" x="160" y="286">{k.note}</text>
+      </g>
+    ))}
+  </svg>
+</Stepper>

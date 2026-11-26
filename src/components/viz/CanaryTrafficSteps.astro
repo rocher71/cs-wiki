@@ -1,0 +1,89 @@
+---
+// 카나리: 5% → 25% → 100% (본문 예시와 같은 비율). 단계마다 에러율·p99 지연을 기준선과 비교.
+import Stepper from '../Stepper.astro';
+const W = 288; // 트래픽 막대 전체 폭
+const pcts = [0, 5, 25, 100];
+const steps = [
+  { caption: '시작: 사용자 요청 100%가 v1으로 가요. v2는 아직 0%예요.', show: ['bar-0', 'base'] },
+  { caption: 'setWeight 5: 새 버전 v2로 5%만 보내요. 이제 에러율과 p99 지연(가장 느린 1% 요청의 응답 시간)을 지켜봐요.', show: ['bar-5', 'base', 'cur-5', 'panel', 'thr', 'g-ok', 'm-wait'] },
+  { caption: '지표가 기준선 안쪽이라 5% 단계 통과 ✓. 25%로 넓혀서 다시 지켜봐요.', show: ['bar-25', 'base', 'pass-5', 'cur-25', 'panel', 'thr', 'g-ok', 'm-ok'] },
+  { caption: '25%에서도 정상 ✓. 100%로 승격하면 v2가 모든 요청을 받고 배포가 끝나요.', show: ['bar-100', 'base', 'pass-5', 'pass-25', 'cur-100', 'panel', 'thr', 'g-ok', 'm-ok'] },
+  { caption: '만약 5% 단계에서 지표가 기준을 넘었다면? 자동으로 중단하고 v2 비율을 0으로 돌려요. 피해는 5% 사용자에서 끝나요.', show: ['bar-0', 'base', 'fail-5', 'panel', 'thr', 'g-bad', 'm-bad', 'abort'] },
+];
+const px = [100, 170, 240]; // 단계 알약 x
+---
+<Stepper title="카나리 배포 (비율은 예시)" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 420" role="img" aria-label="새 버전으로 보내는 비율을 5%, 25%, 100%로 늘리며 단계마다 에러율과 p99 지연을 확인하고, 지표가 나쁘면 0%로 자동 복귀하는 카나리 배포">
+    <g data-id="base">
+      <text class="l" x="16" y="16" style="font-weight:700">라우터가 나누는 트래픽</text>
+      <text class="l sub" x="16" y="156">단계(예시)</text>
+      {['5%', '25%', '100%'].map((t, k) => (
+        <g>
+          <rect class="box" x={px[k]} y="138" width="56" height="36" rx="18" />
+          <text x={px[k] + 28} y="156">{t}</text>
+        </g>
+      ))}
+      <text class="sub" x="163" y="156">→</text>
+      <text class="sub" x="233" y="156">→</text>
+    </g>
+
+    {pcts.map((p) => {
+      const w2 = (W * p) / 100;
+      return (
+        <g data-id={`bar-${p}`} class="hide">
+          {p < 100 && <rect class="box" x="16" y="30" width={W - w2} height="44" rx="0" />}
+          {p > 0 && <rect class="chip" x={16 + W - w2} y="30" width={w2} height="44" rx="0" />}
+          <text class="l" x="16" y="94">v1 <tspan style="font-weight:700">{100 - p}%</tspan></text>
+          <text class="hi" x="304" y="94" style="text-anchor:end">v2 {p}%</text>
+        </g>
+      );
+    })}
+
+    {[['5', 0], ['25', 1], ['100', 2]].map(([n, k]) => (
+      <g>
+        <rect data-id={`cur-${n}`} class="hl hide" x={px[k as number] - 3} y="135" width="62" height="42" rx="21" />
+        <text data-id={`pass-${n}`} class="sub hide" x={px[k as number] + 28} y="190">통과 ✓</text>
+      </g>
+    ))}
+    <g data-id="fail-5" class="hide">
+      <rect class="err" x={px[0]} y="138" width="56" height="36" rx="18" />
+      <text x={px[0] + 28} y="156">5%</text>
+      <text class="err-t" x={px[0] + 28} y="190">실패 ✗</text>
+    </g>
+
+    <g data-id="panel" class="hide">
+      <rect class="box" x="16" y="206" width="288" height="134" rx="10" />
+      <text class="l" x="30" y="228" style="font-weight:700">지표 확인</text>
+      <text class="l" x="30" y="266">에러율</text>
+      <text class="l" x="30" y="306">p99 지연</text>
+      <rect class="track" x="118" y="256" width="170" height="20" rx="4" />
+      <rect class="track" x="118" y="296" width="170" height="20" rx="4" />
+    </g>
+    <g data-id="g-ok" class="hide">
+      <rect class="chip" x="118" y="256" width="60" height="20" rx="4" />
+      <rect class="chip" x="118" y="296" width="80" height="20" rx="4" />
+    </g>
+    <g data-id="g-bad" class="hide">
+      <rect class="err" x="118" y="256" width="150" height="20" rx="4" />
+      <rect class="err" x="118" y="296" width="164" height="20" rx="4" />
+    </g>
+    <g data-id="thr" class="hide">
+      <line class="thr" x1="240" y1="248" x2="240" y2="322" />
+      <text class="sub" x="240" y="333">기준선</text>
+    </g>
+    <text data-id="m-wait" class="sub hide" x="290" y="228" style="text-anchor:end">지켜보는 중…</text>
+    <text data-id="m-ok" class="hi hide" x="290" y="228" style="text-anchor:end">정상 ✓</text>
+    <text data-id="m-bad" class="err-t hide" x="290" y="228" style="text-anchor:end">기준 초과 ✗</text>
+
+    <g data-id="abort" class="hide">
+      <rect class="err" x="16" y="356" width="288" height="52" rx="10" />
+      <text x="160" y="373" style="font-weight:700">자동 중단</text>
+      <text x="160" y="395">v2 0%로, v1 100% 복귀</text>
+    </g>
+  </svg>
+</Stepper>
+
+<style>
+  svg :global(.track) { fill: var(--sl-color-bg); stroke: var(--sl-color-gray-4); stroke-width: 1; }
+  svg :global(.thr) { stroke: var(--sl-color-white); stroke-width: 2; stroke-dasharray: 4 3; }
+</style>

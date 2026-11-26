@@ -1,0 +1,56 @@
+---
+// 스트랭글러 패턴: 앞단 라우터를 두고 기능을 하나씩 새 서비스로 옮기며 모놀리스를 줄인다.
+import Stepper from '../Stepper.astro';
+const steps = [
+  { caption: '지금은 모든 요청이 모놀리스 하나로 가요. 주문·회원·배송·상품 기능이 한 덩어리예요.', show: ['client', 'direct', 'm-line', 'm4'] },
+  { caption: '앞단에 라우터(게이트웨이)를 세워요. 아직은 받은 요청을 전부 모놀리스로 넘겨요. 사용자는 바뀐 걸 몰라요.', show: ['client', 'router', 'm-line', 'm4', 'lb-all'] },
+  { caption: '배송 서비스를 새로 만들고 /delivery/** 요청만 그쪽으로 보내요. 문제가 생기면 라우터 설정만 되돌리면 돼요.', show: ['client', 'router', 'm-line', 'm3', 's-line', 'lb-del', 's0'] },
+  { caption: '주문·회원도 같은 방식으로 하나씩 옮겨요. 옮길 때마다 모놀리스가 작아져요.', show: ['client', 'router', 'm-line', 'm1', 's-line', 'lb-more', 's0', 's1', 's2'] },
+  { caption: '마지막 기능까지 옮기면 모놀리스를 꺼요(아주 작게 남기기도 해요). 한 번에 갈아엎지 않아서 서비스를 멈추지 않고 옮길 수 있어요.', show: ['client', 'router', 's-line', 'lb-fin', 's0', 's1', 's2', 's3', 'gone'] },
+];
+const svcs = ['배송', '주문', '회원', '상품'];
+const monos = [
+  { id: 'm4', mods: ['주문', '회원', '배송', '상품'] },
+  { id: 'm3', mods: ['주문', '회원', '상품'] },
+  { id: 'm1', mods: ['상품'] },
+];
+---
+<Stepper title="스트랭글러 패턴: 하나씩 옮기기" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 336" role="img" aria-label="모든 요청이 모놀리스로 가다가, 앞단에 라우터를 두고 배송부터 주문·회원·상품 순으로 새 서비스로 옮겨 라우터가 요청을 새 서비스로 보내고, 모놀리스는 점점 작아져 결국 꺼진다">
+    <line data-id="direct" class="line hide" x1="80" y1="44" x2="80" y2="112" />
+    <g data-id="client">
+      <line class="line" x1="160" y1="44" x2="160" y2="76" />
+      <rect class="chip" x="40" y="8" width="240" height="36" rx="18" />
+      <text x="160" y="26">사용자 요청</text>
+    </g>
+    <line data-id="m-line" class="line hide" x1="80" y1="112" x2="80" y2="150" />
+    <g data-id="router" class="hide">
+      <rect class="box" x="40" y="76" width="240" height="36" rx="6" style="stroke:var(--sl-color-accent);stroke-width:2" />
+      <text x="160" y="94" style="font-weight:700">라우터 (게이트웨이)</text>
+    </g>
+    <text data-id="lb-all" class="l sub hide" x="90" y="131">아직 전부 모놀리스로</text>
+    <line data-id="s-line" class="line hide" x1="241" y1="112" x2="241" y2="150" />
+    <text data-id="lb-del" class="mono hide" x="160" y="131">/delivery/**</text>
+    <text data-id="lb-more" class="sub hide" x="160" y="131">배송·주문·회원 →</text>
+    <text data-id="lb-fin" class="sub hide" x="160" y="131">전부 새 서비스로 →</text>
+
+    {monos.map((m) => (
+      <g data-id={m.id} class="hide">
+        <rect class="frame" x="8" y="150" width="142" height={44 + m.mods.length * 36} rx="8" style="stroke-dasharray:none" />
+        <text x="79" y="166" style="font-weight:700">모놀리스</text>
+        {m.mods.map((t, k) => (<g><rect class="box" x="18" y={182 + k * 36} width="122" height="28" rx="4" /><text x="79" y={196 + k * 36}>{t}</text></g>))}
+      </g>
+    ))}
+    <g data-id="gone" class="hide">
+      <rect class="bad" x="8" y="150" width="142" height="44" rx="8" />
+      <text class="sub" x="79" y="172">모놀리스 꺼짐</text>
+    </g>
+
+    {svcs.map((s, k) => (
+      <g data-id={`s${k}`} class="hide">
+        <rect class="chip" x="170" y={150 + k * 46} width="142" height="36" rx="6" />
+        <text x="241" y={168 + k * 46}>{s} 서비스</text>
+      </g>
+    ))}
+  </svg>
+</Stepper>

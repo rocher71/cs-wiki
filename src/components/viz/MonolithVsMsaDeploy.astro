@@ -1,0 +1,99 @@
+---
+// 모놀리스(1~3단계)와 MSA(4~6단계)를 같은 자리에 번갈아 그린다. 배포·확장 단위가 어떻게 다른지.
+import Stepper from '../Stepper.astro';
+const steps = [
+  { caption: '모놀리스: 주문·회원·결제 코드가 실행 파일(JAR) 하나에 다 들어 있고, DB도 하나를 같이 써요.', show: ['m-title', 'm-app1', 'm-db'] },
+  { caption: '결제 코드 한 줄만 고쳐도 JAR 전체를 다시 빌드·테스트·배포해요. 주문·회원도 같이 내려갔다 올라와요.', show: ['m-title', 'm-app1', 'm-db', 'm-edit'] },
+  { caption: '점심에 결제만 바빠도 서버를 통째로 하나 더 띄워야 해요. 안 바쁜 주문·회원 코드까지 같이 복제돼요.', show: ['m-title', 'm-app1', 'm-app2', 'm-db', 'm-busy'] },
+  { caption: 'MSA: 주문·회원·결제가 각자 따로 실행되는 서비스예요. DB도 서비스마다 따로 갖고, 서로는 네트워크(HTTP)로 불러요.', show: ['s-title', 's-svc', 's-db'] },
+  { caption: '결제 코드를 고치면 결제 서비스만 새로 배포해요. 주문·회원 서비스는 멈추지 않고 그대로 돌아가요.', show: ['s-title', 's-svc', 's-db', 's-deploy'] },
+  { caption: '결제만 바쁘면 결제 서비스만 하나 더 띄워요. 필요한 곳만 골라서 늘릴 수 있어요(독립 확장).', show: ['s-title', 's-svc', 's-db', 's-pay2'] },
+];
+const mods = ['주문', '회원', '결제'];
+const apps = [{ x: 8, id: 'm-app1', t: '서버 1 (JAR 하나)' }, { x: 164, id: 'm-app2', t: '서버 2 (통째 복제)' }];
+const svcX = [8, 116, 224];
+---
+<Stepper title="배포·확장 단위: 모놀리스 vs MSA" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 290" role="img" aria-label="모놀리스는 주문·회원·결제가 JAR 하나와 DB 하나에 묶여 결제만 고쳐도 전체를 재배포하고 전체를 복제해 확장한다. MSA는 서비스마다 따로 배포하고 DB도 따로 가져 결제 서비스만 재배포·확장한다">
+    <!-- 모놀리스 -->
+    <text data-id="m-title" class="hide" x="160" y="16" style="font-weight:700">모놀리스 = 실행 파일(JAR) 하나</text>
+    {apps.map((a) => (
+      <g data-id={a.id} class="hide">
+        <line class="line" x1={a.x + 74} y1="184" x2={a.x + 74} y2="214" />
+        <rect class="frame" x={a.x} y="34" width="148" height="150" rx="8" style="stroke-dasharray:none" />
+        <text class="sub" x={a.x + 74} y="51">{a.t}</text>
+        {mods.map((m, k) => (
+          <g>
+            <rect class="box" x={a.x + 10} y={66 + k * 38} width="128" height="30" rx="5" />
+            <text x={a.x + 74} y={81 + k * 38}>{m}</text>
+          </g>
+        ))}
+      </g>
+    ))}
+    <g data-id="m-db" class="hide">
+      <rect class="chip" x="8" y="214" width="304" height="36" rx="6" />
+      <text x="160" y="232">DB 하나 (주문·회원·결제 테이블)</text>
+    </g>
+    <g data-id="m-edit" class="hide">
+      <rect class="err" x="18" y="142" width="128" height="30" rx="5" />
+      <text x="82" y="157">결제 (수정)</text>
+      <rect class="hl" x="4" y="30" width="156" height="158" rx="10" />
+      <text class="err-t" x="238" y="84">결제 한 줄 수정</text>
+      <text x="238" y="112">↓</text>
+      <text x="238" y="140">JAR 전체를</text>
+      <text x="238" y="164">다시 배포</text>
+    </g>
+    <g data-id="m-busy" class="hide">
+      {apps.map((a) => (
+        <g>
+          <rect class="err" x={a.x + 10} y="142" width="128" height="30" rx="5" />
+          <text x={a.x + 74} y="157">결제 (바쁨)</text>
+        </g>
+      ))}
+      <text class="sub" x="160" y="274">주문·회원도 덩달아 2개가 됐어요</text>
+    </g>
+
+    <!-- MSA -->
+    <text data-id="s-title" class="hide" x="160" y="16" style="font-weight:700">MSA = 서비스마다 따로 실행</text>
+    <g data-id="s-svc" class="hide">
+      <line class="line" x1="96" y1="70" x2="116" y2="70" />
+      <line class="line" x1="204" y1="70" x2="224" y2="70" />
+      <text class="sub" x="106" y="36">HTTP</text>
+      <text class="sub" x="214" y="36">HTTP</text>
+      {svcX.map((x) => <line class="line" x1={x + 16} y1="96" x2={x + 16} y2="184" />)}
+      {mods.map((m, k) => (
+        <g>
+          <rect class="box" x={svcX[k]} y="44" width="88" height="52" rx="6" />
+          <text x={svcX[k] + 44} y="61" style="font-weight:700">{m}</text>
+          <text class="sub" x={svcX[k] + 44} y="81">서비스</text>
+        </g>
+      ))}
+    </g>
+    <g data-id="s-db" class="hide">
+      {mods.map((m, k) => (
+        <g>
+          <rect class="chip" x={svcX[k]} y="184" width="88" height="40" rx="6" />
+          <text x={svcX[k] + 44} y="204">{m} DB</text>
+        </g>
+      ))}
+      <text class="sub" x="160" y="250">DB도 서비스마다 따로</text>
+    </g>
+    <g data-id="s-deploy" class="hide">
+      <rect class="hl" x="220" y="40" width="96" height="60" rx="8" />
+      <text class="hi" x="278" y="130">새 버전</text>
+      <text class="hi" x="278" y="152">배포</text>
+      <text class="sub" x="62" y="140">그대로</text>
+      <text class="sub" x="170" y="140">그대로</text>
+    </g>
+    <g data-id="s-pay2" class="hide">
+      <rect class="hl" x="220" y="40" width="96" height="60" rx="8" />
+      <rect class="box" x="224" y="112" width="88" height="52" rx="6" style="stroke:var(--sl-color-accent);stroke-width:2" />
+      <text x="268" y="129" style="font-weight:700">결제</text>
+      <text class="hi" x="268" y="149">+1개</text>
+      <text class="sub" x="62" y="130">1개</text>
+      <text class="sub" x="62" y="150">그대로</text>
+      <text class="sub" x="170" y="130">1개</text>
+      <text class="sub" x="170" y="150">그대로</text>
+    </g>
+  </svg>
+</Stepper>

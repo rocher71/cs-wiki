@@ -1,0 +1,76 @@
+---
+// 콘웨이 법칙: 팀을 나눈 모양대로 시스템이 갈라진다. 위: 기술 계층별 팀, 아래: 업무 기능별 팀.
+import Stepper from '../Stepper.astro';
+const steps = [
+  { caption: '팀을 기술별로 나누면(UI팀·서버팀·DB팀) 시스템도 UI층·서버층·DB층으로 갈라져요. 팀마다 자기 층만 맡아요.', show: ['a-title', 'a-team', 'a-sys'] },
+  { caption: '그런데 "주문" 기능 하나를 바꾸려면 세 층을 다 건드려야 해요. 그래서 세 팀이 모두 모여 회의하고 일정을 맞춰야 해요.', show: ['a-title', 'a-team', 'a-sys', 'a-cut'] },
+  { caption: '이번엔 업무 기능별로 팀을 나눠요(주문팀·회원팀·결제팀). 팀마다 UI·서버·DB 담당이 다 들어 있어요.', show: ['a-title', 'a-team', 'a-sys', 'b-title', 'b-team'] },
+  { caption: '그러면 시스템도 주문·회원·결제 서비스로 갈라져요. 주문 기능을 바꿀 땐 주문팀 안에서 다 끝나요.', show: ['a-title', 'a-team', 'a-sys', 'b-title', 'b-team', 'b-sys', 'b-cut'] },
+  { caption: '두 경우 모두 팀을 나눈 선이 곧 시스템이 갈라지는 선이에요. 이걸 콘웨이 법칙이라고 해요. 그래서 MSA는 팀 구조와 함께 설계해요.', show: ['a-title', 'a-team', 'a-sys', 'b-title', 'b-team', 'b-sys', 'eq'] },
+];
+const layers = ['UI', '서버', 'DB'];
+const feats = ['주문', '회원', '결제'];
+const rowY = [34, 78, 122];
+const colX = [8, 116, 224];
+---
+<Stepper title="콘웨이 법칙: 팀 모양 = 시스템 모양" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 470" role="img" aria-label="기술 계층별로 팀을 나누면 시스템이 UI·서버·DB 층으로 갈라져 기능 하나에 세 팀이 회의해야 하고, 업무 기능별로 팀을 나누면 시스템이 주문·회원·결제 서비스로 갈라져 변경이 한 팀 안에서 끝난다">
+    <!-- 위: 기술 계층별 팀 -->
+    <text data-id="a-title" class="l" x="8" y="14" style="font-weight:700">① 기술 계층별 팀</text>
+    <g data-id="a-team">
+      {layers.map((l, k) => (
+        <g>
+          <rect class="chip" x="8" y={rowY[k]} width="88" height="36" rx="6" />
+          <text x="52" y={rowY[k] + 18}>{l}팀</text>
+          <line class="line" x1="96" y1={rowY[k] + 18} x2="136" y2={rowY[k] + 18} />
+        </g>
+      ))}
+    </g>
+    <g data-id="a-sys">
+      <text class="sub" x="224" y="14">시스템</text>
+      {layers.map((l, k) => (
+        <g>
+          <rect class="box" x="136" y={rowY[k]} width="176" height="36" rx="6" />
+          <text class="l" x="146" y={rowY[k] + 18}>{l} 층</text>
+        </g>
+      ))}
+    </g>
+    <g data-id="a-cut" class="hide">
+      <rect class="err" x="232" y="30" width="64" height="132" rx="6" style="fill-opacity:.6" />
+      <text class="err-t" x="264" y="86">주문</text>
+      <text class="err-t" x="264" y="106">기능</text>
+      <text class="err-t" x="160" y="184">주문 하나 고치려면 → 세 팀 회의</text>
+    </g>
+
+    <!-- 아래: 업무 기능별 팀 -->
+    <text data-id="b-title" class="l" x="8" y="214" style="font-weight:700">② 업무 기능별 팀</text>
+    <g data-id="b-team">
+      {feats.map((f, k) => (
+        <g>
+          <rect class="chip" x={colX[k]} y="230" width="88" height="70" rx="6" />
+          <text x={colX[k] + 44} y="250" style="font-weight:700">{f}팀</text>
+          <text class="sub" x={colX[k] + 44} y="270">UI·서버·DB</text>
+          <text class="sub" x={colX[k] + 44} y="288">다 있음</text>
+        </g>
+      ))}
+    </g>
+    <g data-id="b-sys">
+      {feats.map((f, k) => (
+        <g>
+          <line class="line" x1={colX[k] + 44} y1="300" x2={colX[k] + 44} y2="326" />
+          <rect class="box" x={colX[k]} y="326" width="88" height="52" rx="6" />
+          <text x={colX[k] + 44} y="343">{f}</text>
+          <text class="sub" x={colX[k] + 44} y="363">서비스</text>
+        </g>
+      ))}
+    </g>
+    <g data-id="b-cut" class="hide">
+      <rect class="hl" x="4" y="226" width="96" height="156" rx="8" />
+      <text class="hi" x="160" y="404">주문 변경은 주문팀 안에서 끝</text>
+    </g>
+    <g data-id="eq" class="hide">
+      <rect class="badge" x="40" y="424" width="240" height="36" rx="18" />
+      <text class="on-badge" x="160" y="442" style="font-size:16px">팀 구조 = 시스템 구조</text>
+    </g>
+  </svg>
+</Stepper>

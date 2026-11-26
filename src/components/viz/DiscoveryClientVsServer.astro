@@ -1,0 +1,84 @@
+---
+// 서비스 디스커버리 두 방식 비교. 위: 클라이언트 사이드(Eureka) — 인스턴스가 스스로 등록, 호출자가 목록을 받아 직접 고름.
+// 아래: 서버 사이드(쿠버네티스) — 쿠버네티스가 대신 EndpointSlice에 등록, 호출자는 이름만 부르고 kube-proxy가 고름.
+import Stepper from '../Stepper.astro';
+const A = 0, B = 300; // 두 패널의 y 시작
+const top = ['pA', 'callerA', 'regA', 'instA'];
+const bot = ['pB', 'callerB', 'dnsB', 'kpB', 'epsB', 'podB'];
+const a3 = [...top, 'regArr', 'listArr', 'cache', 'callA'];
+const steps = [
+  { caption: '[클라이언트 사이드] 주문 인스턴스가 켜지면 레지스트리(Eureka)에 "나 주소 A야" 하고 스스로 등록하고, 살아 있다는 하트비트를 주기적으로 보내요.', show: [...top, 'regArr', 'hlRegA'] },
+  { caption: '호출자(게이트웨이)가 레지스트리에서 주문 서비스의 주소 목록을 받아 자기 메모리에 캐시해 둬요.', show: [...top, 'regArr', 'listArr', 'cache', 'hlCallerA'] },
+  { caption: '호출할 때는 호출자가 캐시된 목록에서 직접 하나(주소 A)를 골라 바로 불러요. 고르는 로직이 호출자 안에 있어요.', show: [...a3, 'hlInstA'] },
+  { caption: '[서버 사이드] 쿠버네티스에선 Pod가 Ready가 되면 쿠버네티스가 대신 주소를 EndpointSlice 목록에 넣어요. Pod는 등록 코드가 없어요.', show: [...a3, ...bot, 'epsArr', 'hlEps'] },
+  { caption: '호출자는 이름 payment로만 불러요. DNS가 이 이름에 대해 바뀌지 않는 고정 주소(ClusterIP)를 알려 줘요.', show: [...a3, ...bot, 'epsArr', 'dnsArr', 'hlDns'] },
+  { caption: '고정 주소로 보낸 요청을 노드의 kube-proxy 규칙이 EndpointSlice를 보고 Pod 하나(주소 C)로 넘겨요. 호출자는 목록을 끝까지 몰라요.', show: [...a3, ...bot, 'epsArr', 'dnsArr', 'kpArr', 'readArr', 'podArr', 'hlPodB'] },
+];
+const box = (x: number, y: number, w = 120, h = 56) => ({ x, y, width: w, height: h, rx: 8 });
+---
+<Stepper title="서비스 디스커버리: 클라이언트 사이드 vs 서버 사이드" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 568" role="img" aria-label="위쪽 클라이언트 사이드 방식: 주문 인스턴스가 Eureka 레지스트리에 스스로 등록하고 하트비트를 보내며, 호출자가 목록을 받아 캐시한 뒤 직접 하나를 골라 호출한다. 아래쪽 서버 사이드 방식: Pod가 Ready가 되면 쿠버네티스가 EndpointSlice에 넣고, 호출자는 이름 payment로 DNS에서 고정 주소 ClusterIP를 받아 보내면, 노드의 kube-proxy가 Pod 하나로 넘긴다. 호출자는 목록을 모른다">
+    <defs><marker id="dcs-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" style="fill:var(--sl-color-gray-3)" /></marker></defs>
+
+    <!-- 위: 클라이언트 사이드 -->
+    <g data-id="pA">
+      <rect class="frame" x="4" y={A + 4} width="312" height="282" rx="10" />
+      <text class="l" x="12" y={A + 20} style="font-weight:700">클라이언트 사이드 (Eureka)</text>
+    </g>
+    <g data-id="callerA"><rect class="box" {...box(16, A + 40)} /><text x="76" y={A + 58}>호출자</text><text class="sub" x="76" y={A + 80}>게이트웨이</text></g>
+    <g data-id="regA"><rect class="box" {...box(184, A + 40)} /><text x="244" y={A + 58}>레지스트리</text><text class="sub" x="244" y={A + 80}>Eureka</text></g>
+    <g data-id="listArr">
+      <line class="line" x1="184" y1={A + 68} x2="138" y2={A + 68} marker-end="url(#dcs-arr)" />
+    </g>
+    <g data-id="cache"><rect class="chip" {...box(16, A + 106, 120, 36)} /><text x="76" y={A + 124} style="font-size:14px">캐시: 주소 A·B</text></g>
+    <g data-id="regArr">
+      <line class="line" x1="110" y1={A + 204} x2="196" y2={A + 100} marker-end="url(#dcs-arr)" />
+      <line class="line" x1="226" y1={A + 204} x2="226" y2={A + 100} marker-end="url(#dcs-arr)" />
+      <text class="sub l" x="234" y={A + 144}>등록 +</text>
+      <text class="sub l" x="234" y={A + 162}>하트비트</text>
+    </g>
+    <g data-id="callA">
+      <line class="line" x1="76" y1={A + 142} x2="76" y2={A + 202} marker-end="url(#dcs-arr)" />
+      <text class="sub l" x="84" y={A + 172}>호출</text>
+    </g>
+    <g data-id="instA">
+      <rect class="box" {...box(16, A + 206)} /><text x="76" y={A + 224}>주문 #1</text><text class="sub" x="76" y={A + 246}>주소 A</text>
+      <rect class="box" {...box(184, A + 206)} /><text x="244" y={A + 224}>주문 #2</text><text class="sub" x="244" y={A + 246}>주소 B</text>
+    </g>
+
+    <!-- 아래: 서버 사이드 -->
+    <g data-id="pB">
+      <rect class="frame" x="4" y={B - 2} width="312" height="268" rx="10" />
+      <text class="l" x="12" y={B + 14} style="font-weight:700">서버 사이드 (쿠버네티스)</text>
+    </g>
+    <g data-id="callerB"><rect class="box" {...box(16, B + 30)} /><text x="76" y={B + 48}>호출자</text><text class="mono" x="76" y={B + 70}>"payment"</text></g>
+    <g data-id="dnsB"><rect class="box" {...box(184, B + 30)} /><text x="244" y={B + 48}>DNS</text><text class="sub" x="244" y={B + 70}>→ ClusterIP</text></g>
+    <g data-id="dnsArr">
+      <line class="line" x1="138" y1={B + 48} x2="182" y2={B + 48} marker-end="url(#dcs-arr)" />
+      <line class="line" x1="184" y1={B + 70} x2="140" y2={B + 70} marker-end="url(#dcs-arr)" />
+    </g>
+    <line data-id="kpArr" class="line" x1="76" y1={B + 86} x2="76" y2={B + 112} marker-end="url(#dcs-arr)" />
+    <g data-id="kpB"><rect class="box" {...box(16, B + 114, 120, 52)} /><text class="mono" x="76" y={B + 132}>kube-proxy</text><text class="sub" x="76" y={B + 152}>노드마다</text></g>
+    <g data-id="epsB"><rect class="chip" {...box(184, B + 114, 120, 52)} /><text class="mono" x="244" y={B + 132}>EndpointSlice</text><text class="sub" x="244" y={B + 152}>주소 C·D</text></g>
+    <g data-id="readArr">
+      <line class="line" x1="184" y1={B + 140} x2="138" y2={B + 140} marker-end="url(#dcs-arr)" style="stroke-dasharray:4 3" />
+    </g>
+    <g data-id="epsArr">
+      <line class="line" x1="110" y1={B + 196} x2="196" y2={B + 168} marker-end="url(#dcs-arr)" />
+      <line class="line" x1="244" y1={B + 196} x2="244" y2={B + 168} marker-end="url(#dcs-arr)" />
+      <text class="sub l" x="252" y={B + 182}>자동</text>
+    </g>
+    <line data-id="podArr" class="line" x1="76" y1={B + 166} x2="76" y2={B + 196} marker-end="url(#dcs-arr)" />
+    <g data-id="podB">
+      <rect class="box" {...box(16, B + 198, 120, 52)} /><text x="76" y={B + 216}>Pod #1</text><text class="sub" x="76" y={B + 236}>주소 C</text>
+      <rect class="box" {...box(184, B + 198, 120, 52)} /><text x="244" y={B + 216}>Pod #2</text><text class="sub" x="244" y={B + 236}>주소 D</text>
+    </g>
+
+    <rect data-id="hlRegA" class="hl" x="180" y={A + 36} width="128" height="64" rx="10" />
+    <rect data-id="hlCallerA" class="hl" x="12" y={A + 36} width="128" height="110" rx="10" />
+    <rect data-id="hlInstA" class="hl" x="12" y={A + 202} width="128" height="64" rx="10" />
+    <rect data-id="hlEps" class="hl" x="180" y={B + 110} width="128" height="60" rx="10" />
+    <rect data-id="hlDns" class="hl" x="12" y={B + 26} width="296" height="64" rx="10" />
+    <rect data-id="hlPodB" class="hl" x="12" y={B + 194} width="128" height="60" rx="10" />
+  </svg>
+</Stepper>

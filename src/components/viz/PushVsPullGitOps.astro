@@ -1,0 +1,105 @@
+---
+// push형 배포(CI가 클러스터에 직접 kubectl apply) vs pull형 GitOps(클러스터 안 Argo CD가 Git을 당겨와 맞춤).
+import Stepper from '../Stepper.astro';
+const pull = ['t-pull', 'ci', 'ci-pull', 'git', 'a-ci-git', 'cl', 'argo', 'p1', 'p2', 'p3'];
+const steps = [
+  { caption: '1. push형: CI가 빌드 후 kubectl apply로 클러스터에 직접 배포해요. 그러려면 CI가 운영 클러스터 권한(자격증명)을 들고 있어야 해요.', show: ['t-push', 'ci', 'ci-key', 'cl', 'a-push', 'p1', 'p2', 'p3', 'ver-new', 'hl-ci'] },
+  { caption: '2. push형: 누가 kubectl로 Pod를 5개로 손대도, CI는 다음 배포 때까지 이 차이(드리프트)를 몰라요.', show: ['t-push', 'ci', 'ci-blind', 'cl', 'op-push', 'p1', 'p2', 'p3', 'p4', 'p5', 'ver-new', 'hl-pods'] },
+  { caption: '3. pull형(GitOps): CI는 이미지를 레지스트리에 올리고, 설정 저장소(Git)의 이미지 태그만 v1.4.2로 커밋해요. 클러스터 권한은 없어요.', show: [...pull, 'nocred', 'tag-new', 'ver-old', 'hl-git'] },
+  { caption: '4. 클러스터 안의 Argo CD가 Git을 주기적으로 확인해요(기본 최대 약 3분). Git은 v1.4.2, 실제는 v1.4.1이라 OutOfSync로 표시해요.', show: [...pull, 'a-pull', 'tag-new', 'ver-old', 'st-out', 'hl-status'] },
+  { caption: '5. sync: Argo CD가 Git에 적힌 대로 클러스터를 바꿔요. 실제가 v1.4.2가 되면 Synced·Healthy예요.', show: [...pull, 'a-pull', 'tag-new', 'ver-new', 'st-ok', 'hl-pods'] },
+  { caption: '6. 누가 kubectl로 Pod를 5개로 손대면(드리프트) Git(3개)과 달라져요. Argo CD가 바로 OutOfSync로 알아채요.', show: [...pull, 'op-pull', 'tag-new', 'ver-new', 'p4', 'p5', 'st-out', 'hl-status'] },
+  { caption: '7. self-heal을 켜 두면 Argo CD가 Git 상태(3개)로 되돌려요. 기본값은 꺼져 있어서 표시만 해요. 바꾸고 싶으면 Git에 커밋해야 해요.', show: [...pull, 'tag-new', 'ver-new', 'st-ok', 'hl-pods'] },
+  { caption: '8. 장애가 나면 설정 저장소에서 git revert로 태그를 v1.4.1로 되돌려요. Argo CD가 그대로 sync하면 그게 롤백이에요.', show: [...pull, 'a-pull', 'tag-old', 'ver-old', 'st-ok', 'hl-git'] },
+];
+const px = [20, 46, 72, 98, 124];
+---
+<Stepper title="push형 배포 vs pull형 GitOps" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 306" role="img" aria-label="push형은 CI가 클러스터 권한을 들고 직접 배포하고 손으로 바꾼 변경을 모른다. pull형은 CI가 Git의 이미지 태그만 커밋하고 클러스터 안 Argo CD가 Git을 확인해 sync, 드리프트 되돌림, git revert 롤백을 한다">
+    <defs>
+      <marker id="pp-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+    </defs>
+    <style>
+      .pp-a { stroke: var(--sl-color-accent); stroke-width: 2.4; fill: none; }
+    </style>
+
+    <text data-id="t-push" class="hide" x="160" y="14" style="font-weight:700">push형: CI가 밀어 넣기</text>
+    <text data-id="t-pull" class="hide" x="160" y="14" style="font-weight:700">pull형: 클러스터가 당겨 오기</text>
+
+    <!-- 위: CI, 설정 저장소 -->
+    <g data-id="ci">
+      <rect class="box" x="12" y="30" width="136" height="56" rx="8" />
+      <text x="80" y="48">CI 서버</text>
+    </g>
+    <text data-id="ci-key" class="err-t hide" x="80" y="70" style="font-size:14px">운영 권한 보유</text>
+    <text data-id="ci-blind" class="err-t hide" x="80" y="70" style="font-size:14px">변경을 모름 ?</text>
+    <text data-id="ci-pull" class="sub hide" x="80" y="70">이미지·태그만</text>
+
+    <g data-id="git" class="hide">
+      <rect class="box" x="172" y="30" width="136" height="56" rx="8" />
+      <text x="240" y="48">설정 저장소</text>
+    </g>
+    <text data-id="tag-new" class="mono hi hide" x="240" y="70">tag: v1.4.2</text>
+    <text data-id="tag-old" class="mono hi hide" x="240" y="70">tag: v1.4.1</text>
+    <line data-id="a-ci-git" class="pp-a hide" x1="150" y1="58" x2="170" y2="58" marker-end="url(#pp-arr)" />
+
+    <!-- 가운데: 화살표, 운영자 -->
+    <g data-id="a-push" class="hide">
+      <line class="pp-a" x1="80" y1="88" x2="80" y2="194" marker-end="url(#pp-arr)" />
+      <text class="mono l" x="88" y="116">kubectl apply</text>
+    </g>
+    <text data-id="nocred" class="err-t hide" x="80" y="116" style="font-size:14px">✕ 운영 권한 없음</text>
+    <g data-id="a-pull" class="hide">
+      <line class="pp-a" x1="240" y1="88" x2="240" y2="170" marker-end="url(#pp-arr)" style="stroke-dasharray:6 4" />
+      <text class="sub" x="228" y="108" style="text-anchor:end">당겨 옴(pull)</text>
+      <text class="sub" x="228" y="128" style="text-anchor:end">최대 약 3분마다</text>
+    </g>
+    <g data-id="op-push" class="hide">
+      <rect class="err" x="190" y="94" width="124" height="44" rx="8" />
+      <text x="252" y="106">운영자</text>
+      <text class="mono" x="252" y="126">kubectl scale</text>
+      <line class="pp-a" x1="230" y1="140" x2="154" y2="204" marker-end="url(#pp-arr)" />
+    </g>
+    <g data-id="op-pull" class="hide">
+      <rect class="err" x="12" y="94" width="136" height="44" rx="8" />
+      <text x="80" y="106">운영자</text>
+      <text class="mono" x="80" y="126">kubectl scale</text>
+      <line class="pp-a" x1="80" y1="140" x2="80" y2="192" marker-end="url(#pp-arr)" />
+    </g>
+
+    <!-- 아래: 클러스터 -->
+    <g data-id="cl">
+      <rect class="frame" x="6" y="148" width="308" height="152" rx="10" />
+      <text class="sub" x="302" y="162" style="text-anchor:end">클러스터</text>
+      <text class="l" x="20" y="180">앱 Pod</text>
+    </g>
+    {px.map((x, k) => (
+      <g data-id={`p${k + 1}`} class={k > 2 ? 'hide' : undefined}>
+        <rect class={k > 2 ? 'err' : 'chip'} x={x} y="196" width="22" height="30" rx="5" />
+        <text x={x + 11} y="211">P</text>
+      </g>
+    ))}
+    <text data-id="ver-new" class="mono l hide" x="20" y="246">app:v1.4.2</text>
+    <text data-id="ver-old" class="mono l hide" x="20" y="246">app:v1.4.1</text>
+
+    <g data-id="argo" class="hide">
+      <rect class="box" x="172" y="172" width="128" height="44" rx="8" />
+      <text x="236" y="194" style="font-weight:700">Argo CD</text>
+    </g>
+    <g data-id="st-out" class="hide">
+      <rect class="err" x="172" y="226" width="128" height="36" rx="8" />
+      <text class="err-t" x="236" y="244">OutOfSync</text>
+    </g>
+    <g data-id="st-ok" class="hide">
+      <rect class="chip" x="172" y="226" width="128" height="36" rx="8" />
+      <text x="236" y="244">Synced·Healthy</text>
+    </g>
+
+    <rect data-id="hl-ci" class="hl" x="8" y="26" width="144" height="64" rx="10" />
+    <rect data-id="hl-git" class="hl" x="168" y="26" width="144" height="64" rx="10" />
+    <rect data-id="hl-pods" class="hl" x="14" y="190" width="140" height="68" rx="8" />
+    <rect data-id="hl-status" class="hl" x="168" y="222" width="136" height="44" rx="10" />
+  </svg>
+</Stepper>

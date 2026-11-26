@@ -1,0 +1,75 @@
+---
+// trace id가 HTTP 헤더(traceparent)와 Kafka 메시지 헤더를 타고 주문 → 결제 → 알림까지 이어지는 과정, 그리고 한 곳에서 안 넘기면 두 동강 나는 대비.
+// traceparent 값은 W3C Trace Context 명세의 예시 값.
+import Stepper from '../Stepper.astro';
+const s1 = ['cli', 'a0', 'ord', 't1'];
+const s2 = [...s1, 'a1', 'hdr', 'pay', 't2'];
+const s3 = [...s2, 'a2', 'kfk', 'kOk'];
+const s4 = [...s3, 'noti', 't3', 'link'];
+const s5 = [...s2, 'a2', 'kfk', 'kBad', 'cut', 'noti', 't3bad'];
+const steps = [
+  { caption: '클라이언트 요청이 주문 서비스에 도착해요. 들어온 traceparent가 없으니 trace id를 새로 만들어요(예: 4bf9…4736).', show: [...s1, 'hlOrd'] },
+  { caption: '주문이 결제를 HTTP로 부를 때 traceparent 헤더에 같은 trace id를 실어요. 형식은 버전-trace id-부모 span id-플래그(01 = 샘플링함)예요.', show: [...s2, 'hlHdr'] },
+  { caption: '결제가 Kafka에 "결제완료" 메시지를 발행해요. 이 발행이 PRODUCER span이고, 메시지 헤더에도 같은 trace id를 넣어요.', show: [...s3, 'hlK'] },
+  { caption: '알림 서비스가 메시지를 꺼내 처리해요. 이 CONSUMER span이 생산자 span에 link로 이어져서, 큐를 사이에 둬도 한 흐름으로 보여요.', show: [...s4, 'hlN'] },
+  { caption: '대비: 결제 앱이 헤더를 안 넘기면 메시지에 trace id가 없어요. 알림은 새 trace id로 시작하고, 기록이 결제 앞·뒤로 두 동강 나요.', show: [...s5, 'hlBad'] },
+];
+---
+<Stepper title="trace id가 서비스와 큐를 넘어가는 길" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 408" role="img" aria-label="클라이언트 요청이 주문 서비스에 오면 trace id 4bf92f3577b34da6a3ce929d0e0e4736을 만든다. 주문은 결제를 부를 때 traceparent 헤더 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01을 싣는다. 결제는 Kafka에 결제완료 메시지를 발행하며 메시지 헤더에 같은 trace id를 넣고(PRODUCER span), 알림 서비스가 꺼내 처리하는 CONSUMER span은 생산자 span에 link로 이어진다. 결제가 헤더를 안 넘기면 알림은 새 trace id로 시작해 기록이 두 동강 난다">
+    <defs><marker id="tcp-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" style="fill:var(--sl-color-gray-3)" /></marker></defs>
+
+    <g data-id="cli">
+      <rect class="box" x="8" y="4" width="304" height="40" rx="8" />
+      <text class="l" x="20" y="24">클라이언트</text>
+      <text class="sub" x="300" y="24" style="text-anchor:end">trace id 없음</text>
+    </g>
+    <line data-id="a0" class="line" x1="24" y1="44" x2="24" y2="62" marker-end="url(#tcp-arr)" />
+
+    <g data-id="ord">
+      <rect class="box" x="8" y="64" width="304" height="44" rx="8" />
+      <text class="l" x="20" y="86">주문 서비스</text>
+    </g>
+    <text data-id="t1" class="mono hi" x="300" y="86" style="text-anchor:end">4bf9…4736 생성</text>
+
+    <line data-id="a1" class="line" x1="24" y1="108" x2="24" y2="194" marker-end="url(#tcp-arr)" />
+    <g data-id="hdr">
+      <rect class="chip" x="36" y="118" width="276" height="68" rx="7" />
+      <text class="mono l" x="44" y="134">traceparent: 00-</text>
+      <text class="mono hi l" x="44" y="153" textLength="260" lengthAdjust="spacingAndGlyphs">4bf92f3577b34da6a3ce929d0e0e4736</text>
+      <text class="mono l" x="44" y="172">-00f067aa0ba902b7-01</text>
+    </g>
+
+    <g data-id="pay">
+      <rect class="box" x="8" y="196" width="304" height="44" rx="8" />
+      <text class="l" x="20" y="218">결제 서비스</text>
+    </g>
+    <text data-id="t2" class="mono hi" x="300" y="218" style="text-anchor:end">4bf9…4736</text>
+
+    <line data-id="a2" class="line" x1="24" y1="240" x2="24" y2="326" marker-end="url(#tcp-arr)" />
+    <g data-id="kfk">
+      <rect class="box" x="52" y="252" width="260" height="62" rx="7" style="stroke-dasharray:5 3" />
+      <text class="l" x="60" y="268">Kafka 발행 (PRODUCER span)</text>
+    </g>
+    <text data-id="kOk" class="mono hi l hide" x="60" y="296">헤더: 4bf9…4736</text>
+    <text data-id="kBad" class="err-t l hide" x="60" y="296">헤더: trace id 없음</text>
+    <g data-id="cut" class="hide">
+      <rect class="err" x="2" y="270" width="44" height="26" rx="5" />
+      <text class="err-t" x="24" y="284">✗ 끊김</text>
+    </g>
+
+    <g data-id="noti">
+      <rect class="box" x="8" y="328" width="304" height="44" rx="8" />
+      <text class="l" x="20" y="350">알림 서비스</text>
+    </g>
+    <text data-id="t3" class="mono hi hide" x="300" y="350" style="text-anchor:end">4bf9…4736</text>
+    <text data-id="t3bad" class="err-t hide" x="300" y="350" style="text-anchor:end">새 trace id</text>
+    <text data-id="link" class="sub l" x="20" y="392">CONSUMER span ─link→ PRODUCER span</text>
+
+    <rect data-id="hlOrd" class="hl" x="4" y="60" width="312" height="52" rx="10" />
+    <rect data-id="hlHdr" class="hl" x="32" y="114" width="284" height="76" rx="9" />
+    <rect data-id="hlK" class="hl" x="48" y="248" width="268" height="70" rx="9" />
+    <rect data-id="hlN" class="hl" x="4" y="324" width="312" height="80" rx="10" />
+    <rect data-id="hlBad" class="hl" x="4" y="248" width="312" height="128" rx="10" />
+  </svg>
+</Stepper>

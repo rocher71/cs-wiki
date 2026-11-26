@@ -1,0 +1,101 @@
+---
+// 컬럼 이름 변경(name → full_name)을 expand → migrate → contract 7단계로 나눠 보는 그림.
+// 위: 단계 띠 / 가운데: DB 컬럼 상태 / 아래: 떠 있는 앱 버전과 읽기·쓰기 대상 / 맨 아래: 롤백 가능 여부.
+import Stepper from '../Stepper.astro';
+const phases: [string, string, string, number, number][] = [
+  ['ph-e', 'expand', '넓히기', 10, 92], ['ph-m', 'migrate', '옮기기', 106, 116], ['ph-c', 'contract', '줄이기', 226, 84],
+];
+const CY = 76, CH = 46;                 // 컬럼 칩 y, 높이
+// [id, x, class, 이름, 상태]
+const cols: [string, number, string, string, string][] = [
+  ['nm', 10, 'box', 'name', '값 있음 · 최신'],
+  ['nm-stale', 10, 'bad', 'name', '갱신 멈춤 (낡아 감)'],
+  ['nm-drop', 10, 'bad', 'name', '삭제됨 (DROP)'],
+  ['fn-empty', 165, 'bad', 'full_name', '비어 있음 (NULL)'],
+  ['fn-new', 165, 'bad', 'full_name', '새 행만 채워짐'],
+  ['fn-fill', 165, 'chip', 'full_name', '옛 행 채우는 중'],
+  ['fn-full', 165, 'chip', 'full_name', '모든 행 채워짐'],
+];
+const AY = 204, AH = 70;                // 앱 박스 y, 높이
+// [id, 버전, 쓰기 대상, 읽기 대상, 바뀐 줄(w|r|'')]
+const apps: [string, string, string, string, string][] = [
+  ['a1', 'v1', 'name', 'name', ''],
+  ['a2', 'v2', 'name + full_name', 'name', 'w'],
+  ['a3', 'v3', 'name + full_name', 'full_name', 'r'],
+  ['a4', 'v4', 'full_name', 'full_name', 'w'],
+];
+const notes = ['출발: 컬럼은 name 하나', 'expand: 빈 칸 추가', 'migrate: 이중 쓰기', 'migrate: 백필', 'migrate: 읽기 전환', 'migrate: 롤백 경계', 'contract: 옛 컬럼 삭제'];
+const steps = [
+  { caption: '출발점이에요. DB에는 name 컬럼만 있고, 떠 있는 앱 v1은 name에 쓰고 name에서 읽어요.', show: ['nm', 'a1', 'n1'] },
+  { caption: 'expand: full_name 컬럼을 NULL 허용으로 추가해요. 앱 v1은 이 칸을 모르지만, 비어 있어도 되니 INSERT가 실패하지 않아요.', show: ['ph-e', 'nm', 'fn-empty', 'hl-db', 'a1', 'n2'] },
+  { caption: '앱 v2를 배포해요. 저장할 때 name과 full_name 둘 다에 써요(이중 쓰기). 읽기는 아직 name이라 새 행만 full_name이 채워져요.', show: ['ph-m', 'nm', 'fn-new', 'a2', 'hl-app', 'n3'] },
+  { caption: '백필: v1이 모두 내려간 뒤, 예전부터 있던 행의 빈 full_name을 PK 범위로 몇천 행씩 나눠 채워요. 한 번에 다 UPDATE하면 트랜잭션이 길어져요.', show: ['ph-m', 'nm', 'fn-fill', 'bf', 'a2', 'n4'] },
+  { caption: '앱 v3를 배포해 읽기를 full_name으로 바꿔요. 쓰기는 아직 둘 다라 name도 최신이에요. 그래서 여기까지는 언제든 이전 버전으로 롤백해도 안전해요.', show: ['ph-m', 'nm', 'fn-full', 'a3', 'hl-app', 'rb-safe', 'n5'] },
+  { caption: '앱 v4는 full_name에만 써요. 이제 name은 갱신되지 않아서, name을 읽는 v2 이하로 되돌리면 낡은 값을 보게 돼요. 여기가 롤백 경계예요. 충분히 지켜본 뒤 넘어가요.', show: ['ph-m', 'nm-stale', 'fn-full', 'a4', 'hl-app', 'rb-line', 'n6'] },
+  { caption: 'contract: 옛 버전 앱이 하나도 안 떠 있는 걸 확인한 뒤에 name을 DROP해요. 컬럼은 full_name만 남아요.', show: ['ph-c', 'nm-drop', 'fn-full', 'hl-db', 'a4', 'n7'] },
+];
+---
+<Stepper title="expand → migrate → contract: 컬럼 이름 바꾸기" steps={steps}>
+  <svg class="viz ec" viewBox="0 0 320 346" role="img" aria-label="name 컬럼을 full_name으로 바꾸는 과정. 새 컬럼 추가, 이중 쓰기, 백필, 읽기 전환, 옛 컬럼 쓰기 중단(롤백 경계), 옛 컬럼 삭제 순서로 DB 컬럼과 앱 버전이 바뀌는 모습">
+    <!-- 단계 띠 -->
+    {phases.map(([id, en, ko, x, w]) => (
+      <g>
+        <rect class="box" x={x} y="4" width={w} height="44" rx="6" />
+        <text x={x + w / 2} y="19" style="font-weight:700">{en}</text>
+        <text class="sub" x={x + w / 2} y="37">{ko}</text>
+        <rect data-id={id} class="hl" x={x - 2} y="2" width={w + 4} height="48" rx="8" />
+      </g>
+    ))}
+
+    <!-- DB 컬럼 -->
+    <text class="l" x="10" y="66" style="font-weight:700">DB 컬럼</text>
+    {cols.map(([id, x, cls, name, st]) => (
+      <g data-id={id} class="hide">
+        <rect class={cls} x={x} y={CY} width="145" height={CH} rx="6" />
+        <text class="mono" x={x + 72.5} y={CY + 15} style={id === 'nm-drop' ? 'text-decoration:line-through' : ''}>{name}</text>
+        <text class="sub" x={x + 72.5} y={CY + 34}>{st}</text>
+      </g>
+    ))}
+    <rect data-id="hl-db" class="hl" x="7" y={CY - 3} width="306" height={CH + 6} rx="8" />
+
+    <!-- 백필 진행 막대 -->
+    <g data-id="bf" class="hide">
+      <text class="l sub" x="10" y="142">백필: PK 범위로 몇천 행씩 나눠 채움</text>
+      <rect class="frame" x="10" y="154" width="300" height="16" rx="4" />
+      <rect class="chip bf-fill" x="10" y="154" width="300" height="16" rx="4" />
+      <text class="sub" x="290" y="183" style="text-anchor:end">0% → 100%</text>
+    </g>
+
+    <!-- 앱 -->
+    <text class="l" x="10" y="194" style="font-weight:700">떠 있는 앱</text>
+    {apps.map(([id, v, w, r, ch]) => (
+      <g data-id={id} class="hide">
+        <rect class="chip" x="10" y={AY} width="70" height={AH} rx="6" />
+        <text x="45" y={AY + AH / 2} style="font-weight:700;font-size:20px">{v}</text>
+        <rect class="box" x="88" y={AY} width="222" height={AH} rx="6" />
+        <text class="l" x="98" y={AY + 22}>쓰기 → <tspan class={ch === 'w' ? 'mono hi' : 'mono'}>{w}</tspan></text>
+        <text class="l" x="98" y={AY + 50}>읽기 → <tspan class={ch === 'r' ? 'mono hi' : 'mono'}>{r}</tspan></text>
+      </g>
+    ))}
+    <rect data-id="hl-app" class="hl" x="7" y={AY - 3} width="306" height={AH + 6} rx="8" />
+
+    <!-- 롤백 -->
+    <g data-id="rb-safe" class="hide">
+      <rect class="chip" x="10" y="284" width="300" height="30" rx="6" />
+      <text x="160" y="299">여기까진 롤백 안전 (name도 최신)</text>
+    </g>
+    <g data-id="rb-line" class="hide">
+      <line x1="10" y1="288" x2="310" y2="288" style="stroke:var(--sl-color-red);stroke-width:3;stroke-dasharray:8 5" />
+      <text class="err-t" x="160" y="306">롤백 경계: v2 이하로는 못 돌아가요</text>
+    </g>
+
+    {notes.map((t, i) => <text data-id={`n${i + 1}`} class="hi hide" x="160" y="334" style="font-size:14px">{t}</text>)}
+  </svg>
+</Stepper>
+
+<style>
+  /* 백필 막대: 단계가 켜지면 왼쪽부터 0 → 100%로 차오른다 */
+  .ec .bf-fill { transform-box: fill-box; transform-origin: left; transform: scaleX(0); transition: transform 1.6s ease; }
+  .ec [data-id='bf']:not(.is-off) .bf-fill { transform: scaleX(1); }
+  @media (prefers-reduced-motion: reduce) { .ec .bf-fill { transition: none; } }
+</style>

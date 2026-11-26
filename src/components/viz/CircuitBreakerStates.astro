@@ -1,0 +1,90 @@
+---
+// 서킷브레이커 3상태. 위: 상태 삼각형(CLOSED·OPEN 위, HALF_OPEN 아래). 아래: 요청 → 서킷 → 외부 API 흐름(상태별 복제, .hide).
+import Stepper from '../Stepper.astro';
+const steps = [
+  { caption: 'CLOSED(닫힘, 평소 상태): 요청이 외부 API로 그대로 지나가요. 서킷브레이커는 옆에서 성공·실패를 세기만 해요.', show: ['c', 'cbC', 'fPass', 'nC', 'hl-c'] },
+  { caption: '최근 호출 중 실패율이 기준(기본 50%) 이상이 되면 서킷이 OPEN으로 바뀌어요.', show: ['c', 'o', 'aCO', 'cbC', 'fPass', 'fFail', 'nCO', 'hl-o'] },
+  { caption: 'OPEN(열림, 끊김): 요청이 외부 API까지 가지 않고 바로 폴백 응답을 받아요. 느린 API를 기다리며 스레드가 묶이지 않아요.', show: ['c', 'o', 'aCO', 'cbO', 'fBlock', 'nO', 'hl-o'] },
+  { caption: '대기 시간(기본 60초)이 지난 뒤 다음 호출이 들어오면 HALF_OPEN(반열림)이 돼요. 시간이 됐다고 저절로 바뀌는 게 기본은 아니에요.', show: ['c', 'o', 'h', 'aCO', 'aOH', 'cbH', 'fReq', 'nOH', 'hl-h'] },
+  { caption: 'HALF_OPEN: 시험 호출 몇 건(기본 10건)만 외부 API로 보내 보고, 그 사이 다른 요청은 거절해요.', show: ['c', 'o', 'h', 'aCO', 'aOH', 'cbH', 'fTrial', 'nH', 'hl-h'] },
+  { caption: '시험 결과 실패율이 기준보다 낮으면 CLOSED로 돌아가고, 여전히 높으면 다시 OPEN으로 가서 또 기다려요.', show: ['c', 'o', 'h', 'aCO', 'aOH', 'aHC', 'aHO', 'cbH', 'fTrial', 'nEnd', 'hl-c', 'hl-o'] },
+];
+const arr = 'fill:none;stroke:var(--sl-color-accent);stroke-width:2';
+const S = { c: [10, 30, 118, 40], o: [192, 30, 118, 40], h: [90, 150, 140, 40] } as const;
+// 흐름 줄: 요청 / 서킷 / 외부 API 상자
+const FY = 232, FH = 44, REQ = 8, CB = 118, API = 236, W = 76;
+const notes: [string, string, string][] = [
+  ['nC', '통과시키며 실패를 세는 중', 'hi'], ['nCO', '실패율 ≥ 50% → 차단기 내림', 'err-t'],
+  ['nO', '외부 API는 안 부르고 즉시 폴백', 'hi'], ['nOH', '60초 뒤 다음 호출이 오면 전환', 'hi'],
+  ['nH', '시험 몇 건만 통과, 나머지 거절', 'hi'], ['nEnd', '통과 → CLOSED / 실패 → 다시 OPEN', 'hi'],
+];
+const pill = (x: number, y: number, w: number, t: string) => ({ x, y, w, t });
+---
+<Stepper title="서킷브레이커의 세 가지 상태" steps={steps}>
+  <svg class="viz cbs" viewBox="0 0 320 340" role="img" aria-label="CLOSED에서 실패율이 50% 이상이면 OPEN, 대기 시간이 지난 뒤 다음 호출이 오면 HALF_OPEN, 시험 호출 결과에 따라 CLOSED 또는 다시 OPEN으로 바뀌는 서킷브레이커 상태 전이">
+    <defs>
+      <marker id="cbs-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" /></marker>
+      <marker id="cbs-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-3)" /></marker>
+    </defs>
+
+    <!-- 전이 화살표 + 라벨 pill -->
+    {[
+      ['aCO', 'M128 50 L190 50', pill(160, 14, 112, '실패율 ≥ 50%')],
+      ['aOH', 'M290 70 L226 148', pill(276, 116, 76, '60초 뒤')],
+      ['aHO', 'M196 148 L248 72', pill(200, 98, 80, '시험 실패')],
+      ['aHC', 'M114 148 L62 72', pill(64, 114, 80, '시험 통과')],
+    ].map(([id, d, p]: any) => (
+      <g data-id={id}>
+        <path d={d} style={arr} marker-end="url(#cbs-a)" />
+        <rect class="box" x={p.x - p.w / 2} y={p.y - 11} width={p.w} height="22" rx="11" />
+        <text x={p.x} y={p.y} style="font-size:14px">{p.t}</text>
+      </g>
+    ))}
+
+    <!-- 상태 -->
+    {[['c', 'CLOSED', '평소'], ['o', 'OPEN', '차단'], ['h', 'HALF_OPEN', '시험']].map(([id, t]) => {
+      const [x, y, w, h] = S[id as 'c'];
+      return <g data-id={id}><rect class="box" x={x} y={y} width={w} height={h} rx="8" /><text x={x + w / 2} y={y + h / 2} style="font-weight:700">{t}</text></g>;
+    })}
+    {(['c', 'o', 'h'] as const).map((id) => { const [x, y, w, h] = S[id]; return <rect data-id={`hl-${id}`} class="hl" x={x - 3} y={y - 3} width={w + 6} height={h + 6} rx="10" />; })}
+
+    <!-- 흐름 줄 -->
+    <line class="line" x1="10" y1="206" x2="310" y2="206" style="stroke-dasharray:4 4" />
+    <rect class="box" x={REQ} y={FY} width={W} height={FH} rx="8" />
+    <text x={REQ + W / 2} y={FY + FH / 2}>요청</text>
+    <rect class="box" x={API} y={FY} width={W} height={FH} rx="8" />
+    <text x={API + W / 2} y={FY + FH / 2 - 9}>외부</text>
+    <text x={API + W / 2} y={FY + FH / 2 + 10}>API</text>
+    {[['cbC', 'CLOSED', 'chip'], ['cbO', 'OPEN', 'err'], ['cbH', 'HALF', 'chip']].map(([id, t, c]) => (
+      <g data-id={id} class="hide"><rect class={c} x={CB} y={FY} width={W + 8} height={FH} rx="8" /><text x={CB + (W + 8) / 2} y={FY + FH / 2} style="font-size:14px;font-weight:700">{t}</text></g>
+    ))}
+    <text class="sub" x={CB + (W + 8) / 2} y={FY - 12}>서킷브레이커</text>
+
+    <!-- 흐름 화살표 (상태별) -->
+    <g data-id="fPass" class="hide">
+      <path d={`M${REQ + W} ${FY + 22} L${CB - 2} ${FY + 22}`} style={arr} marker-end="url(#cbs-a)" />
+      <path d={`M${CB + W + 8} ${FY + 22} L${API - 2} ${FY + 22}`} style={arr} marker-end="url(#cbs-a)" />
+    </g>
+    <text data-id="fFail" class="hide err-t" x={API + W / 2} y={FY + FH + 16} style="font-size:14px">✕ ✕ ✕ 실패</text>
+    <g data-id="fReq" class="hide">
+      <path d={`M${REQ + W} ${FY + 22} L${CB - 2} ${FY + 22}`} style={arr} marker-end="url(#cbs-a)" />
+      <text class="sub" x={REQ + W / 2} y={FY + FH + 16}>다음 호출</text>
+    </g>
+    <g data-id="fBlock" class="hide">
+      <path d={`M${REQ + W} ${FY + 14} L${CB - 2} ${FY + 14}`} style={arr} marker-end="url(#cbs-a)" />
+      <path d={`M${CB - 2} ${FY + 32} L${REQ + W + 2} ${FY + 32}`} style={arr} marker-end="url(#cbs-a)" />
+      <path d={`M${CB + W + 8} ${FY + 22} L${API - 2} ${FY + 22}`} class="line" style="stroke-dasharray:4 4" />
+      <text class="err-t" x={(CB + W + 8 + API) / 2} y={FY + 8}>✕</text>
+      <text class="hi" x={REQ + W / 2} y={FY + FH + 16} style="font-size:14px">← 폴백</text>
+    </g>
+    <g data-id="fTrial" class="hide">
+      <path d={`M${REQ + W} ${FY + 14} L${CB - 2} ${FY + 14}`} style={arr} marker-end="url(#cbs-a)" />
+      <path d={`M${CB - 2} ${FY + 32} L${REQ + W + 2} ${FY + 32}`} class="line" marker-end="url(#cbs-g)" />
+      <path d={`M${CB + W + 8} ${FY + 22} L${API - 2} ${FY + 22}`} style={arr} marker-end="url(#cbs-a)" />
+      <text class="sub" x={REQ + W / 2} y={FY + FH + 16}>나머지 거절</text>
+      <text class="hi" x={API + W / 2} y={FY + FH + 16} style="font-size:14px">시험 몇 건</text>
+    </g>
+
+    {notes.map(([id, t, c]) => <text data-id={id} class={`hide ${c}`} x="160" y="326" style="font-size:15px">{t}</text>)}
+  </svg>
+</Stepper>

@@ -1,0 +1,82 @@
+---
+// 서비스 메시: 주문 앱 → 주문 사이드카 → (mTLS, 재시도·타임아웃, 90/10 분할) → 결제 사이드카 → 결제 앱. 컨트롤 플레인이 규칙·인증서를 내려 준다.
+import Stepper from '../Stepper.astro';
+const s1 = ['a1'];
+const s2 = [...s1, 'span1'];
+const s3 = [...s2, 'tls', 'w90', 'w10'];
+const s4 = [...s3, 'span2', 'a2'];
+const steps = [
+  { caption: '주문 앱은 결제 서비스 주소로 평범한(암호화 안 된) HTTP 요청을 보내요. 암호화·재시도는 신경 쓰지 않아요.', show: [...s1, 'hlA1'] },
+  { caption: '같은 파드에 붙은 사이드카(Envoy)가 나가는 요청을 가로채요. 이 구간을 span으로 기록해 추적 서버로 보내요.', show: [...s2, 'hlS1'] },
+  { caption: '사이드카끼리는 mTLS로 암호화하고 서로 인증서를 확인해요. 실패하면 재시도, 오래 걸리면 타임아웃. 규칙대로 v1에 90%, v2에 10%를 보내요.', show: [...s3, 'hlTls'] },
+  { caption: '결제 파드의 사이드카가 복호화하고 span을 기록한 뒤 결제 앱에 평문으로 넘겨요. 결제 앱도 암호화를 몰라요.', show: [...s4, 'hlS2'] },
+  { caption: '90/10 비율, 재시도 횟수 같은 규칙과 mTLS 인증서는 컨트롤 플레인(istiod)이 사이드카마다 내려 줘요. 앱 코드는 그대로예요.', show: [...s4, 'cp', 'ctrl', 'hlCp'] },
+];
+---
+<Stepper title="서비스 메시: 사이드카를 거치는 호출 하나" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 360" role="img" aria-label="주문 앱이 평문 HTTP로 보낸 요청을 주문 파드의 사이드카가 가로채 span을 기록하고, 결제 쪽 사이드카와 mTLS로 암호화해 재시도·타임아웃을 적용하며 v1에 90%, v2에 10%를 보낸다. 결제 사이드카가 복호화·span 기록 후 결제 앱에 넘긴다. 컨트롤 플레인 istiod가 두 사이드카에 규칙과 인증서를 내려 준다">
+    <defs><marker id="msc-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" style="fill:var(--sl-color-gray-3)" /></marker></defs>
+
+    <g data-id="cp">
+      <rect class="chip" x="8" y="4" width="304" height="48" rx="8" />
+      <text x="160" y="20" style="font-weight:700">컨트롤 플레인 (istiod)</text>
+      <text class="sub" x="160" y="40">규칙·인증서를 사이드카에 배포</text>
+    </g>
+    <g data-id="ctrl">
+      <path class="line" d="M306 52V114H291" style="stroke-dasharray:4 3" marker-end="url(#msc-arr)" />
+      <path class="line" d="M306 114V318H291" style="stroke-dasharray:4 3" marker-end="url(#msc-arr)" />
+    </g>
+
+    <!-- 주문 파드 -->
+    <rect class="frame" x="8" y="64" width="292" height="84" rx="10" />
+    <text class="sub l" x="16" y="78">주문 파드</text>
+    <text data-id="span1" class="hi" x="284" y="78" style="text-anchor:end">✎ span 기록</text>
+    <rect class="box" x="16" y="88" width="112" height="52" rx="7" />
+    <text x="72" y="114">주문 앱</text>
+    <rect class="box" x="176" y="88" width="112" height="52" rx="7" />
+    <text x="232" y="104">사이드카</text>
+    <text class="sub" x="232" y="124">Envoy</text>
+    <g data-id="a1">
+      <text class="sub" x="152" y="100">평문</text>
+      <line class="line" x1="128" y1="116" x2="174" y2="116" marker-end="url(#msc-arr)" />
+    </g>
+
+    <!-- 사이드카 사이 구간 -->
+    <g data-id="tls">
+      <rect class="chip" x="226" y="140" width="12" height="128" />
+      <text class="hi l" x="16" y="166">mTLS 암호화</text>
+      <text class="sub l" x="16" y="190">재시도 · 타임아웃</text>
+    </g>
+    <g data-id="w90">
+      <line class="line" x1="232" y1="140" x2="232" y2="290" marker-end="url(#msc-arr)" />
+      <text class="mono hi l" x="244" y="230">90%</text>
+    </g>
+    <g data-id="w10">
+      <line class="line" x1="232" y1="206" x2="138" y2="232" marker-end="url(#msc-arr)" />
+      <text class="mono hi" x="186" y="246">10%</text>
+      <rect class="box" x="16" y="212" width="120" height="44" rx="7" />
+      <text x="76" y="226">결제 v2 파드</text>
+      <text class="sub" x="76" y="245">새 버전</text>
+    </g>
+
+    <!-- 결제 파드 v1 -->
+    <rect class="frame" x="8" y="268" width="292" height="84" rx="10" />
+    <text class="sub l" x="16" y="282">결제 파드 v1</text>
+    <text data-id="span2" class="hi" x="284" y="282" style="text-anchor:end">✎ span 기록</text>
+    <rect class="box" x="16" y="292" width="112" height="52" rx="7" />
+    <text x="72" y="318">결제 앱</text>
+    <rect class="box" x="176" y="292" width="112" height="52" rx="7" />
+    <text x="232" y="308">사이드카</text>
+    <text class="sub" x="232" y="328">Envoy</text>
+    <g data-id="a2">
+      <text class="sub" x="152" y="304">평문</text>
+      <line class="line" x1="176" y1="320" x2="130" y2="320" marker-end="url(#msc-arr)" />
+    </g>
+
+    <rect data-id="hlA1" class="hl" x="12" y="84" width="166" height="60" rx="9" />
+    <rect data-id="hlS1" class="hl" x="172" y="66" width="120" height="78" rx="9" />
+    <rect data-id="hlTls" class="hl" x="10" y="150" width="290" height="112" rx="9" />
+    <rect data-id="hlS2" class="hl" x="12" y="270" width="280" height="78" rx="9" />
+    <rect data-id="hlCp" class="hl" x="4" y="0" width="312" height="56" rx="10" />
+  </svg>
+</Stepper>
