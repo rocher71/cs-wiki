@@ -2,6 +2,7 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 import { existsSync, readdirSync } from 'node:fs';
+import remarkGfm from 'remark-gfm';
 
 // 폴더 = 사이드바 섹션. 글이 있는 폴더만 보여준다.
 const SECTIONS = [
@@ -19,9 +20,10 @@ const has = (d) => {
 export default defineConfig({
   site: 'https://rocher71.github.io',
   base: '/cs-wiki',
-  // ponytail: Astro 6.4는 gfm을 비워 두는데 @astrojs/mdx 5는 그 값을 보고 표 문법을 켠다 → 명시 안 하면 .mdx 표가 깨짐.
-  // mdx가 새 processor 방식을 따라오면 지워도 됨.
-  markdown: { gfm: true },
+  // ponytail: 내장 gfm 대신 remark-gfm을 직접 넣는다. 이유 두 가지:
+  // 1) Astro 6.4 + @astrojs/mdx 5 조합은 gfm을 명시 안 하면 .mdx 표가 깨짐(mdx가 이 플러그인 목록을 물려받음).
+  // 2) 기본 singleTilde가 "3~5개 … 2~4" 같은 범위 표기를 취소선으로 만든다 → 끈다(~~취소선~~은 그대로 동작).
+  markdown: { gfm: false, remarkPlugins: [[remarkGfm, { singleTilde: false }]] },
   integrations: [
     starlight({
       title: '백엔드 CS 위키',
