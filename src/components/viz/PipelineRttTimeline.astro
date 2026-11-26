@@ -1,0 +1,74 @@
+---
+// 개별 전송 vs 파이프라인: 위·아래 두 시퀀스(클라이언트 ↔ 서버, 시간은 위→아래), 맨 아래 실험 숫자 막대.
+import Stepper from '../Stepper.astro';
+const C = 56, S = 264;
+const solo = [0, 1, 2].map((i) => ({ y: 64 + i * 62, k: `k${i + 1}` }));
+const pipe = [0, 1, 2];
+const steps = [
+  { caption: '개별 전송: SET k1을 보내고 OK가 올 때까지 기다린 뒤에야 k2를 보내요. 명령 3개면 왕복(RTT)도 3번 쌓여요.', show: ['a'] },
+  { caption: '파이프라인: 응답을 기다리지 않고 SET k1, k2, k3을 연달아 보내요. 서버는 받은 순서대로 처리하고 응답을 쌓아 둬요.', show: ['a', 'breq'] },
+  { caption: '쌓인 응답 OK, OK, OK가 한 번에 돌아와요. 명령이 몇 개든 왕복은 1번이에요.', show: ['a', 'breq', 'bres'] },
+  { caption: '실험(SET 1만 개, 로컬 docker): 개별 전송 약 1.7초, 파이프라인 약 7ms. 절대값은 환경마다 달라서 "왕복을 줄이면 크게 빨라진다"는 상대 비교만 보세요.', show: ['a', 'breq', 'bres', 'cmp'] },
+];
+const halo = 'paint-order:stroke;stroke:var(--sl-color-gray-7, var(--sl-color-black));stroke-width:5px;stroke-linejoin:round';
+const lanes = (y0: number, y1: number) => [[C, '클라이언트'], [S, '서버']].map(([x, t]) => (
+  { x: +x, t: String(t), y0, y1 }
+));
+---
+<Stepper title="개별 전송 vs 파이프라인" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 576" role="img" aria-label="개별 전송은 명령마다 왕복이 한 번씩 쌓이고, 파이프라인은 명령을 연달아 보낸 뒤 응답을 한 번에 받아 왕복이 1번인 타임라인">
+    <defs>
+      <marker id="prt-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-2)" />
+      </marker>
+      <marker id="prt-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+    </defs>
+    {[...lanes(52, 250), ...lanes(318, 450)].map((l) => (
+      <g>
+        <text x={l.x} y={l.y0 - 14} style="font-weight:700">{l.t}</text>
+        <line class="line" x1={l.x} y1={l.y0} x2={l.x} y2={l.y1} style="stroke-dasharray:4 4" />
+      </g>
+    ))}
+    <text class="l" x="4" y="14" style="font-weight:700">① 개별 전송</text>
+    <text class="l" x="4" y="280" style="font-weight:700">② 파이프라인</text>
+
+    <g data-id="a">
+      {solo.map((r) => (
+        <g>
+          <line x1={C} y1={r.y} x2={S - 2} y2={r.y + 22} style="stroke:var(--sl-color-gray-2);stroke-width:2" marker-end="url(#prt-g)" />
+          <text class="mono" x="160" y={r.y + 6} style={halo}>SET {r.k}</text>
+          <line x1={S} y1={r.y + 28} x2={C + 2} y2={r.y + 50} style="stroke:var(--sl-color-gray-2);stroke-width:2" marker-end="url(#prt-g)" />
+          <text class="mono" x="160" y={r.y + 44} style={halo}>OK</text>
+        </g>
+      ))}
+      <text class="hi" x="160" y="264">왕복 3번 (명령 수만큼)</text>
+    </g>
+
+    <g data-id="breq">
+      {pipe.map((i) => (
+        <line x1={C} y1={326 + i * 12} x2={S - 2} y2={350 + i * 12} style="stroke:var(--sl-color-gray-2);stroke-width:2" marker-end="url(#prt-g)" />
+      ))}
+      <text class="mono" x="160" y="316" style={halo}>SET k1, k2, k3</text>
+      <text class="sub" x={S - 8} y="386" style={halo}>순서대로 처리</text>
+    </g>
+    <g data-id="bres">
+      {pipe.map((i) => (
+        <line x1={S} y1={398 + i * 12} x2={C + 2} y2={420 + i * 12} style="stroke:var(--sl-color-accent);stroke-width:2.2" marker-end="url(#prt-a)" />
+      ))}
+      <text class="mono" x="160" y="458" style={halo}>OK, OK, OK</text>
+      <text class="hi" x="160" y="482">왕복 1번</text>
+    </g>
+
+    <g data-id="cmp">
+      <text class="l" x="4" y="512" style="font-weight:700">실험: SET 1만 개</text>
+      <text class="l" x="4" y="538">개별</text>
+      <rect class="box" x="70" y="528" width="170" height="20" rx="4" />
+      <text class="l" x="246" y="538">약 1.7초</text>
+      <text class="l" x="4" y="564">파이프</text>
+      <rect class="badge" x="70" y="554" width="3" height="20" />
+      <text class="l hi" x="80" y="564">약 7ms</text>
+    </g>
+  </svg>
+</Stepper>

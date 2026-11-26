@@ -1,0 +1,93 @@
+---
+// BGSAVE: fork → 자식이 임시 RDB 기록 → 부모 수정 페이지만 copy-on-write → rename 교체 → 장애 시 스냅숏 이후 유실
+import Stepper from '../Stepper.astro';
+const base = ['act-box', 'par', 'mem', 'disk', 'p1', 'p3'];
+const steps = [
+  { caption: 'BGSAVE가 시작되면 메인 프로세스가 fork()로 자식 프로세스를 만들어요. 이때 메모리를 통째로 복사하지 않고, 부모와 자식이 같은 메모리 페이지를 함께 가리켜요.', show: [...base, 'act1', 'par-fork', 'chd', 'chd-new', 'p2', 'tag2-share', 'dump-old', 'hl-chd'] },
+  { caption: '자식은 자기가 보는 메모리를 임시 RDB 파일에 차례로 써요. 그동안 부모는 멈추지 않고 클라이언트 요청을 계속 처리해요.', show: [...base, 'act2', 'par-serve', 'chd', 'chd-write', 'p2', 'tag2-share', 'write', 'temp', 'dump-old', 'hl-temp'] },
+  { caption: '부모가 SET k2 z로 키를 바꾸면, 그 키가 있는 페이지만 복사한 뒤 복사본을 고쳐요(copy-on-write). 자식은 원래 페이지를 그대로 봐서 fork 시점의 k2=b를 저장해요. 쓰기가 많을수록 복사되는 페이지도 늘어 메모리를 더 써요.', show: [...base, 'act3', 'par-set', 'chd', 'chd-write', 'p2', 'tag2-child', 'copy', 'write', 'temp', 'dump-old', 'hl-p2', 'hl-copy'] },
+  { caption: '자식이 다 쓰면 임시 파일 이름을 dump.rdb로 바꿔요(rename). 이름 바꾸기는 한 번에 일어나서, 읽는 쪽은 옛 파일이나 새 파일 중 하나만 보게 돼요. 반쯤 쓴 파일을 볼 일이 없어요.', show: [...base, 'act4', 'par-serve', 'chd', 'chd-done', 'p2', 'tag2-child', 'copy', 'rename', 'dump-new', 'hl-dump'] },
+  { caption: '이 상태에서 서버가 꺼지면 메모리는 모두 사라지고 dump.rdb만 남아요. 재시작하면 k2=b로 돌아오고, 스냅숏 이후에 쓴 k2=z는 유실돼요. RDB는 마지막 스냅숏 이후 쓰기를 잃어요.', show: [...base, 'act5', 'crash', 'p2', 'tag2-child', 'copy', 'dump-new', 'res', 'hl-mem', 'hl-res'] },
+];
+---
+<Stepper title="RDB 스냅숏: fork와 copy-on-write" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 436" role="img" aria-label="BGSAVE 때 메인 프로세스가 fork로 자식을 만들고, 자식이 fork 시점 메모리를 임시 RDB 파일에 쓰는 동안 부모가 바꾼 페이지만 복사되며, 완료 후 rename으로 dump.rdb를 교체하고, 장애 시 스냅숏 이후 쓰기는 유실되는 그림">
+    <rect data-id="act-box" class="box" x="8" y="4" width="304" height="34" rx="7" />
+    <text data-id="act1" class="mono hide" x="160" y="21">BGSAVE → fork()</text>
+    <text data-id="act2" class="hide" x="160" y="21">자식: 파일 쓰기 / 부모: 요청 처리</text>
+    <text data-id="act3" class="mono hide" x="160" y="21">부모가 SET k2 z 처리</text>
+    <text data-id="act4" class="hide" x="160" y="21">자식 완료 → rename</text>
+    <text data-id="act5" class="err-t hide" x="160" y="21">서버 다운!</text>
+
+    <!-- 프로세스 두 개 -->
+    <g data-id="par">
+      <rect class="box" x="8" y="46" width="148" height="48" rx="8" />
+      <text x="82" y="61">부모 (메인)</text>
+    </g>
+    <text data-id="par-fork" class="sub hide" x="82" y="81">fork() 호출</text>
+    <text data-id="par-serve" class="sub hide" x="82" y="81">요청 계속 처리</text>
+    <text data-id="par-set" class="hi hide" x="82" y="81">k2 수정</text>
+    <g data-id="chd">
+      <rect class="box" x="164" y="46" width="148" height="48" rx="8" />
+      <text x="238" y="61">자식 (복제본)</text>
+    </g>
+    <text data-id="chd-new" class="sub hide" x="238" y="81">방금 생김</text>
+    <text data-id="chd-write" class="sub hide" x="238" y="81">RDB 쓰는 중</text>
+    <text data-id="chd-done" class="sub hide" x="238" y="81">끝나고 종료</text>
+
+    <!-- 메모리 페이지 -->
+    <g data-id="mem">
+      <rect class="frame" x="8" y="104" width="304" height="150" rx="10" />
+      <text class="sub l" x="16" y="119">메모리 페이지</text>
+    </g>
+    <g data-id="crash" class="hide"><rect class="err" x="214" y="108" width="92" height="22" rx="5" /><text class="err-t" x="260" y="119">사라짐</text></g>
+    <g data-id="p1">
+      <rect class="box" x="18" y="132" width="284" height="26" rx="6" />
+      <text class="mono l" x="28" y="145">페이지1 k1=a</text>
+      <text class="sub" x="262" y="145">공유</text>
+    </g>
+    <g data-id="p2">
+      <rect class="box" x="18" y="162" width="284" height="26" rx="6" />
+      <text class="mono l" x="28" y="175">페이지2 k2=b</text>
+    </g>
+    <text data-id="tag2-share" class="sub hide" x="262" y="175">공유</text>
+    <text data-id="tag2-child" class="sub hide" x="248" y="175">자식만 봄</text>
+    <g data-id="p3">
+      <rect class="box" x="18" y="192" width="284" height="26" rx="6" />
+      <text class="mono l" x="28" y="205">페이지3 k3=c</text>
+      <text class="sub" x="262" y="205">공유</text>
+    </g>
+    <g data-id="copy" class="hide">
+      <rect class="chip" x="18" y="222" width="284" height="26" rx="6" />
+      <text class="mono l" x="28" y="235">페이지2 복사본 k2=<tspan class="hi">z</tspan></text>
+      <text class="sub" x="262" y="235">부모만</text>
+    </g>
+
+    <text data-id="write" class="hi hide" x="160" y="266">↓ 자식이 fork 시점 내용을 기록</text>
+    <text data-id="rename" class="hi hide" x="160" y="266">↓ temp 파일 → dump.rdb 이름 교체</text>
+
+    <!-- 디스크 -->
+    <g data-id="disk">
+      <rect class="frame" x="8" y="278" width="304" height="104" rx="10" />
+      <text class="sub l" x="16" y="293">디스크 (꺼져도 남아요)</text>
+      <rect class="box" x="18" y="304" width="284" height="28" rx="6" />
+      <rect class="box" x="18" y="340" width="284" height="34" rx="6" />
+    </g>
+    <text data-id="temp" class="mono hide" x="160" y="318">temp-파일.rdb (쓰는 중)</text>
+    <text data-id="dump-old" class="mono hide" x="160" y="357">dump.rdb (지난 스냅숏)</text>
+    <text data-id="dump-new" class="mono hide" x="160" y="357">dump.rdb (새것, k2=<tspan class="hi">b</tspan>)</text>
+
+    <g data-id="res" class="hide">
+      <text x="160" y="400">재시작 → k2=b로 복구</text>
+      <text class="err-t" x="160" y="422">스냅숏 이후 쓴 k2=z는 유실</text>
+    </g>
+
+    <rect data-id="hl-chd" class="hl" x="160" y="42" width="156" height="56" rx="10" />
+    <rect data-id="hl-temp" class="hl" x="14" y="300" width="292" height="36" rx="8" />
+    <rect data-id="hl-p2" class="hl" x="14" y="159" width="292" height="32" rx="8" />
+    <rect data-id="hl-copy" class="hl" x="14" y="219" width="292" height="32" rx="8" />
+    <rect data-id="hl-dump" class="hl" x="14" y="337" width="292" height="40" rx="8" />
+    <rect data-id="hl-mem" class="hl" x="4" y="100" width="312" height="158" rx="12" />
+    <rect data-id="hl-res" class="hl" x="4" y="386" width="312" height="48" rx="9" />
+  </svg>
+</Stepper>

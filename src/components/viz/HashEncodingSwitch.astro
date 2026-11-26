@@ -1,0 +1,110 @@
+---
+// Hash 내부 인코딩: 필드 512개까지 listpack(한 줄 배열) → 513번째에 hashtable로 전환, 줄여도 안 돌아감, 메모리 비교 막대.
+// 수치: Redis 8.10 MEMORY USAGE 1회 측정 (5,958 / 23,442 / 8,219 bytes). 막대 길이는 23,442 = 280 기준 비례.
+import Stepper from '../Stepper.astro';
+const W = (b: number) => Math.round((b / 23442) * 280);
+const lp3 = ['f1', 'v1', 'f2', 'v2', 'f3', 'v3'];
+const lp512: [string, number][] = [['f1', 40], ['v1', 40], ['f2', 40], ['v2', 40], ['…', 30], ['f512', 55], ['v512', 55]];
+const HY = [54, 84, 114], HH = 26;              // hashtable 버킷 y, 높이
+const bars: [string, string, number, string, number][] = [
+  ['b-lp', 'listpack 512필드  약 5.9KB', 5958, 'box', 200],
+  ['b-ht', 'hashtable 513필드  약 23KB (3.9배)', 23442, 'err', 240],
+  ['b-js', 'JSON 문자열 1개 (512필드)  약 8KB', 8219, 'chip', 280],
+];
+const cnts = ['필드 3개', '필드 512개 = 한도(512)', '필드 513개 → 한도 초과', '다시 512개, 그래도 hashtable'];
+const notes = [
+  '작을 땐 한 줄로 붙여 저장',
+  '512개까지는 listpack 유지',
+  '513번째에 hashtable로, 약 3.9배',
+  '줄여도 listpack으로 안 돌아감',
+  'hashtable보다 JSON이 더 작음',
+];
+const steps = [
+  { caption: 'Hash에 필드가 3개뿐이면 Redis는 listpack으로 저장해요. 필드와 값을 칸 구분 없이 한 줄로 이어 붙인 작은 배열이라 메모리를 아껴요.', show: ['hdr', 'enc-lp', 'lp3', 'c1', 'n1'] },
+  { caption: '필드를 512개까지 늘려도 기본 한도(hash-max-listpack-entries 512) 안이라 여전히 listpack이에요. 측정해 보니 약 5.9KB였어요.', show: ['hdr', 'enc-lp', 'lp512', 'c2', 'mem', 'b-lp', 'n2'] },
+  { caption: '513번째 필드를 넣는 순간 한도를 넘어 hashtable로 바뀌어요. 칸마다 주소(포인터)를 따로 들고 있어서 약 23KB, 3.9배로 커졌어요. 대신 필드가 많아도 조회는 O(1)이에요.', show: ['hdr', 'enc-ht', 'ht', 'ht-new', 'c3', 'mem', 'b-lp', 'b-ht', 'n3'] },
+  { caption: 'HDEL로 필드를 지워 다시 512개가 돼도 hashtable 그대로예요. 이 실험에서는 한 번 커진 인코딩이 자동으로 되돌아가지 않았어요.', show: ['hdr', 'enc-ht', 'ht', 'ht-del', 'c4', 'mem', 'b-lp', 'b-ht', 'n4'] },
+  { caption: '같은 512필드를 JSON 문자열 하나로 SET하면 약 8KB예요. listpack Hash보다는 크지만 hashtable Hash보다는 작아요. "Hash가 항상 작다"는 틀린 말이에요.', show: ['mem', 'b-lp', 'b-ht', 'b-js', 'hl-js', 'n5'] },
+];
+---
+<Stepper title="Hash 인코딩: listpack에서 hashtable로" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 332" role="img" aria-label="Hash 필드가 512개까지는 listpack 한 줄 배열로 저장되다가 513번째에 hashtable로 바뀌어 메모리가 약 3.9배가 되고, 필드를 줄여도 돌아가지 않으며, 같은 데이터를 JSON 문자열로 저장하면 약 8KB라는 비교">
+    <defs>
+      <marker id="he-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0,0 L10,5 L0,10 z" style="fill:var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+    <text data-id="hdr" class="l" x="10" y="24" style="font-weight:700">user:1 (Hash)</text>
+    <g data-id="enc-lp" class="hide">
+      <rect class="box" x="170" y="10" width="140" height="28" rx="14" />
+      <text class="mono" x="240" y="24">listpack</text>
+    </g>
+    <g data-id="enc-ht" class="hide">
+      <rect class="chip" x="170" y="10" width="140" height="28" rx="14" />
+      <text class="mono" x="240" y="24" style="font-weight:700">hashtable</text>
+    </g>
+
+    <!-- listpack: 한 줄 배열 -->
+    <g data-id="lp3" class="hide">
+      {lp3.map((c, i) => (
+        <g>
+          <rect class={i % 2 ? 'chip' : 'box'} x={22 + i * 46} y="66" width="46" height="34" />
+          <text class="mono" x={22 + i * 46 + 23} y="83">{c}</text>
+        </g>
+      ))}
+      <text class="sub" x="160" y="120">필드·값이 한 줄로 이어 붙음</text>
+    </g>
+    <g data-id="lp512" class="hide">
+      {lp512.map(([c, w], i) => {
+        const x = 10 + lp512.slice(0, i).reduce((s, [, ww]) => s + ww, 0);
+        return (
+          <g>
+            {c !== '…' && <rect class={c[0] === 'v' ? 'chip' : 'box'} x={x} y="66" width={w} height="34" />}
+            <text class="mono" x={x + w / 2} y="83">{c}</text>
+          </g>
+        );
+      })}
+      <text class="sub" x="160" y="120">여전히 한 줄 (길어졌을 뿐)</text>
+    </g>
+
+    <!-- hashtable: 버킷 + 포인터 -->
+    <g data-id="ht" class="hide">
+      {HY.map((y, i) => (
+        <g>
+          <rect class="box" x="10" y={y} width="40" height={HH} />
+          <text class="sub" x="30" y={y + HH / 2}>{i === 2 ? '…' : i}</text>
+        </g>
+      ))}
+      <line class="line" x1="50" y1={HY[0] + 13} x2="78" y2={HY[0] + 13} marker-end="url(#he-arrow)" />
+      <rect class="box" x="80" y={HY[0]} width="90" height={HH} rx="4" />
+      <text class="mono" x="125" y={HY[0] + 13}>f7:v7</text>
+      <line class="line" x1="170" y1={HY[0] + 13} x2="198" y2={HY[0] + 13} marker-end="url(#he-arrow)" />
+      <rect class="box" x="200" y={HY[0]} width="90" height={HH} rx="4" />
+      <text class="mono" x="245" y={HY[0] + 13}>f2:v2</text>
+      <line class="line" x1="50" y1={HY[1] + 13} x2="78" y2={HY[1] + 13} marker-end="url(#he-arrow)" />
+      <text class="sub l" x="66" y={HY[2] + 13}>칸마다 주소(포인터)가 따로</text>
+    </g>
+    <g data-id="ht-new" class="hide">
+      <rect class="chip" x="80" y={HY[1]} width="110" height={HH} rx="4" />
+      <text class="mono" x="135" y={HY[1] + 13} style="font-weight:700">f513:v513</text>
+      <text class="hi" x="250" y={HY[1] + 13}>← 새 필드</text>
+    </g>
+    <g data-id="ht-del" class="hide">
+      <rect class="bad" x="80" y={HY[1]} width="110" height={HH} rx="4" />
+      <text class="mono" x="135" y={HY[1] + 13} style="text-decoration:line-through">f513:v513</text>
+      <text class="sub" x="250" y={HY[1] + 13}>← HDEL 삭제</text>
+    </g>
+    {cnts.map((t, i) => <text data-id={`c${i + 1}`} class="hi hide" x="160" y="152">{t}</text>)}
+
+    <!-- 메모리 비교 -->
+    <text data-id="mem" class="l" x="10" y="182" style="font-weight:700">메모리 (MEMORY USAGE)</text>
+    {bars.map(([id, label, b, cls, y]) => (
+      <g data-id={id} class="hide">
+        <text class="sub l" x="10" y={y}>{label}</text>
+        <rect class={cls} x="10" y={y + 10} width={W(b)} height="14" rx="3" />
+      </g>
+    ))}
+    <rect data-id="hl-js" class="hl" x="6" y="268" width="308" height="40" rx="6" />
+    {notes.map((t, i) => <text data-id={`n${i + 1}`} class="hi hide" x="160" y="322" style="font-size:14px">{t}</text>)}
+  </svg>
+</Stepper>

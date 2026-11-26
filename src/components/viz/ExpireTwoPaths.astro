@@ -1,0 +1,84 @@
+---
+// 만료 키를 지우는 두 경로: 수동(접근할 때) / 능동(초당 10번 20개 샘플), 그리고 삭제 전파.
+import Stepper from '../Stepper.astro';
+const X = [10, 116, 222], W = 88;
+const aBox = ['GET 요청', '만료 지남?', '삭제, nil'];
+const bBox = ['타이머', '20개 샘플', '만료분 삭제'];
+const expired = new Set([3, 11, 16]); // 20개 중 3개 만료 = 15%
+const notes = ['만료 시각만 적어 둬요', '건드린 순간 확인하고 삭제', '주기적으로 몇 개만 뽑아 봐요', '10% 넘으면 한 번 더 뽑아요', '지운 건 DEL로 전파'];
+const steps = [
+  { caption: 'SET session:42 v EX 1800을 실행하면 값과 함께 "지금+1800초"라는 만료 시각이 기록돼요. 시간이 지나도 키를 바로 찾아가 지우는 일은 없어요.', show: ['set', 'n1'] },
+  { caption: '수동 경로: 클라이언트가 GET session:42를 보내면, Redis가 만료 시각을 보고 이미 지났으면 그 자리에서 키를 지우고 nil을 돌려줘요.', show: ['set', 'a', 'hl-a', 'n2'] },
+  { caption: '능동 경로: 아무도 안 건드리는 만료 키를 위해, 타이머가 초당 10번(hz 10) 돌면서 만료가 걸린 키 20개를 무작위로 뽑아 만료된 것을 지워요.', show: ['set', 'b', 'cells', 'ratio', 'hl-b', 'n3'] },
+  { caption: '뽑은 20개 중 만료된 게 10%를 넘으면(여기선 3개, 15%) 아직 많이 남았다고 보고 곧바로 다시 뽑아요. CPU 시간 제한 안에서만 반복하고, 10% 이하면 다음 주기를 기다려요.', show: ['set', 'b', 'cells', 'ratio', 'again', 'next', 'hl-again', 'n4'] },
+  { caption: '어느 경로로 지우든 AOF 파일과 레플리카에 DEL session:42가 전파돼요. 레플리카는 스스로 만료 키를 지우지 않고, 이 DEL을 받아서 지워요.', show: ['set', 'a', 'b', 'prop', 'hl-prop', 'n5'] },
+];
+---
+<Stepper title="만료 키는 두 길로 지워져요" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 414" role="img" aria-label="만료 키 삭제의 두 경로. 수동 경로는 GET할 때 만료를 확인해 삭제하고, 능동 경로는 초당 10번 20개를 샘플링해 만료된 키를 지우며 만료 비율이 10%를 넘으면 반복한다. 삭제는 AOF와 레플리카에 DEL로 전파된다">
+    <defs>
+      <marker id="ex-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0,0 L10,5 L0,10 z" style="fill:var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+    <g data-id="set">
+      <rect class="box" x="10" y="8" width="300" height="34" rx="6" />
+      <text class="mono" x="160" y="25">SET session:42 v EX 1800</text>
+      <text class="sub" x="160" y="56">키에 만료 시각(지금+1800초) 기록</text>
+    </g>
+
+    <!-- 수동 -->
+    <g data-id="a">
+      <text class="l" x="10" y="84" style="font-weight:700">① 수동: 누가 건드릴 때</text>
+      {aBox.map((t, i) => (
+        <g>
+          <rect class={i === 2 ? 'chip' : 'box'} x={X[i]} y="98" width={W} height="40" rx="6" />
+          <text x={X[i] + W / 2} y="118">{t}</text>
+        </g>
+      ))}
+      {[0, 1].map((i) => <line class="line" x1={X[i] + W + 1} y1="118" x2={X[i + 1] - 2} y2="118" marker-end="url(#ex-arrow)" />)}
+    </g>
+    <rect data-id="hl-a" class="hl" x="7" y="95" width="306" height="46" rx="8" />
+
+    <!-- 능동 -->
+    <g data-id="b">
+      <text class="l" x="10" y="162" style="font-weight:700">② 능동: 초당 10번 샘플</text>
+      {bBox.map((t, i) => (
+        <g>
+          <rect class={i === 2 ? 'chip' : 'box'} x={X[i]} y="176" width={W} height="40" rx="6" />
+          <text x={X[i] + W / 2} y="196">{t}</text>
+        </g>
+      ))}
+      {[0, 1].map((i) => <line class="line" x1={X[i] + W + 1} y1="196" x2={X[i + 1] - 2} y2="196" marker-end="url(#ex-arrow)" />)}
+    </g>
+    <rect data-id="hl-b" class="hl" x="7" y="173" width="306" height="46" rx="8" />
+    <g data-id="cells" class="hide">
+      {Array.from({ length: 20 }, (_, i) => (
+        <rect class={expired.has(i) ? 'err' : 'box'} x={10 + i * 15} y="228" width="13" height="16" rx="2" />
+      ))}
+      {[...expired].map((i) => <text class="err-t" x={10 + i * 15 + 6.5} y="237" style="font-size:13px">✕</text>)}
+    </g>
+    <text data-id="ratio" class="sub hide" x="160" y="258">✕ 칸 = 만료: 20개 중 3개(15%)</text>
+    <g data-id="again" class="hide">
+      <rect class="chip" x="10" y="272" width="146" height="34" rx="6" />
+      <text x="83" y="289">10% 초과 ↻ 다시</text>
+    </g>
+    <g data-id="next" class="hide">
+      <rect class="box" x="164" y="272" width="146" height="34" rx="6" />
+      <text x="237" y="289">10% 이하: 다음 주기</text>
+    </g>
+    <rect data-id="hl-again" class="hl" x="7" y="269" width="152" height="40" rx="8" />
+
+    <!-- 전파 -->
+    <g data-id="prop" class="hide">
+      <text class="l" x="10" y="330" style="font-weight:700">③ 지울 때마다 전파</text>
+      <rect class="chip" x="10" y="344" width="146" height="36" rx="6" />
+      <text x="83" y="362">AOF에 DEL</text>
+      <rect class="chip" x="164" y="344" width="146" height="36" rx="6" />
+      <text x="237" y="362">레플리카에 DEL</text>
+    </g>
+    <rect data-id="hl-prop" class="hl" x="7" y="341" width="306" height="42" rx="8" />
+
+    {notes.map((t, i) => <text data-id={`n${i + 1}`} class="hi hide" x="160" y="402">{t}</text>)}
+  </svg>
+</Stepper>

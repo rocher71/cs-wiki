@@ -1,0 +1,115 @@
+---
+// Streams 컨슈머 그룹: XADD로 저장 → 그룹 안에서 나눠 받기 → PEL에 소유자·전달 횟수 기록 → XACK로 지움 → 죽은 컨슈머 몫을 XAUTOCLAIM으로 회수 → 다른 그룹은 전부 따로 받음.
+import Stepper from '../Stepper.astro';
+const X = [20, 90, 160, 230], W = 66; // 4칸 x, 폭
+type Cell = null | { o: string; n: number; warn?: boolean; hi?: boolean };
+const c = (o: string, n: number, f: { warn?: boolean; hi?: boolean } = {}): Cell => ({ o, n, ...f });
+const pel: Record<string, Cell[]> = {
+  pel3: [c('c1', 1, { hi: true }), c('c1', 1, { hi: true }), c('c2', 1, { hi: true }), c('c2', 1, { hi: true })],
+  pel4: [null, c('c1', 1), c('c2', 1), c('c2', 1)],
+  pel5: [null, c('c1', 1), c('c2', 1, { warn: true }), c('c2', 1, { warn: true })],
+  pel6: [null, c('c1', 2, { hi: true }), c('c1', 2, { hi: true }), c('c1', 2, { hi: true })],
+  pel7: [null, null, null, null],
+};
+const cmds = [
+  'XADD orders * … (4번)',
+  'XREADGROUP GROUP g1 c1 …',
+  'XPENDING orders g1',
+  'XACK orders g1 <1번 ID>',
+  '(c2 다운 · ACK 없음)',
+  'XAUTOCLAIM orders g1 c1 1000 0',
+  'XACK … / XADD orders:dlq …',
+  'XREADGROUP GROUP g2 c3 …',
+];
+// c1·c2 상자 안 글자 (단계별 상태)
+const c1s: Record<string, string> = { c1a: '1 · 2', c1b: '2 (1은 ACK)', c1c: '2 · 3 · 4', c1d: '모두 ACK' };
+const base = ['base', 'cons'];
+const steps = [
+  { caption: '생산자가 XADD로 orders 스트림에 주문 4건을 저장해요. ID는 "밀리초-순번" 모양이라 시간순으로 쌓여요. 메시지는 키에 남아 있어요.', show: ['base', 'cmd1', 'add'] },
+  { caption: '그룹 g1 안에서 c1은 1·2번, c2는 3·4번을 받아요. 한 그룹 안에서는 같은 메시지를 두 컨슈머가 겹쳐 받지 않아요.', show: [...base, 'cmd2', 'c1a', 'c2a'] },
+  { caption: 'g1은 PEL(받았지만 아직 ACK 안 한 목록)에 "몇 번을 누가 가져갔고 몇 번 전달됐는지"를 적어요. 1·2는 c1, 3·4는 c2, 전달 1회.', show: [...base, 'cmd3', 'c1a', 'c2a', 'pelh', 'pel3'] },
+  { caption: 'c1이 1번 처리를 끝내고 XACK해요. PEL에서 1번이 빠져요. 단, 스트림에는 1번이 그대로 남아 있어요. ACK는 장부만 지워요.', show: [...base, 'cmd4', 'c1b', 'c2a', 'pelh', 'pel4', 'keep'] },
+  { caption: 'c2가 ACK 없이 죽었어요. 3·4번은 PEL에 c2 소유로 남은 채 idle(마지막 전달 뒤 지난 시간)만 계속 늘어나요. 아무도 처리하지 않아요.', show: [...base, 'cmd5', 'c1b', 'c2dead', 'pelh', 'pel5'] },
+  { caption: 'c1이 XAUTOCLAIM(min-idle 1초)을 실행해요. 1초 넘게 묵은 2·3·4번이 c1 소유로 바뀌고 전달 횟수가 1 → 2로 올라가요.', show: [...base, 'cmd6', 'c1c', 'c2dead', 'pelh', 'pel6', 'claim'] },
+  { caption: 'c1이 처리 후 XACK하면 PEL이 비어요. 전달 횟수가 임계값을 넘은 메시지는 계속 실패하는 것이니, 애플리케이션이 직접 별도 스트림(dead-letter)에 옮기고 ACK해요. Redis에 자동 DLQ 기능은 없어요.', show: [...base, 'cmd7', 'c1d', 'c2dead', 'pelh', 'pel7', 'dlq'] },
+  { caption: '다른 그룹 g2는 g1과 상관없이 1~4번을 전부 따로 받아요. 그룹마다 읽은 위치와 PEL을 따로 가져요. 그룹 안은 나눠 받기, 그룹끼리는 모두 받기예요.', show: [...base, 'cmd8', 'c1d', 'c2dead', 'pelh', 'pel7', 'dlq', 'g2'] },
+];
+const acc = 'stroke:var(--sl-color-accent);stroke-width:2.4;fill:none';
+---
+<Stepper title="Streams 컨슈머 그룹: 나눠 받고, ACK하고, 회수하기" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 372" role="img" aria-label="orders 스트림에 저장된 메시지 4개를 그룹 g1의 c1, c2가 나눠 받고, PEL에 기록되며, XACK와 XAUTOCLAIM으로 처리되고, 다른 그룹 g2는 전부 따로 받는 과정">
+    <defs>
+      <marker id="scg-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+    </defs>
+    <g data-id="base">
+      <rect class="frame" x="10" y="4" width="300" height="30" rx="6" />
+      <text class="l" x="20" y="52" style="font-weight:700">스트림 orders</text>
+      <text class="sub" x="300" y="52" style="text-anchor:end">ID: 밀리초-순번</text>
+      {X.map((x, i) => (
+        <g>
+          <rect class="box" x={x} y="64" width={W} height="34" rx="6" />
+          <text x={x + W / 2} y="81" style="font-weight:700">{i + 1}번</text>
+        </g>
+      ))}
+    </g>
+    {cmds.map((t, i) => (
+      <text data-id={`cmd${i + 1}`} class={i === 4 ? 'sub hide' : 'mono hide'} x="20" y="19" style="text-anchor:start">{t}</text>
+    ))}
+    <rect data-id="add" class="hl" x="17" y="61" width="282" height="40" rx="8" />
+    <rect data-id="keep" class="hl" x="17" y="61" width="72" height="40" rx="8" />
+    <g data-id="cons">
+      <rect class="frame" x="10" y="110" width="300" height="84" rx="8" />
+      <text class="sub l" x="20" y="124">그룹 g1</text>
+      <rect class="box" x="20" y="136" width="136" height="50" rx="8" />
+      <text x="88" y="150" style="font-weight:700">c1</text>
+      <rect class="box" x="164" y="136" width="136" height="50" rx="8" />
+      <text x="232" y="150" style="font-weight:700">c2</text>
+    </g>
+    {Object.entries(c1s).map(([id, t]) => (
+      <text data-id={id} class="sub hide" x="88" y="172">{t}</text>
+    ))}
+    <text data-id="c2a" class="sub hide" x="232" y="172">3 · 4</text>
+    <g data-id="c2dead" class="hide">
+      <rect class="err" x="164" y="136" width="136" height="50" rx="8" />
+      <text class="err-t" x="232" y="150">c2 ✕ 죽음</text>
+      <text class="sub" x="232" y="172">ACK 못 함</text>
+    </g>
+    <g data-id="pelh">
+      <text class="l" x="20" y="212" style="font-weight:700">g1의 PEL</text>
+      <text class="sub" x="300" y="212" style="text-anchor:end">소유자 · 전달 횟수</text>
+    </g>
+    {Object.entries(pel).map(([id, cells]) => (
+      <g data-id={id} class="hide">
+        {cells.map((cell, i) => cell ? (
+          <g>
+            <rect class={cell.warn ? 'err' : cell.hi ? 'chip' : 'box'} x={X[i]} y="224" width={W} height="52" rx="6" />
+            <text x={X[i] + W / 2} y="240" style="font-weight:700">{i + 1}→{cell.o}</text>
+            <text class={cell.warn ? 'err-t' : 'sub'} x={X[i] + W / 2} y="262">{cell.warn ? 'idle↑' : `${cell.n}회`}</text>
+          </g>
+        ) : (
+          <g>
+            <rect class="bad" x={X[i]} y="224" width={W} height="52" rx="6" />
+            <text class="sub" x={X[i] + W / 2} y="250">ACK</text>
+          </g>
+        ))}
+      </g>
+    ))}
+    <g data-id="claim" class="hide">
+      <path d="M232 188 C232 204 120 196 104 220" style={acc} marker-end="url(#scg-a)" />
+    </g>
+    <g data-id="dlq" class="hide">
+      <rect class="frame" x="10" y="290" width="144" height="74" rx="8" />
+      <text x="82" y="310" style="font-weight:700">dead-letter</text>
+      <text class="sub" x="82" y="332">앱이 직접 옮김</text>
+      <text class="sub" x="82" y="352">(Redis 기능 아님)</text>
+    </g>
+    <g data-id="g2" class="hide">
+      <rect class="chip" x="166" y="290" width="144" height="74" rx="8" />
+      <text x="238" y="310" style="font-weight:700">그룹 g2 · c3</text>
+      <text x="238" y="332">1 2 3 4</text>
+      <text class="sub" x="238" y="352">전부 따로 받음</text>
+    </g>
+  </svg>
+</Stepper>

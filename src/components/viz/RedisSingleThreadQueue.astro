@@ -1,0 +1,95 @@
+---
+// Redis 메인 스레드 하나가 여러 클라이언트 명령을 한 줄로 실행하는 모습.
+// 위: 클라이언트 A·B·C와 보낸 명령 / 가운데: 이벤트 루프 / 아래: 실행 순서 타임라인(블록 길이 = 실행 시간, 상대 길이).
+import Stepper from '../Stepper.astro';
+const CX = [10, 116, 222], CW = 88;            // 클라이언트 칸 x, 폭
+const TY = 192, TH = 44;                       // 타임라인 트랙 y, 높이
+const cmds = [['GET', 'SET', 'PING'], ['KEYS *', 'GET', 'PING'], ['SCAN', 'GET', 'PING']];
+// [id, x, w, 명령, 주인, class]
+const blocks: [string, number, number, string, string, string][] = [
+  ['t-get', 12, 44, 'GET', 'A', 'chip'], ['t-set', 60, 44, 'SET', 'B', 'chip'], ['t-ping', 108, 48, 'PING', 'C', 'chip'],
+  ['t-keys', 12, 184, 'KEYS *', 'A', 'err'],
+  ['t-get2', 200, 50, 'GET', 'B', 'chip'], ['t-ping2', 254, 54, 'PING', 'C', 'chip'],
+  ['s1', 12, 46, 'SCAN', 'A', 'box'], ['s2', 61, 40, 'GET', 'B', 'chip'], ['s3', 104, 46, 'SCAN', 'A', 'box'],
+  ['s4', 153, 46, 'PING', 'C', 'chip'], ['s5', 202, 46, 'SCAN', 'A', 'box'],
+];
+const notes = [
+  '연결은 3개, 실행 담당은 1명',
+  '준비된 연결부터 골라 읽어요',
+  '하나씩 차례로, 끼어들기 없음',
+  'KEYS * 가 실행 칸을 독점 (약 61ms)',
+  'PING 실행 3µs, 응답은 약 50ms 뒤',
+  '잘게 끊으니 사이사이 끼어들어요',
+];
+const base = ['cl', 'arr', 'loop'];
+const steps = [
+  { caption: '클라이언트 A·B·C가 각자 자기 연결로 명령을 보내요. 연결은 여러 개지만, 명령을 실행하는 건 Redis 메인 스레드 하나예요.', show: ['cl', 'arr', 'c1', 'n1'] },
+  { caption: '메인 스레드의 이벤트 루프가 "지금 읽을 준비가 된 연결"만 골라 명령을 꺼내요. 아직 안 온 연결을 붙잡고 기다리지 않아요.', show: [...base, 'c1', 'hl-loop', 'n2'] },
+  { caption: '꺼낸 명령은 한 줄로 서서 GET → SET → PING 순서로 하나씩 실행돼요. 메모리에서 바로 처리하니 각각 아주 짧아요.', show: [...base, 'c1', 'tl', 't-get', 't-set', 't-ping', 'hl-track', 'n3'] },
+  { caption: 'A가 KEYS *를 보냈어요. 키 100만 개를 전부 훑을 때까지(실험에서 약 61ms) 실행 칸을 혼자 차지해요. 블록 길이는 실제 비율이 아니에요(실제로는 GET보다 수만 배 길어요).', show: [...base, 'c2', 'tl', 't-keys', 'hl-keys', 'n4'] },
+  { caption: '그 뒤에 선 B의 GET, C의 PING은 KEYS *가 끝날 때까지 기다려요. PING 자체는 3µs면 끝나는데 응답은 약 50ms 뒤에야 왔어요.', show: [...base, 'c2', 'tl', 't-keys', 't-get2', 't-ping2', 'wait', 'n5'] },
+  { caption: '대안: A가 SCAN 0 COUNT 100으로 조금만 훑고 커서를 받아, 그 커서로 다시 SCAN해요. 한 번이 짧으니 그 사이사이 B·C 명령이 끼어서 실행돼요.', show: [...base, 'c3', 'tl', 's1', 's2', 's3', 's4', 's5', 'more', 'hl-track', 'n6'] },
+];
+---
+<Stepper title="Redis 메인 스레드: 명령은 한 줄로 하나씩" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 320" role="img" aria-label="클라이언트 A, B, C의 명령이 Redis 메인 스레드 하나에서 한 줄로 실행되고, KEYS 별표가 오래 걸리면 뒤 명령이 기다리며, SCAN으로 나누면 사이사이 끼어드는 모습">
+    <!-- 클라이언트 -->
+    <g data-id="cl">
+      {['A', 'B', 'C'].map((n, i) => (
+        <g>
+          <rect class="box" x={CX[i]} y="8" width={CW} height="36" rx="6" />
+          <text x={CX[i] + CW / 2} y="27" style="font-weight:700">클라이언트 {n}</text>
+        </g>
+      ))}
+    </g>
+    {cmds.map((row, s) => (
+      <g data-id={`c${s + 1}`} class="hide">
+        {row.map((c, i) => (
+          <g>
+            <rect class={c === 'KEYS *' ? 'err' : c === 'SCAN' ? 'box' : 'chip'} x={CX[i] + 12} y="50" width={CW - 24} height="28" rx="5" />
+            <text class="mono" x={CX[i] + CW / 2} y="65">{c}</text>
+          </g>
+        ))}
+      </g>
+    ))}
+    <!-- 연결 → 이벤트 루프 -->
+    <g data-id="arr">
+      {CX.map((x) => <line class="line" x1={x + CW / 2} y1="82" x2={x + CW / 2} y2="104" marker-end="url(#rq-arrow)" />)}
+    </g>
+    <defs>
+      <marker id="rq-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0,0 L10,5 L0,10 z" style="fill:var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+    <g data-id="loop">
+      <rect class="box" x="10" y="110" width="300" height="48" rx="8" />
+      <text x="160" y="126" style="font-weight:700">메인 스레드 (이벤트 루프)</text>
+      <text class="sub" x="160" y="146">준비된 연결에서 명령을 꺼냄</text>
+    </g>
+    <rect data-id="hl-loop" class="hl" x="7" y="107" width="306" height="54" rx="10" />
+
+    <!-- 실행 순서 타임라인 -->
+    <g data-id="tl">
+      <text class="l" x="10" y="178" style="font-weight:700">실행 순서</text>
+      <text class="sub" x="300" y="178" style="text-anchor:end">시간 →</text>
+    </g>
+    <rect class="frame" x="10" y={TY} width="300" height={TH} rx="6" />
+    {blocks.map(([id, x, w, c, who, cls]) => (
+      <g data-id={id} class="hide">
+        <rect class={cls} x={x} y={TY + 3} width={w} height={TH - 6} rx="4" />
+        <text class="mono" x={x + w / 2} y={TY + 16}>{c}</text>
+        <text class="sub" x={x + w / 2} y={TY + 32}>{who}</text>
+      </g>
+    ))}
+    <text data-id="more" class="sub hide" x="280" y={TY + 22}>…</text>
+    <rect data-id="hl-track" class="hl" x="7" y={TY - 3} width="306" height={TH + 6} rx="8" />
+    <rect data-id="hl-keys" class="hl" x="9" y={TY - 3} width="190" height={TH + 6} rx="8" />
+    <g data-id="wait" class="hide">
+      <path class="line" d={`M12,${TY + TH + 8} v8 H196 v-8`} />
+      <text class="sub" x="104" y={TY + TH + 30}>B·C는 이 동안 줄 서서 대기</text>
+    </g>
+
+    <!-- 이번 단계 한 줄 -->
+    {notes.map((t, i) => <text data-id={`n${i + 1}`} class="hi hide" x="160" y="302" style="font-size:14px">{t}</text>)}
+  </svg>
+</Stepper>

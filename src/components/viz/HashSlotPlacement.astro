@@ -1,0 +1,84 @@
+---
+// 키 → CRC16 % 16384 → 슬롯 → 담당 마스터. 슬롯 값은 CLUSTER KEYSLOT과 같은 CRC16(XMODEM)으로 계산. 구간 A/B/C는 예시.
+import Stepper from '../Stepper.astro';
+const X0 = 8, W = 304, N = 16384;
+const sx = (slot: number) => X0 + (W * slot) / N;
+const seg = [
+  ['A', 0, 5460], ['B', 5461, 10922], ['C', 10923, 16383],
+] as const;
+const notes: [string, string, string][] = [
+  ['키 이름을 CRC16으로 숫자로 바꾸고', '16384로 나눈 나머지가 슬롯 번호', 'hi'],
+  ['슬롯 10778은 B 구간(5461~10922)', 'user:1은 마스터 B에 저장돼요', 'hi'],
+  ['MGET user:1 user:2 → CROSSSLOT 에러', '슬롯이 다르면 같은 노드여도 거절', 'err'],
+  ['{ } 안의 user:1만 해시 → 둘 다 10778', '같은 슬롯이라 MGET 가능', 'hi'],
+  ['모든 키를 {user:1}로 묶으면', '슬롯 하나·노드 B 하나에 쏠려요', 'err'],
+];
+const steps = [
+  '키 user:1을 CRC16으로 16비트 숫자로 바꾼 뒤 16384로 나눠요. 나머지 10778이 이 키의 해시 슬롯이에요.',
+  '슬롯 0~16383을 마스터 A·B·C가 구간별로 나눠 맡아요(구간은 예시). 10778은 B 구간이라 user:1은 B에 저장돼요.',
+  'user:2는 슬롯 6777이에요. 이 예시에선 우연히 같은 B지만 슬롯이 달라서, 두 키를 한 번에 읽는 MGET은 CROSSSLOT 에러가 나요. Cluster는 노드가 아니라 슬롯이 같은지를 봐요.',
+  '해시 태그: 키에 { }가 있으면 중괄호 안 글자만 해시해요. {user:1}:cart와 {user:1}:orders는 둘 다 user:1만 계산해서 슬롯 10778, 같은 마스터예요.',
+  '단, 모든 키에 같은 태그를 붙이면 전부 한 슬롯에 모여요. 데이터와 트래픽이 마스터 B 하나에 쏠리는 핫 슬롯이 돼요.',
+].map((caption, i) => ({
+  caption,
+  show: [`f${i}`, `n${i}`, ...(i ? ['bar', 'k1'] : []), ...(i === 1 ? ['hB'] : []), ...(i === 2 ? ['k2'] : []), ...(i === 4 ? ['hot'] : [])],
+}));
+const B = { x: sx(5461), w: sx(10923) - sx(5461) };
+---
+<Stepper title="해시 슬롯과 해시 태그" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 252" role="img" aria-label="키 user:1은 CRC16 mod 16384로 슬롯 10778이 되어 마스터 B에 저장되고, user:2는 슬롯 6777이라 MGET이 CROSSSLOT 에러가 나며, 해시 태그로 묶은 키는 같은 슬롯에 모이지만 너무 몰리면 핫 슬롯이 된다">
+    <!-- 계산식 (단계마다 바뀜) -->
+    <g data-id="f0" class="hide">
+      <text class="mono" x="160" y="22">CRC16("user:1") % 16384</text>
+      <text class="mono" x="160" y="48">= <tspan class="hi">10778</tspan></text>
+    </g>
+    <g data-id="f1" class="hide">
+      <text class="mono" x="160" y="22">user:1 → 슬롯 <tspan class="hi">10778</tspan></text>
+      <text class="mono" x="160" y="48">16384개 슬롯을 A·B·C가 나눔</text>
+    </g>
+    <g data-id="f2" class="hide">
+      <text class="mono" x="160" y="22">user:1 → 10778</text>
+      <text class="mono" x="160" y="48">user:2 → <tspan class="err-t">6777</tspan></text>
+    </g>
+    <g data-id="f3" class="hide">
+      <text class="mono" x="160" y="22">{"{"}<tspan class="hi">user:1</tspan>{"}"}:cart   → 10778</text>
+      <text class="mono" x="160" y="48">{"{"}<tspan class="hi">user:1</tspan>{"}"}:orders → 10778</text>
+    </g>
+    <g data-id="f4" class="hide">
+      <text class="mono" x="160" y="22">{"{"}user:1{"}"}:* 키 수백만 개</text>
+      <text class="mono" x="160" y="48">→ 전부 슬롯 <tspan class="err-t">10778</tspan></text>
+    </g>
+
+    <!-- 슬롯 막대 -->
+    <g data-id="bar">
+      {seg.map(([n, a, b]) => (
+        <g>
+          <rect class="box" x={sx(a)} y="108" width={sx(b + 1) - sx(a)} height="46" />
+          <text x={(sx(a) + sx(b + 1)) / 2} y="124" style="font-weight:700">마스터 {n}</text>
+          <text class="mono" x={(sx(a) + sx(b + 1)) / 2} y="143" style="fill:var(--sl-color-gray-2)">{a}~{b}</text>
+        </g>
+      ))}
+      <text class="sub l" x="8" y="170">슬롯 0 ~ 16383 (구간은 예시)</text>
+    </g>
+    <rect data-id="hot" class="hide" x={B.x + 1.5} y="109.5" width={B.w - 3} height="43" style="fill:none;stroke:var(--sl-color-red);stroke-width:3" />
+    <text data-id="hot" class="err-t hide" x={B.x + B.w / 2} y="187">B만 과부하</text>
+    <rect data-id="hB" class="hl" x={B.x} y="105" width={B.w} height="52" rx="4" />
+
+    <!-- 슬롯 위치 표시 -->
+    <g data-id="k1" class="hide">
+      <line x1={sx(10778)} y1="88" x2={sx(10778)} y2="156" style="stroke:var(--sl-color-accent);stroke-width:2.5" />
+      <text class="mono hi" x={sx(10778) + 4} y="80">10778</text>
+    </g>
+    <g data-id="k2" class="hide">
+      <line x1={sx(6777)} y1="88" x2={sx(6777)} y2="156" style="stroke:var(--sl-color-red);stroke-width:2.5;stroke-dasharray:4 3" />
+      <text class="mono err-t" x={sx(6777) - 4} y="80">6777</text>
+    </g>
+
+    {notes.map(([a, b, k], i) => (
+      <g data-id={`n${i}`} class="hide">
+        <text class={`l ${k === 'err' ? 'err-t' : 'hi'}`} x="4" y="214" style="font-size:15px">{a}</text>
+        <text class="l" x="4" y="240" style="font-size:14px">{b}</text>
+      </g>
+    ))}
+  </svg>
+</Stepper>

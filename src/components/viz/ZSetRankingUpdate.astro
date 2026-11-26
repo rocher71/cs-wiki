@@ -1,0 +1,72 @@
+---
+// Sorted Set 점수판: ZADD로 넣으면 점수순 정렬, ZINCRBY로 점수만 올리면 Redis가 자리를 옮기고, ZRANGE/ZREVRANK로 바로 꺼내는 모습.
+import Stepper from '../Stepper.astro';
+const RY = [108, 152, 196], RH = 36;           // 순위 0·1·2 칸 y, 높이
+const rowsA = [['bob', 250], ['carol', 180], ['alice', 100]];
+const rowsB = [['alice', 300], ['bob', 250], ['carol', 180]];
+const cmds = [
+  ['ZADD rank:2026-11', '100 alice 250 bob 180 carol'],
+  ['ZINCRBY rank:2026-11', '200 alice   → 300'],
+  ['ZRANGE rank:2026-11', '0 2 REV WITHSCORES'],
+  ['ZREVRANK rank:2026-11', 'carol   → 2'],
+];
+const notes = [
+  '점수판 준비, 아직 멤버 없음',
+  '넣기만 해도 점수 높은 순 정렬',
+  '자리 이동은 Redis가, O(log N)',
+  '상위 3명을 바로 꺼냄',
+  'carol은 2 → 0부터 세서 3등',
+];
+const base = ['hdr', 'board'];
+const steps = [
+  { caption: '월간 랭킹용 Sorted Set rank:2026-11을 준비해요. 멤버마다 점수가 붙고, Redis가 늘 점수순으로 정렬된 상태를 유지해요. 지금은 비어 있어요.', show: [...base, 'empty', 'n1'] },
+  { caption: 'ZADD로 alice 100, bob 250, carol 180을 넣어요. 넣은 순서와 상관없이 점수 높은 순(bob → carol → alice)으로 자리가 잡혀요.', show: [...base, 'cmd1', 'idx', 'rowsA', 'n2'] },
+  { caption: 'ZINCRBY로 alice에 200점을 더해요. 앱은 "+200"만 보내고, Redis가 점수를 300으로 고친 뒤 alice를 맨 위로 옮겨요. 이 작업은 O(log N)이에요.', show: [...base, 'cmd2', 'idx', 'rowsB', 'move', 'hl-alice', 'n3'] },
+  { caption: 'ZRANGE ... 0 2 REV WITHSCORES로 점수 높은 쪽 0~2번째를 점수와 함께 꺼내요. 이미 정렬돼 있으니 앱에서 다시 정렬할 필요가 없어요.', show: [...base, 'cmd3', 'idx', 'rowsB', 'hl-top', 'n4'] },
+  { caption: 'ZREVRANK carol은 2를 돌려줘요. 순위는 0부터 세니까 carol은 3등이에요. 화면에 보여 줄 땐 +1을 해야 해요.', show: [...base, 'cmd4', 'idx', 'rowsB', 'hl-carol', 'n5'] },
+];
+---
+<Stepper title="Sorted Set 랭킹: 점수만 바꾸면 순위는 Redis가 맞춰요" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 276" role="img" aria-label="Sorted Set 점수판에 alice, bob, carol을 넣으면 점수순으로 정렬되고, alice 점수를 올리면 맨 위로 이동하며, 상위 3명과 carol의 순위를 바로 조회하는 모습">
+    <defs>
+      <marker id="zr-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0,0 L10,5 L0,10 z" style="fill:var(--sl-color-accent)" />
+      </marker>
+    </defs>
+    <g data-id="hdr">
+      <text class="l" x="10" y="24" style="font-weight:700">rank:2026-11</text>
+      <text class="sub" x="310" y="24" style="text-anchor:end">Sorted Set</text>
+    </g>
+    {cmds.map(([a, b], i) => (
+      <g data-id={`cmd${i + 1}`} class="hide">
+        <rect class="chip" x="10" y="42" width="300" height="52" rx="6" />
+        <text class="mono" x="160" y="58" style="font-weight:700">{a}</text>
+        <text class="mono" x="160" y="79">{b}</text>
+      </g>
+    ))}
+    <rect data-id="board" class="frame" x="10" y="102" width="300" height="136" rx="8" />
+    <text data-id="empty" class="sub hide" x="160" y="170">(비어 있음)</text>
+    <g data-id="idx" class="hide">
+      {RY.map((y, i) => <text class="sub" x="28" y={y + RH / 2}>{i}</text>)}
+    </g>
+    {[['rowsA', rowsA], ['rowsB', rowsB]].map(([id, rows]) => (
+      <g data-id={id as string} class="hide">
+        {(rows as (string | number)[][]).map(([m, s], i) => (
+          <g>
+            <rect class="box" x="44" y={RY[i]} width="200" height={RH} rx="5" />
+            <text class="l" x="56" y={RY[i] + RH / 2}>{m}</text>
+            <text class="mono" x="232" y={RY[i] + RH / 2} style="text-anchor:end">{s}</text>
+          </g>
+        ))}
+      </g>
+    ))}
+    <g data-id="move" class="hide">
+      <path class="line" style="stroke:var(--sl-color-accent)" d={`M248,${RY[2] + 18} C278,${RY[2] + 18} 278,${RY[0] + 18} 250,${RY[0] + 18}`} marker-end="url(#zr-arrow)" />
+      <text class="hi" x="292" y="170">+200</text>
+    </g>
+    <rect data-id="hl-alice" class="hl" x="41" y={RY[0] - 3} width="206" height={RH + 6} rx="7" />
+    <rect data-id="hl-top" class="hl" x="16" y={RY[0] - 4} width="234" height={RY[2] - RY[0] + RH + 8} rx="8" />
+    <rect data-id="hl-carol" class="hl" x="16" y={RY[2] - 3} width="231" height={RH + 6} rx="7" />
+    {notes.map((t, i) => <text data-id={`n${i + 1}`} class="hi hide" x="160" y="258" style="font-size:14px">{t}</text>)}
+  </svg>
+</Stepper>

@@ -1,0 +1,74 @@
+---
+// 고정 윈도우 경계 문제: 2초짜리 윈도우 두 칸 + 시간축(70px = 1초). 요청은 같은 시각끼리 세로로 쌓은 점.
+import Stepper from '../Stepper.astro';
+const X0 = 20, PX = 70, B = X0 + 2 * PX; // B = 경계(2초)
+const tx = (t: number) => X0 + t * PX;
+const A = tx(1.7), Bc = tx(2.05) + 6; // ponytail: 0.05초는 3.5px라 점이 겹쳐서 6px 띄움
+const dy = (i: number) => 182 - i * 16;
+const steps = [
+  { caption: '한도는 "2초에 5회". 고정 윈도우는 시간을 2초짜리 칸(윈도우 N, N+1)으로 자르고, 칸마다 키 하나에 카운터를 INCR해요.', show: ['cN0'] },
+  { caption: '윈도우 N이 끝나기 0.3초 전에 요청 5개가 몰려요. 카운터가 5가 되고, 한도 안이라 모두 허용돼요.', show: ['cN5', 'dA'] },
+  { caption: '경계를 넘으면 키가 rl:user1:N+1로 바뀌어요. 새 키라서 카운터가 0부터 다시 시작해요. 방금 5개가 들어온 건 잊어버려요.', show: ['cN5', 'dA', 'cM0', 'hlM'] },
+  { caption: '경계 0.05초 후 요청 5개가 또 와요. 새 카운터 기준으론 5개라 모두 허용되고, 11번째 요청만 거절돼요.', show: ['cN5', 'dA', 'cM5', 'dB', 'tB', 'rej'] },
+  { caption: '결과: 약 0.35초 동안 10개가 통과했어요. "2초에 5회"라는 한도의 2배예요. 이게 고정 윈도우의 경계 문제예요.', show: ['cN5', 'dA', 'cM5', 'dB', 'tB', 'rej', 'twice'] },
+  { caption: '비교: 슬라이딩 윈도우는 칸이 아니라 "지금부터 2초 전까지"를 세요. 경계 직후에도 앞의 5개가 범위 안에 있어서 6번째 요청부터 거절돼요.', show: ['dA', 'dB', 'slide', 'slx'] },
+];
+const counter = (id: string, x: number, v: number) => ({ id, x, v });
+const counters = [counter('cN0', tx(1), 0), counter('cN5', tx(1), 5), counter('cM0', tx(3), 0), counter('cM5', tx(3), 5)];
+---
+<Stepper title="고정 윈도우 경계에서 2배 통과" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 372" role="img" aria-label="2초에 5회 한도의 고정 윈도우에서 경계 직전 5개, 직후 5개가 모두 허용되어 약 0.35초에 10개가 통과하고, 슬라이딩 윈도우는 6번째부터 거절하는 그림">
+    {[[tx(0), 'N'], [B, 'N+1']].map(([x, n]) => (
+      <g>
+        <rect class="frame" x={x} y="36" width={2 * PX} height="196" rx="6" />
+        <text x={+x + PX} y="54" style="font-weight:700">윈도우 {n}</text>
+        <text class="mono sub" x={+x + PX} y="76">rl:user1:{n}</text>
+      </g>
+    ))}
+    <rect data-id="hlM" class="hl hide" x={B} y="36" width={2 * PX} height="196" rx="6" />
+    <text class="l" x="4" y="14" style="font-weight:700">한도: 2초에 5회</text>
+
+    {counters.map((c) => (
+      <g data-id={c.id} class="hide">
+        <rect class="chip" x={c.x - 50} y="198" width="100" height="26" rx="13" />
+        <text x={c.x} y="211" style="font-size:14px">카운터 {c.v}</text>
+      </g>
+    ))}
+
+    <g data-id="dA">
+      {[0, 1, 2, 3, 4].map((i) => <circle class="badge" cx={A} cy={dy(i)} r="7" />)}
+      <text class="l" x="30" y={dy(2)}>허용 5개 →</text>
+    </g>
+    <g data-id="dB">
+      {[0, 1, 2, 3, 4].map((i) => <circle class="badge" cx={Bc} cy={dy(i)} r="7" />)}
+    </g>
+    <text data-id="tB" class="l hide" x={Bc + 14} y={dy(2)}>← 허용 5개</text>
+    <g data-id="rej" class="hide">
+      <circle class="err" cx={Bc} cy={dy(5)} r="7" />
+      <text class="err-t" x={Bc} y={dy(5) + 1} style="font-size:14px">✕</text>
+      <text class="l err-t" x={Bc + 14} y={dy(5)}>11번째 거절</text>
+    </g>
+    <g data-id="slx" class="hide">
+      {[0, 1, 2, 3, 4].map((i) => <circle class="err" cx={Bc} cy={dy(i)} r="7" />)}
+      <text class="l err-t" x={Bc + 14} y={dy(5)}>6번째부터 거절</text>
+    </g>
+
+    <line class="line" x1={X0} y1="244" x2={tx(4)} y2="244" />
+    {[0, 1, 2, 3, 4].map((t) => (
+      <g>
+        <line class="line" x1={tx(t)} y1="240" x2={tx(t)} y2="248" />
+        <text class="sub" x={tx(t)} y="262">{t}초</text>
+      </g>
+    ))}
+    <line x1={B} y1="28" x2={B} y2="250" style="stroke:var(--sl-color-gray-2);stroke-width:2;stroke-dasharray:3 3" />
+
+    <g data-id="twice">
+      <path d={`M${A} 280 V288 H${Bc} V280`} style="fill:none;stroke:var(--sl-color-accent);stroke-width:2.2" />
+      <text class="hi" x="160" y="308">약 0.35초에 10개 = 한도의 2배</text>
+    </g>
+    <g data-id="slide" class="hide">
+      <path d={`M${Bc - 2 * PX} 330 V338 H${Bc} V330`} style="fill:none;stroke:var(--sl-color-accent);stroke-width:2.2" />
+      <text class="hi" x={Bc - PX} y="356">슬라이딩: 지금부터 2초 전까지</text>
+    </g>
+  </svg>
+</Stepper>

@@ -1,0 +1,85 @@
+---
+// AOF 쓰기 경로: SET → Redis 메모리 → write(OS 페이지 캐시) → fsync(디스크). appendfsync별 유실 범위
+import Stepper from '../Stepper.astro';
+const base = ['act-box', 'cli', 'rmem', 'cache', 'disk'];
+const steps = [
+  { caption: '클라이언트가 SET k v를 보내면 Redis는 먼저 메모리에 값을 반영해요. 아직 어디에도 기록은 없어요.', show: [...base, 'act1', 'rmem-v', 'cache-empty', 'disk-empty', 'a1', 'hl-rmem'] },
+  { caption: 'Redis가 명령을 AOF 파일에 write해요. 하지만 이건 OS의 페이지 캐시(커널 메모리)에 들어간 것일 뿐, 디스크에 닿은 게 아니에요. everysec·no에서는 이 상태로 이미 OK 응답이 나가요.', show: [...base, 'act2', 'rmem-v', 'cache-v', 'disk-empty', 'a1', 'a2', 'hl-cache'] },
+  { caption: 'fsync를 해야 디스크에 확정돼요. 언제 fsync하느냐가 appendfsync 설정이에요. always는 쓸 때마다(응답 전), everysec(기본값)는 1초마다 백그라운드 스레드가, no는 OS에 맡겨요(리눅스는 보통 약 30초).', show: [...base, 'act3', 'rmem-v', 'cache-v', 'disk-v', 'a1', 'a2', 'a3', 'pol', 'hl-disk', 'hl-pol'] },
+  { caption: '서버나 OS가 꺼지면 메모리와 페이지 캐시는 사라지고, fsync된 것만 남아요. 그래서 유실 범위는 always 거의 0, everysec 최대 약 1초, no는 수십 초까지 갈 수 있어요. 막대는 크기 비교용이에요.', show: [...base, 'act4', 'crash1', 'crash2', 'disk-v', 'pol', 'loss', 'hl-loss'] },
+];
+---
+<Stepper title="AOF: write와 fsync 사이의 유실 구간" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 460" role="img" aria-label="SET 명령이 Redis 메모리, OS 페이지 캐시를 거쳐 fsync 때 디스크의 AOF 파일에 확정되는 과정과, appendfsync 설정 always, everysec, no별 장애 시 유실 범위를 비교하는 그림">
+    <rect data-id="act-box" class="box" x="8" y="4" width="304" height="34" rx="7" />
+    <text data-id="act1" class="mono hide" x="160" y="21">SET k v</text>
+    <text data-id="act2" class="mono hide" x="160" y="21">write() → 페이지 캐시</text>
+    <text data-id="act3" class="mono hide" x="160" y="21">fsync() → 디스크</text>
+    <text data-id="act4" class="err-t hide" x="160" y="21">서버/OS 다운!</text>
+
+    <g data-id="cli">
+      <rect class="box" x="8" y="46" width="304" height="28" rx="6" />
+      <text x="160" y="60">클라이언트</text>
+    </g>
+    <text data-id="a1" class="sub hide" x="160" y="85">↓ SET k v</text>
+
+    <g data-id="rmem">
+      <rect class="box" x="8" y="96" width="304" height="30" rx="6" />
+      <text class="l" x="18" y="111">Redis 메모리</text>
+    </g>
+    <text data-id="rmem-v" class="mono hide" x="300" y="111"  style="text-anchor:end">k=v</text>
+    <g data-id="crash1" class="hide"><rect class="err" x="214" y="99" width="94" height="24" rx="5" /><text class="err-t" x="261" y="111">사라짐</text></g>
+    <text data-id="a2" class="sub hide" x="160" y="137">↓ write()</text>
+
+    <g data-id="cache">
+      <rect class="box" x="8" y="148" width="304" height="30" rx="6" />
+      <text class="l" x="18" y="163">OS 페이지 캐시</text>
+    </g>
+    <text data-id="cache-empty" class="sub hide" x="300" y="163" style="text-anchor:end">(비어 있음)</text>
+    <text data-id="cache-v" class="mono hide" x="300" y="163" style="text-anchor:end">SET k v</text>
+    <g data-id="crash2" class="hide"><rect class="err" x="214" y="151" width="94" height="24" rx="5" /><text class="err-t" x="261" y="163">사라짐</text></g>
+    <text data-id="a3" class="hi hide" x="160" y="189">↓ fsync()</text>
+
+    <g data-id="disk">
+      <rect class="box" x="8" y="200" width="304" height="30" rx="6" />
+      <text class="l" x="18" y="215">디스크 AOF</text>
+    </g>
+    <text data-id="disk-empty" class="sub hide" x="300" y="215" style="text-anchor:end">(아직 없음)</text>
+    <text data-id="disk-v" class="mono hide" x="300" y="215" style="text-anchor:end">SET k v (확정)</text>
+    <text class="sub l" x="8" y="244">메모리·페이지 캐시는 꺼지면 사라져요</text>
+
+    <!-- appendfsync 정책 -->
+    <g data-id="pol" class="hide">
+      <text class="sub l" x="8" y="268">appendfsync = fsync 시점</text>
+      <rect class="box" x="8" y="280" width="304" height="26" rx="6" />
+      <text class="mono l" x="16" y="293">always</text>
+      <text class="sub l" x="104" y="293">쓸 때마다, 응답 전</text>
+      <rect class="box" x="8" y="310" width="304" height="26" rx="6" />
+      <text class="mono l" x="16" y="323">everysec</text>
+      <text class="sub l" x="104" y="323">1초마다 (기본값)</text>
+      <rect class="box" x="8" y="340" width="304" height="26" rx="6" />
+      <text class="mono l" x="16" y="353">no</text>
+      <text class="sub l" x="104" y="353">OS 맡김 (보통 약 30초)</text>
+    </g>
+
+    <!-- 유실 범위 -->
+    <g data-id="loss" class="hide">
+      <text class="sub l" x="8" y="382">장애 시 잃는 범위</text>
+      <text class="mono l" x="16" y="404">always</text>
+      <rect class="badge" x="104" y="396" width="3" height="16" />
+      <text class="l" x="114" y="404">≈ 0</text>
+      <text class="mono l" x="16" y="424">everysec</text>
+      <rect class="badge" x="104" y="416" width="16" height="16" />
+      <text class="l" x="126" y="424">최대 약 1초</text>
+      <text class="mono l" x="16" y="444">no</text>
+      <rect class="badge" x="104" y="436" width="208" height="16" />
+      <text class="on-badge" x="208" y="444">수십 초 가능</text>
+    </g>
+
+    <rect data-id="hl-rmem" class="hl" x="4" y="92" width="312" height="38" rx="8" />
+    <rect data-id="hl-cache" class="hl" x="4" y="144" width="312" height="38" rx="8" />
+    <rect data-id="hl-disk" class="hl" x="4" y="196" width="312" height="38" rx="8" />
+    <rect data-id="hl-pol" class="hl" x="4" y="276" width="312" height="94" rx="9" />
+    <rect data-id="hl-loss" class="hl" x="4" y="370" width="312" height="88" rx="9" />
+  </svg>
+</Stepper>

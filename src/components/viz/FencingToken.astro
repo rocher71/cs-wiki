@@ -1,0 +1,80 @@
+---
+// 펜싱 토큰: 락을 줄 때마다 1씩 커지는 번호를 함께 주고, 저장소는 본 적 있는 최대 번호보다 작은 쓰기를 거절한다.
+// 위: Redis 락 / 가운데: 클라이언트1·2 / 아래: 저장소. 상태 글자는 .hide라 해당 단계에서만 보인다.
+import Stepper from '../Stepper.astro';
+const R = { x: 90, y: 14, w: 140, h: 60 };
+const C1 = { x: 10, cx: 75 }, C2 = { x: 180, cx: 245 }, CY = 150, CW = 130, CH = 64;
+const S = { x: 40, y: 300, w: 240, h: 80 };
+const steps = [
+  { caption: '클라이언트1이 락을 잡으면서 번호 33도 받아요. 번호는 락과 별도로 만들어요(예: Redis INCR처럼 매번 1씩 커지는 카운터).', show: ['r1', 't33', 'c1n', 's0'] },
+  { caption: '클라이언트1이 GC로 멈춰요. 그 사이 TTL이 끝나 락이 풀려요. 클라이언트1은 아직 33을 쥐고 있어요.', show: ['r2', 't33', 'c1gc', 's0'] },
+  { caption: '클라이언트2가 락을 잡고 번호 34를 받아요. 번호는 락을 줄 때마다 커지니 늦게 받은 쪽이 항상 커요.', show: ['r3', 't33', 't34', 'c1gc', 'c2n', 's0'] },
+  { caption: '클라이언트2가 "번호 34로 쓰기"를 보내요. 저장소는 쓰기를 받아 주고, 지금까지 본 최대 번호 34를 기억해요.', show: ['r3', 't34', 'c1gc', 'c2n', 'w34', 's34'] },
+  { caption: '클라이언트1이 깨어나 "번호 33으로 쓰기"를 보내요. 저장소가 33 < 34를 보고 거절해요. 늦게 깬 쪽의 쓰기가 데이터를 덮지 못해요.', show: ['r3', 't34', 'c1w', 'c2n', 'w33', 's34', 'rej'] },
+];
+---
+<Stepper title="펜싱 토큰: 옛 번호의 쓰기를 거절" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 392" role="img" aria-label="클라이언트1이 번호 33으로 락을 받은 뒤 GC로 멈추고, 락이 만료돼 클라이언트2가 번호 34를 받는다. 저장소는 34로 쓰기를 받은 뒤 최대 번호 34를 기억하고, 깨어난 클라이언트1의 33번 쓰기를 거절한다.">
+    <defs>
+      <marker id="fen-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-2)" />
+      </marker>
+      <marker id="fen-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+      <marker id="fen-r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-red)" />
+      </marker>
+    </defs>
+
+    <!-- Redis 락 -->
+    <rect class="box" x={R.x} y={R.y} width={R.w} height={R.h} rx="8" />
+    <text x="160" y={R.y + 18} style="font-weight:700">Redis 락</text>
+    <text data-id="r1" class="hi hide" x="160" y={R.y + 42}>주인 1 · 번호 33</text>
+    <text data-id="r2" class="sub hide" x="160" y={R.y + 42}>TTL 만료 · 비어 있음</text>
+    <text data-id="r3" class="hi hide" x="160" y={R.y + 42}>주인 2 · 번호 34</text>
+
+    <!-- 번호 발급 화살표 -->
+    <g data-id="t33">
+      <line x1="120" y1={R.y + R.h} x2={C1.cx + 6} y2={CY - 4} style="stroke:var(--sl-color-gray-2);stroke-width:1.6" marker-end="url(#fen-g)" />
+      <circle class="badge" cx="98" cy="112" r="15" />
+      <text class="on-badge" x="98" y="113">33</text>
+    </g>
+    <g data-id="t34">
+      <line x1="200" y1={R.y + R.h} x2={C2.cx - 6} y2={CY - 4} style="stroke:var(--sl-color-gray-2);stroke-width:1.6" marker-end="url(#fen-g)" />
+      <circle class="badge" cx="222" cy="112" r="15" />
+      <text class="on-badge" x="222" y="113">34</text>
+    </g>
+
+    <!-- 클라이언트 -->
+    <rect class="box" x={C1.x} y={CY} width={CW} height={CH} rx="8" />
+    <rect data-id="c1gc" class="bad hide" x={C1.x} y={CY} width={CW} height={CH} rx="8" />
+    <text x={C1.cx} y={CY + 20} style="font-weight:700">클라이언트1</text>
+    <text data-id="c1n" class="hide" x={C1.cx} y={CY + 44} style="font-size:14px">번호 33 보유</text>
+    <text data-id="c1gc" class="sub hide" x={C1.cx} y={CY + 44}>GC 멈춤 (33)</text>
+    <text data-id="c1w" class="hide" x={C1.cx} y={CY + 44} style="font-size:14px">깨어남 (33)</text>
+
+    <rect class="box" x={C2.x} y={CY} width={CW} height={CH} rx="8" />
+    <text x={C2.cx} y={CY + 20} style="font-weight:700">클라이언트2</text>
+    <text data-id="c2n" class="hide" x={C2.cx} y={CY + 44} style="font-size:14px">번호 34 보유</text>
+
+    <!-- 쓰기 화살표 -->
+    <g data-id="w34" class="hide">
+      <line x1={C2.cx} y1={CY + CH} x2="220" y2={S.y - 4} style="stroke:var(--sl-color-accent);stroke-width:2.4" marker-end="url(#fen-a)" />
+      <text class="hi l" x="244" y="258">34로 쓰기</text>
+    </g>
+    <g data-id="w33" class="hide">
+      <line x1={C1.cx} y1={CY + CH} x2="100" y2={S.y - 4} style="stroke:var(--sl-color-red);stroke-width:2.4;stroke-dasharray:6 4" marker-end="url(#fen-r)" />
+      <text class="err-t" x="44" y="258">33으로</text>
+      <text class="err-t" x="44" y="278">쓰기</text>
+    </g>
+
+    <!-- 저장소 -->
+    <rect class="box" x={S.x} y={S.y} width={S.w} height={S.h} rx="8" />
+    <rect data-id="rej" class="err hide" x={S.x} y={S.y} width={S.w} height={S.h} rx="8" />
+    <text x="160" y={S.y + 18} style="font-weight:700">저장소 (DB 등)</text>
+    <text data-id="s0" class="sub hide" x="160" y={S.y + 42}>본 최대 번호: 없음</text>
+    <text data-id="s34" class="hi hide" x="160" y={S.y + 42}>본 최대 번호: 34</text>
+    <text data-id="rej" class="err-t hide" x="160" y={S.y + 64}>33 &lt; 34 → 거절</text>
+  </svg>
+</Stepper>

@@ -1,0 +1,85 @@
+---
+// Redis Pub/Sub는 저장하지 않는다: 구독자가 없거나 끊긴 사이에 발행한 메시지는 반환값 0으로 사라지고, 다시 구독해도 오지 않는다.
+import Stepper from '../Stepper.astro';
+const steps = [
+  { caption: '아직 아무도 news를 구독하지 않았어요. PUBLISH news hello의 반환값은 0(받은 사람 수)이고, hello는 어디에도 남지 않고 사라져요.', show: ['base', 'cmd1', 'pub', 'sNone', 'lost1'] },
+  { caption: '구독자 S가 SUBSCRIBE news로 채널을 듣기 시작해요. 이 순간부터 나오는 메시지만 받을 수 있어요.', show: ['base', 'cmd2', 'sOn', 'link'] },
+  { caption: 'PUBLISH news hi는 1을 돌려줘요. 지금 듣고 있는 S 한 명에게 바로 밀어 주고, Redis에는 아무것도 남기지 않아요.', show: ['base', 'cmd3', 'pub', 'sOn', 'link', 'deliver', 'got'] },
+  { caption: 'S의 연결이 끊겼어요(재시작, 네트워크 문제 등). 이때 PUBLISH news lost는 다시 0. lost도 그대로 사라져요.', show: ['base', 'cmd4', 'pub', 'sGone', 'lost4'] },
+  { caption: 'S가 다시 SUBSCRIBE해도 lost는 오지 않아요. 채널은 메시지를 저장하지 않으니 돌려줄 것이 없어요. 놓치면 끝, 이게 at-most-once예요.', show: ['base', 'cmd5', 'sRe', 'link', 'final'] },
+];
+const cmds = [
+  ['PUBLISH news hello', '→ 0'],
+  ['SUBSCRIBE news', '(S)'],
+  ['PUBLISH news hi', '→ 1'],
+  ['PUBLISH news lost', '→ 0'],
+  ['SUBSCRIBE news', '(S, 다시)'],
+];
+const acc = 'stroke:var(--sl-color-accent);stroke-width:2.4;fill:none';
+---
+<Stepper title="Pub/Sub: 듣는 사람이 없으면 메시지는 사라져요" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 312" role="img" aria-label="구독자가 없을 때와 연결이 끊겼을 때 발행한 메시지는 반환값 0으로 사라지고, 다시 구독해도 받지 못하는 Redis Pub/Sub의 동작">
+    <defs>
+      <marker id="psl-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+    </defs>
+    <g data-id="base">
+      <rect class="frame" x="10" y="6" width="300" height="32" rx="6" />
+      <rect class="box" x="100" y="52" width="120" height="36" rx="8" />
+      <text x="160" y="70" style="font-weight:700">발행자</text>
+      <rect class="box" x="40" y="122" width="240" height="52" rx="8" />
+      <text x="160" y="140" style="font-weight:700">Redis 채널 news</text>
+      <text class="sub" x="160" y="162">메시지 저장 안 함</text>
+    </g>
+    {cmds.map(([c, r], i) => (
+      <g data-id={`cmd${i + 1}`} class="hide">
+        <text class="mono" x="20" y="22" style="text-anchor:start">{c}</text>
+        <text class="hi" x="300" y="22" style="text-anchor:end">{r}</text>
+      </g>
+    ))}
+    <g data-id="pub" class="hide">
+      <line x1="160" y1="90" x2="160" y2="118" style={acc} marker-end="url(#psl-a)" />
+    </g>
+    <g data-id="link" class="hide">
+      <line class="line" x1="160" y1="176" x2="160" y2="214" style="stroke-dasharray:4 4" />
+      <text class="sub l" x="170" y="195">구독</text>
+    </g>
+    <g data-id="deliver" class="hide">
+      <line x1="140" y1="176" x2="140" y2="212" style={acc} marker-end="url(#psl-a)" />
+      <text class="hi" x="110" y="195">hi</text>
+    </g>
+    <g data-id="sNone" class="hide">
+      <rect class="bad" x="80" y="216" width="160" height="40" rx="8" />
+      <text class="sub" x="160" y="236">구독자 없음</text>
+    </g>
+    <g data-id="sOn" class="hide">
+      <rect class="box" x="80" y="216" width="160" height="40" rx="8" />
+      <text x="160" y="236" style="font-weight:700">구독자 S · 듣는 중</text>
+    </g>
+    <g data-id="sGone" class="hide">
+      <rect class="bad" x="80" y="216" width="160" height="40" rx="8" />
+      <text class="sub" x="160" y="236">✕ S 연결 끊김</text>
+    </g>
+    <g data-id="sRe" class="hide">
+      <rect class="box" x="80" y="216" width="160" height="40" rx="8" />
+      <text x="160" y="236" style="font-weight:700">구독자 S · 다시 구독</text>
+    </g>
+    <g data-id="lost1" class="hide">
+      <rect class="err" x="10" y="268" width="300" height="36" rx="8" />
+      <text class="err-t" x="160" y="286">✕ hello: 받은 사람 0명, 사라짐</text>
+    </g>
+    <g data-id="got" class="hide">
+      <rect class="chip" x="10" y="268" width="300" height="36" rx="8" />
+      <text x="160" y="286">✓ S가 hi를 받음 (남는 것 없음)</text>
+    </g>
+    <g data-id="lost4" class="hide">
+      <rect class="err" x="10" y="268" width="300" height="36" rx="8" />
+      <text class="err-t" x="160" y="286">✕ lost: 받은 사람 0명, 사라짐</text>
+    </g>
+    <g data-id="final" class="hide">
+      <rect class="err" x="10" y="268" width="300" height="36" rx="8" />
+      <text class="err-t" x="160" y="286">S가 받은 건 hi뿐, lost는 영영 안 옴</text>
+    </g>
+  </svg>
+</Stepper>

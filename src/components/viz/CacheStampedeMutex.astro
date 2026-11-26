@@ -1,0 +1,116 @@
+---
+// 캐시 스탬피드: 대응 없음 vs 뮤텍스 락(SET NX). 행: 요청 10점(1점=10개) / Redis(rank·lock 칸) / DB / 규칙 한 줄.
+// 위치별 복제 요소(.hide)는 단계에 없으면 완전히 사라진다.
+import Stepper from '../Stepper.astro';
+const LX = 10, BX = 64, BW = 246;
+const RX = (i: number) => 76 + i * 25; // 요청 점 x
+const Y = { mode: 14, req: 50, cache: 96, st: 186, db: 236, note: 324 };
+const RANK = { x: 74, y: Y.cache + 12, w: 112, h: 50 }, LOCK = { x: 194, y: Y.cache + 12, w: 106, h: 50 };
+const ten = [...Array(10).keys()];
+const dbX = (i: number) => BX + 20 + i * 23;
+const steps = [
+  { caption: '인기 키 rank가 캐시에 있어요. 요청은 전부 캐시에서 바로 답을 받으니 DB는 한가해요.', show: ['m1', 'few', 'aFew', 'rankOk', 'lockBg', 'dbIdle', 'n1', 'hl-rank'] },
+  { caption: 'TTL이 다 돼서 rank가 사라졌어요. 이 순간부터 캐시에 물어도 빈손이에요.', show: ['m1', 'rankExp', 'lockBg', 'dbIdle', 'n2', 'hl-rank'] },
+  { caption: '하필 그 순간 요청 100개가 한꺼번에 와요. 100개 모두 캐시 미스예요.', show: ['m1', 'all', 'aAll', 'rankExp', 'lockBg', 's3', 'dbIdle', 'n3', 'hl-req'] },
+  { caption: '[대응 없음] 100개가 전부 DB에 같은 쿼리를 보내요. DB가 과부하로 느려지고, 그사이 들어온 요청도 미스가 나서 더 쌓여요.', show: ['m4', 'all', 'aAll', 'rankExp', 'lockBg', 'fan', 'dbHot', 'n4', 'hl-db'] },
+  { caption: '[뮤텍스 락] 이번엔 100개가 DB 대신 SET lock:rank NX(없을 때만 쓰기)를 시도해요. 딱 1개만 OK, 나머지 99개는 nil을 받아요.', show: ['m5', 'win', 'wait', 'aAll', 'rankExp', 'lockOn', 's5', 'dbIdle', 'n5', 'hl-lock'] },
+  { caption: '락을 잡은 1개만 DB를 조회해서 rank를 캐시에 다시 저장하고, 락을 풀어요(DEL).', show: ['m5', 'win', 'wait', 'rankNew', 'lockOff', 's6', 'one', 'dbOne', 'n6', 'hl-rank'] },
+  { caption: '기다리던 99개가 잠깐 뒤 캐시를 다시 보면 이제 히트예요. 실험에서 DB 조회는 대응 없음 100번, 뮤텍스 1번이었어요.', show: ['m5', 'all', 'aAll', 'rankNew', 'lockBg', 's7', 'dbOne', 'n7', 'hl-req'] },
+];
+const hls: [string, number, number, number, number][] = [
+  ['hl-rank', RANK.x, RANK.y, RANK.w, RANK.h], ['hl-lock', LOCK.x, LOCK.y, LOCK.w, LOCK.h],
+  ['hl-req', RX(0) - 11, Y.req - 11, RX(9) - RX(0) + 22, 22], ['hl-db', BX, Y.db, BW, 50],
+];
+const st: [string, string, string][] = [
+  ['s3', '100개 모두 miss', 'err-t'], ['s5', 'NX: 1개 OK · 99개 nil(대기)', 'hi'],
+  ['s6', '1개만 DB 조회 → SET rank', 'hi'], ['s7', '99개 다시 GET → hit', 'hi'],
+];
+const notes = ['평소: 캐시 히트, DB 조회 0번', 'TTL 만료 = 키 삭제', '같은 순간 동시 미스', 'DB 조회 100번', '락을 잡은 1개만 DB로 가요', '나머지는 기다리는 중', 'DB 조회 100번 → 1번'];
+---
+<Stepper title="캐시 스탬피드: 대응 없음 vs 뮤텍스 락" steps={steps}>
+  <svg class="viz csm" viewBox="0 0 320 340" role="img" aria-label="인기 키가 만료된 순간 요청 100개가 동시에 미스가 나서, 대응이 없으면 100개가 모두 DB로 가고, SET NX 락을 쓰면 1개만 DB를 조회하고 99개는 기다렸다 캐시 히트를 받는 과정">
+    <!-- 모드 태그 -->
+    <text data-id="m1" class="hide sub" x="160" y={Y.mode}>평소 → 만료되는 순간</text>
+    <text data-id="m4" class="hide err-t" x="160" y={Y.mode}>[대응 없음]</text>
+    <text data-id="m5" class="hide hi" x="160" y={Y.mode}>[뮤텍스 락]</text>
+
+    <!-- 행 라벨 -->
+    <text class="l" x={LX} y={Y.req} style="font-weight:700">요청</text>
+    <text data-id="all" class="l sub hide" x={LX} y={Y.req + 20}>100개</text>
+    <text class="l" x={LX} y={Y.cache + 30} style="font-weight:700">Redis</text>
+    <text class="l" x={LX} y={Y.db + 25} style="font-weight:700">DB</text>
+
+    <!-- 요청 점: 1점 = 요청 10개 -->
+    {ten.map((i) => <circle class="frame" cx={RX(i)} cy={Y.req} r="8" />)}
+    <g data-id="few" class="hide">{[0, 1, 2].map((i) => <circle class="chip" cx={RX(i)} cy={Y.req} r="8" />)}</g>
+    <g data-id="all" class="hide">{ten.map((i) => <circle class="chip" cx={RX(i)} cy={Y.req} r="8" />)}</g>
+    <g data-id="wait" class="hide">{ten.slice(1).map((i) => <circle class="box" cx={RX(i)} cy={Y.req} r="8" />)}</g>
+    <g data-id="win" class="hide"><circle class="badge" cx={RX(0)} cy={Y.req} r="9" /><text class="on-badge" x={RX(0)} y={Y.req + 1}>1</text></g>
+
+    <!-- 요청 → 캐시 -->
+    <g data-id="aFew" class="hide">{[0, 1, 2].map((i) => <line class="line" x1={RX(i)} y1={Y.req + 10} x2={RX(i)} y2={Y.cache - 2} />)}</g>
+    <g data-id="aAll" class="hide">{ten.map((i) => <line class="line" x1={RX(i)} y1={Y.req + 10} x2={RX(i)} y2={Y.cache - 2} />)}</g>
+
+    <!-- Redis 상자 -->
+    <rect class="box" x={BX} y={Y.cache} width={BW} height="74" rx="8" />
+    <g data-id="rankOk" class="hide">
+      <rect class="chip" x={RANK.x} y={RANK.y} width={RANK.w} height={RANK.h} rx="6" />
+      <text x={RANK.x + RANK.w / 2} y={RANK.y + 17} class="mono">rank</text>
+      <text x={RANK.x + RANK.w / 2} y={RANK.y + 36} class="sub">있음</text>
+    </g>
+    <g data-id="rankExp" class="hide">
+      <rect class="bad" x={RANK.x} y={RANK.y} width={RANK.w} height={RANK.h} rx="6" />
+      <text x={RANK.x + RANK.w / 2} y={RANK.y + 17} class="mono">rank</text>
+      <text x={RANK.x + RANK.w / 2} y={RANK.y + 36} class="err-t" style="font-size:14px">만료(없음)</text>
+    </g>
+    <g data-id="rankNew" class="hide">
+      <rect class="chip" x={RANK.x} y={RANK.y} width={RANK.w} height={RANK.h} rx="6" />
+      <text x={RANK.x + RANK.w / 2} y={RANK.y + 17} class="mono">rank</text>
+      <text x={RANK.x + RANK.w / 2} y={RANK.y + 36} class="hi" style="font-size:14px">새로 저장</text>
+    </g>
+    <rect data-id="lockBg" class="frame hide" x={LOCK.x} y={LOCK.y} width={LOCK.w} height={LOCK.h} rx="6" />
+    <g data-id="lockOn" class="hide">
+      <rect class="chip" x={LOCK.x} y={LOCK.y} width={LOCK.w} height={LOCK.h} rx="6" />
+      <text x={LOCK.x + LOCK.w / 2} y={LOCK.y + 17} class="mono">lock:rank</text>
+      <text x={LOCK.x + LOCK.w / 2} y={LOCK.y + 36} class="hi" style="font-size:14px">1개만 잡음</text>
+    </g>
+    <g data-id="lockOff" class="hide">
+      <rect class="bad" x={LOCK.x} y={LOCK.y} width={LOCK.w} height={LOCK.h} rx="6" />
+      <text x={LOCK.x + LOCK.w / 2} y={LOCK.y + 17} class="mono">lock:rank</text>
+      <text x={LOCK.x + LOCK.w / 2} y={LOCK.y + 36} class="sub">해제(DEL)</text>
+    </g>
+
+    <!-- 상태 한 줄 -->
+    {st.map(([id, t, c]) => <text data-id={id} class={`hide ${c}`} x={BX + BW / 2} y={Y.st} style="font-size:14px">{t}</text>)}
+
+    <!-- 캐시 → DB -->
+    <g data-id="fan" class="hide">{ten.map((i) => <line class="red" x1={RX(i)} y1={Y.cache + 76} x2={dbX(i)} y2={Y.db - 2} />)}</g>
+    <g data-id="one" class="hide"><line class="acc" x1={RX(0)} y1={Y.cache + 76} x2={RX(0)} y2={Y.db - 2} /></g>
+
+    <!-- DB 상자 -->
+    <g data-id="dbIdle" class="hide">
+      <rect class="box" x={BX} y={Y.db} width={BW} height="50" rx="8" />
+      <text x={BX + BW / 2} y={Y.db + 25}>한가함 · 조회 0번</text>
+    </g>
+    <g data-id="dbHot" class="hide">
+      <rect class="err" x={BX} y={Y.db} width={BW} height="50" rx="8" />
+      <text class="err-t" x={BX + BW / 2} y={Y.db + 25}>과부하 · 같은 쿼리 100번</text>
+    </g>
+    <g data-id="dbOne" class="hide">
+      <rect class="box" x={BX} y={Y.db} width={BW} height="50" rx="8" />
+      <text x={BX + BW / 2} y={Y.db + 25}>조회 1번 · 여유</text>
+    </g>
+
+    <!-- 강조 테두리 -->
+    {hls.map(([id, x, y, w, h]) => <rect data-id={id} class="hl" x={x - 3} y={y - 3} width={w + 6} height={h + 6} rx="8" />)}
+
+    <!-- 규칙 한 줄 -->
+    {notes.map((t, i) => <text data-id={`n${i + 1}`} class={`hide ${i === 3 ? 'err-t' : 'hi'}`} x="160" y={Y.note} style="font-size:15px">{t}</text>)}
+    <text class="sub" x="160" y={Y.note - 24} style="font-size:14px">점 1개 = 요청 10개</text>
+  </svg>
+</Stepper>
+
+<style>
+  .csm :global(.red) { stroke: var(--sl-color-red); stroke-width: 1.6; }
+  .csm :global(.acc) { stroke: var(--sl-color-accent); stroke-width: 3; }
+</style>

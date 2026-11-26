@@ -1,0 +1,394 @@
+---
+title: Redis 자료구조와 쓰임새
+description: "Redis는 값으로 String, List, Hash, Set, Sorted Set, Stream 같은 자료구조를 담고, 자료구조마다 전용 명령이 있어요. 랭킹은 Sorted Set, 좋아요 중복 방지는 Set, 방문자 수 추정은 HyperLogLog처럼 문제에 맞는 구조를 고르면 계산을 Redis 안에서 바로 끝낼 수 있어요."
+sidebar: { order: 2 }
+tags: [면접빈출, 서술형]
+---
+import { Aside } from '@astrojs/starlight/components';
+import ZSetRankingUpdate from '~/components/viz/ZSetRankingUpdate.astro';
+import HashEncodingSwitch from '~/components/viz/HashEncodingSwitch.astro';
+
+:::tip[한 줄 요약]
+Redis는 값으로 **String, List, Hash, Set, Sorted Set, Stream** 같은 자료구조를 담고, 자료구조마다 원자적으로 동작하는 전용 명령이 있어요. 그래서 **랭킹은 Sorted Set, 좋아요 중복 방지는 Set, 순 방문자 수 추정은 HyperLogLog**처럼 문제에 맞는 구조를 고르면, 앱에서 데이터를 꺼내 계산할 필요 없이 Redis 안에서 바로 끝나요.
+:::
+
+<Aside type="note" title="이 페이지의 기준">
+설명은 redis.io 공식 문서(2026-11 조회, Redis Open Source 8.x)를 바탕으로 했어요. 명령 실행 예와 메모리 숫자는 **Redis 8.10**(Docker 공식 이미지)에서 한 번 재 본 값이라 "이 정도 차이가 난다"는 경향으로만 봐 주세요. 버전마다 생긴 기능은 따로 표시했어요.
+</Aside>
+
+## 쉽게 이해하기
+
+보통 키-값 저장소는 **이름표 붙은 상자**만 있는 창고예요. 상자 안에 뭐가 들었든 창고는 몰라요. 그래서 "상자 속 목록에 하나 추가해 줘"라고 하려면, 상자를 통째로 꺼내 와서(읽기) 고치고 다시 넣어야(쓰기) 해요.
+
+Redis 창고에는 상자 말고도 **번호표 줄, 서랍장, 출석부, 점수판** 같은 정리 도구가 있어요. 점수판에 "alice +200점"이라고만 말하면 창고 직원이 알아서 점수를 고치고 순위를 다시 세워 줘요. 꺼내 올 필요가 없어요.
+
+그래서 Redis를 잘 쓴다는 건 **문제에 맞는 정리 도구를 고르는 것**이에요. 랭킹이면 점수판(Sorted Set), 중복 없는 명단이면 출석부(Set), 대충의 인원수만 필요하면 "눈대중 계수기"(HyperLogLog)를 꺼내요.
+
+단, 실제로는 이 도구들도 메모리에 있고 명령은 한 줄로 서서 처리돼요([Redis란?](../redis-basics/)). 그래서 "전부 다 보여 줘" 같은 명령은 큰 자료구조에서 다른 요청을 기다리게 만들어요.
+
+## 그림으로 보기
+
+<ZSetRankingUpdate />
+
+<HashEncodingSwitch />
+
+## 제대로 알기
+
+### 1. 왜 "자료구조 서버"인가
+
+공식 문서는 Redis를 **자료구조 서버**(data structure server)라고 불러요. 키에 붙는 값이 문자열 하나가 아니라 여러 **타입**(type, 데이터의 모양과 쓸 수 있는 명령을 정하는 분류)이 될 수 있다는 뜻이에요.
+
+이게 왜 중요할까요? 값이 그냥 문자열이면 "목록에 하나 추가"를 하려고 **읽기 → 앱에서 고치기 → 다시 쓰기**를 해야 해요. 그 사이에 다른 서버가 같은 값을 고치면 한쪽 변경이 사라져요. Redis는 `LPUSH`(리스트에 넣기), `ZINCRBY`(점수 올리기)처럼 **자료구조 안을 직접 고치는 명령**이 있고, 명령 하나는 끼어듦 없이 끝나서(원자적) 이런 문제가 없어요.
+
+### 2. 자료구조별 "이럴 때 써요"
+
+| 자료구조 | 한 줄 뜻 | 이럴 때 써요 | 대표 명령 |
+|---|---|---|---|
+| **String** | 바이트 덩어리 하나(최대 512MB) | 캐시 값, 조회수 카운터, JSON 통째 저장 | `SET` `GET` `INCR` |
+| **List** | 넣은 순서대로 줄 선 목록 | 작업 큐, 최근 본 상품 N개 | `LPUSH` `RPOP` `LRANGE` `LTRIM` `BLPOP` |
+| **Hash** | 필드-값 묶음(Java `HashMap`과 비슷) | 사용자 프로필처럼 필드별로 읽고 고치는 객체 | `HSET` `HGET` `HINCRBY` |
+| **Set** | 중복 없는 모음(Java `HashSet`과 비슷) | 좋아요 누른 사람, 태그, 팔로우 | `SADD` `SISMEMBER` `SCARD` |
+| **Sorted Set** | 점수 순으로 정렬된 중복 없는 모음 | 실시간 랭킹, 점수(시각) 순 정렬 | `ZADD` `ZINCRBY` `ZRANGE … REV` `ZREVRANK` |
+| **Stream** | 뒤에만 덧붙이는 이벤트 기록 | 주문 이벤트, 여러 소비자가 나눠 처리하는 메시지 | `XADD` `XREADGROUP` `XACK` |
+| **Bitmap** | String 위에서 비트 단위로 켜고 끄기 | 출석 체크, 예/아니오 플래그 | `SETBIT` `GETBIT` `BITCOUNT` |
+| **HyperLogLog** | 고유 개수를 적은 메모리로 **추정** | 일일 순 방문자 수(UV) | `PFADD` `PFCOUNT` `PFMERGE` |
+| **Geo** | 좌표 저장과 반경 검색 | 내 주변 매장 찾기 | `GEOADD` `GEODIST` `GEOSEARCH` |
+
+8.x 공식 타입 목록에는 이 밖에도 JSON, Bloom 필터 같은 확률형 구조, 시계열, 벡터 셋 등이 더 있어요.
+
+Java 컬렉션과 비교해 보고 싶다면 [Java 컬렉션](../../java/collections/)을 같이 보세요.
+
+### 3. String: 가장 기본, 카운터에 강하다
+
+**String**은 글자, JSON 같은 직렬화한 객체, 이미지 같은 바이너리까지 담는 바이트 덩어리예요. 값 하나는 최대 512MB까지 돼요.
+
+```bash
+SET page:view:1 0
+INCR page:view:1        # 1   여러 서버가 동시에 올려도 안전
+INCRBY page:view:1 10   # 11
+```
+
+`INCR`이 원자적이라는 게 핵심이에요. "읽고 +1 하고 쓰기"를 앱에서 하면 두 서버가 동시에 읽어 하나만 오르는 **경쟁 조건**(race condition, 동시에 같은 값을 고치다 결과가 꼬이는 문제)이 생기는데, `INCR`은 그럴 일이 없어요.
+
+구조가 있는 데이터를 JSON 문자열로 통째 넣는 경우, 공식 문서는 Hash나 JSON 타입도 고려해 보라고 권해요(4번 Hash 참고).
+
+### 4. List: 양 끝 넣고 빼기가 빠르다
+
+**List**는 넣은 순서가 유지되는 문자열 목록이에요. 공식 문서는 연결 리스트처럼 동작한다고 설명해요. 그래서 **머리나 꼬리에 넣고 빼기는 목록 길이와 상관없이 빨라요**(O(1)). 대신 **중간 위치 접근은 느려요**. `LINDEX`(n번째 꺼내기)는 O(N)이에요. "리스트는 배열이니 인덱스 접근이 O(1)"이라는 건 틀린 말이에요.
+
+**최근 본 상품 5개**는 `LPUSH` + `LTRIM` 조합으로 만들어요. 공식 문서가 소개하는 "최근 N개만 남기기" 패턴이에요.
+
+```bash
+# p1, p2, ..., p6 순서로 상품을 봤다고 할 때, 볼 때마다 아래 두 줄
+LPUSH recent:u1 p6
+LTRIM recent:u1 0 4     # 앞에서 5개만 남기고 잘라냄
+LRANGE recent:u1 0 -1   # p6 p5 p4 p3 p2  (p1은 밀려남)
+```
+
+작업 큐에는 `BLPOP`/`BRPOP`을 써요. 리스트가 비어 있으면 값이 들어올 때까지 **기다렸다가** 꺼내서, 소비자가 "일 있어요?"를 계속 물어볼(폴링) 필요가 없어요.
+
+### 5. Hash: 객체를 필드 단위로
+
+**Hash**는 필드-값 쌍을 묶은 레코드예요. 사용자 한 명을 키 하나에 담는 식이에요.
+
+```bash
+HSET user:1 name kim age 30 city seoul
+HGET user:1 city        # "seoul"   필드 하나만 읽기
+HINCRBY user:1 age 1    # 31        필드 하나만 원자적으로 수정
+```
+
+같은 데이터를 JSON String으로 넣으면, 나이 하나 고치려고 **통째로 읽고 → 파싱하고 → 다시 써야** 해요. Hash는 `HGET`·`HSET`·`HINCRBY`가 필드 하나만 다뤄요(필드당 O(1)). 반대로 `HGETALL`은 필드 전체를 돌려줘서 O(N)이에요.
+
+| | JSON String | Hash |
+|---|---|---|
+| 필드 하나 수정 | 통째 읽고 다시 쓰기 | `HSET`/`HINCRBY`로 바로 |
+| 중첩 구조(객체 안에 객체) | 가능 | 불가(한 단계만) |
+| 필드별 만료 | 불가 | **7.4+** `HEXPIRE` 등으로 가능 |
+| 메모리 | 크기에 따라 다름 | 작을 때 유리, 커지면 역전될 수 있음(6번) |
+
+필드별 **TTL**(Time To Live, 정해진 시간이 지나면 자동 삭제)은 Redis **7.4**에서 `HEXPIRE` 등으로 생겼고, **8.0**에서 `HGETEX`/`HSETEX`가 더해졌어요. 그 전 버전에서는 키 단위로만 만료할 수 있어요. 쓰는 버전을 꼭 확인하세요.
+
+### 6. 작은 자료구조는 압축 인코딩으로 저장된다
+
+**인코딩**(encoding)은 같은 자료구조를 메모리에 실제로 어떻게 늘어놓는지예요. Redis는 작은 Hash, List, Set, Sorted Set을 **listpack**(원소를 한 줄로 촘촘히 붙인 작은 배열) 같은 압축 형식으로 저장해요. 공식 문서는 이렇게 하면 메모리를 **평균 5배, 최대 10배** 아낀다고 해요. 명령은 똑같이 쓰면 되고, 인코딩은 Redis가 알아서 바꿔요.
+
+listpack은 원소를 앞에서부터 훑어야 해서 조회가 O(N)이지만, 한도가 작게 정해져 있어서 실제로는 `HGET`·`HSET`이 O(1)처럼 빨라요.
+
+한도를 넘으면 일반 인코딩으로 자동 전환돼요. 기본 한도는 이래요(7.0+ 설정 이름, 8.10에서 같은 값 확인).
+
+| 자료구조 | 압축 인코딩 유지 조건(기본값) | 넘으면 |
+|---|---|---|
+| Hash | 필드 512개 이하 **그리고** 값 64바이트 이하 → `listpack` | `hashtable` |
+| Sorted Set | 멤버 128개 이하 그리고 64바이트 이하 → `listpack` | `skiplist` |
+| Set | 정수만 512개 이하 → `intset` / 짧은 문자열 128개 이하 → `listpack`(7.2+) | `hashtable` |
+| List | 작으면 `listpack` | `quicklist` |
+
+Redis 6.2 이하에서는 설정 이름이 `hash-max-ziplist-entries`처럼 `ziplist`였어요. 7.0부터 `listpack`으로 바뀌었어요.
+
+`OBJECT ENCODING 키`로 지금 인코딩을 볼 수 있어요. 8.10에서 한 번 재 본 Hash 결과예요.
+
+| 상태 | 인코딩 | `MEMORY USAGE` |
+|---|---|---|
+| 필드 512개 | listpack | 약 5.9KB |
+| 513번째 필드 추가 | hashtable | 약 23KB (약 3.9배) |
+| 지워서 다시 512개로 | **hashtable 그대로** | |
+| 같은 512필드를 JSON 문자열 하나로 | String(raw) | 약 8KB |
+
+여기서 두 가지를 기억하세요.
+
+- **"Hash가 JSON String보다 항상 작다"는 틀린 말이에요.** 필드 5개짜리 작은 객체에선 Hash(98바이트)가 JSON String(110바이트)보다 조금 작았지만, 한도를 넘어 hashtable이 되자 JSON String보다 훨씬 커졌어요.
+- 이 실험에서는 **커진 인코딩이 다시 작아져도 되돌아가지 않았어요.** 한 번 커질 수 있는 키라면 압축 효과를 기대하지 않는 게 안전해요.
+
+값 하나만 64바이트를 넘어도 전환돼요. 실험에서 필드 3개짜리 Hash도 값 하나가 100바이트면 바로 hashtable이었어요.
+
+### 7. Set: 중복 없는 명단
+
+**Set**은 중복 없는 문자열 모음이에요. 넣기, 빼기, "있나?" 확인이 모두 O(1)이에요.
+
+```bash
+SADD like:post:1 user:7       # 1  처음 누름 → 추가됨
+SADD like:post:1 user:7       # 0  이미 있음 → 무시됨
+SADD like:post:1 user:9       # 1
+SCARD like:post:1             # 2  좋아요 수
+SISMEMBER like:post:1 user:7  # 1  이 사람이 눌렀나?
+```
+
+`SADD`의 반환값 **1/0이 곧 "처음인가, 중복인가"** 예요. 확인과 추가가 명령 하나로 원자적으로 끝나서, 두 요청이 동시에 와도 한 번만 들어가요.
+
+주의할 점은 `SMEMBERS`(전체 꺼내기)가 O(N)이라는 거예요. 공식 문서는 큰 Set에서는 `SSCAN`으로 나눠 읽으라고 경고해요. 교집합 `SINTER`도 최악엔 O(N×M)이에요.
+
+멤버별 만료(`SADDEX`, `SEXPIRE` 등)는 **8.12**에 생긴 기능이라 그 전 버전에는 없어요.
+
+### 8. Sorted Set: 점수로 줄 세우기
+
+**Sorted Set**(ZSet)은 멤버마다 **점수**(score, 숫자)가 붙고 점수 순으로 항상 정렬된 Set이에요. 점수가 같으면 멤버 이름의 사전순이에요. 공식 문서가 대표 용도로 드는 게 바로 **게임 리더보드(랭킹)**예요.
+
+```bash
+ZADD rank:2026-11 100 alice 250 bob 180 carol
+ZINCRBY rank:2026-11 200 alice              # "300"
+ZRANGE rank:2026-11 0 2 REV WITHSCORES      # alice 300, bob 250, carol 180
+ZREVRANK rank:2026-11 carol                 # 2  (0부터 셈 → 3등)
+ZSCORE rank:2026-11 alice                   # "300"
+```
+
+**왜 빠를까요?** 공식 문서는 Sorted Set이 **skip list**(정렬된 목록 위에 "건너뛰기용 지름길 층"을 여러 겹 얹어 빨리 찾는 구조)와 **해시 테이블**을 함께 쓴다고 설명해요.
+
+- 해시 테이블로 "alice 점수는?"을 바로 찾아요 → `ZSCORE` O(1)
+- skip list로 순위·범위를 찾아요 → `ZADD`·`ZINCRBY`·`ZREVRANK` O(log N), 상위 M명 조회 O(log N + M)
+
+| 명령 | 시간 복잡도 |
+|---|---|
+| `ZADD`, `ZINCRBY` | O(log N) |
+| `ZRANK`, `ZREVRANK` | O(log N) |
+| `ZRANGE` (M개 반환) | O(log N + M) |
+| `ZSCORE` | O(1) |
+
+<Aside type="caution" title="ZREVRANGE는 6.2부터 deprecated">
+예전 자료에 많이 나오는 `ZREVRANGE key 0 9`는 Redis **6.2**부터 **deprecated**(앞으로 없앨 수 있으니 쓰지 말라는 표시)예요. 지금도 동작은 하지만, 공식 권장은 `ZRANGE key 0 9 REV`예요. 면접에서 "점수 높은 순 상위 10명"을 말할 때도 이 형태로 말하면 좋아요.
+</Aside>
+
+### 9. Stream: 남는 메시지 기록
+
+**Stream**은 뒤에만 덧붙이는(append-only) 이벤트 기록이에요. 엔트리마다 `<밀리초 시각>-<순번>` 형태의 ID가 붙어요.
+
+```bash
+XADD orders * orderId 1 amount 5000   # "1795713483092-0" 같은 ID가 돌아옴
+```
+
+**소비자 그룹**(consumer group, 여러 소비자가 메시지를 나눠 가져가 처리하는 묶음)을 만들 수 있고, 처리가 끝나면 `XACK`로 "끝냈어요"를 알려요. 아직 확인받지 못한 메시지는 대기 목록(PEL)에 남아서 `XPENDING`으로 볼 수 있어요. Pub/Sub, List 큐와의 차이는 [Pub/Sub와 Streams](../pubsub-streams/)에서 다뤄요.
+
+### 10. Bitmap, HyperLogLog, Geo: 다른 타입 위에 얹은 도구
+
+이 셋은 이름은 따로 있지만 `TYPE`으로 보면 다른 타입이에요(8.10 실험).
+
+| 도구 | `TYPE` 결과 | 핵심 |
+|---|---|---|
+| Bitmap | `string` | 비트 번호(오프셋)로 켜고 끄기. `SETBIT`/`GETBIT` O(1), `BITCOUNT` O(N) |
+| HyperLogLog | `string` | 고유 개수 **추정**. 최대 약 12KB, 표준 오차 0.81% |
+| Geo | `zset` | 좌표 저장, `GEOSEARCH`로 반경·박스 검색 |
+
+**Bitmap 출석 체크** 예: 한 달 출석부를 키 하나에 두고, 1일은 비트 0, 3일은 비트 2처럼 켜요.
+
+```bash
+SETBIT attend:u1:2026-11 0 1    # 1일 출석
+SETBIT attend:u1:2026-11 2 1    # 3일 출석
+SETBIT attend:u1:2026-11 26 1   # 27일 출석
+BITCOUNT attend:u1:2026-11      # 3  (출석 일수)
+GETBIT attend:u1:2026-11 1      # 0  (2일 결석)
+```
+
+이 출석부는 4바이트였어요. 공식 문서 예로는 사용자 1억 명의 예/아니오를 비트맵으로 두면 약 12MB예요. 다만 `SETBIT`은 큰 오프셋을 한 번만 켜도 문자열을 그 위치까지 늘려서, 번호가 크고 듬성듬성하면 메모리를 낭비해요.
+
+**HyperLogLog**(HLL)는 **"몇 명이 왔나"만 세고, "누가 왔나"는 저장하지 않는** 계수기예요. 원소를 저장하지 않으니 아무리 많이 넣어도 최대 약 12KB에 머물러요.
+
+```bash
+PFADD uv:page1:2026-11-27 u1 u2 u3 ...   # 이미 센 사람이면 0 반환
+PFCOUNT uv:page1:2026-11-27              # 추정 개수
+PFMERGE uv:page1:week uv:page1:2026-11-27 uv:page1:2026-11-26   # 여러 날 합치기
+```
+
+실험에서 서로 다른 사용자 10만 명을 넣었더니 `PFCOUNT`가 100,425를 돌려줬어요(+0.425%, 표준 오차 안). 키 메모리는 약 14KB였어요(HLL 데이터 약 12KB + 키 관리용 여분).
+
+## 면접 질문
+
+<details>
+<summary>Q. Redis가 지원하는 자료구조와 각각의 쓰임새를 말해 보세요.</summary>
+
+**답변(30초)** Redis는 값으로 여러 자료구조를 담는 자료구조 서버예요. String은 캐시와 `INCR` 카운터, List는 큐나 최근 N개 목록, Hash는 필드별로 고치는 객체, Set은 좋아요처럼 중복 없는 명단, Sorted Set은 점수 순 랭킹에 써요. 이 밖에 이벤트 기록용 Stream, 고유 개수 추정용 HyperLogLog, 출석 같은 플래그용 Bitmap, 위치 검색용 Geo가 있어요. 자료구조 안을 직접 고치는 명령이 원자적이라, 앱에서 읽고 고치고 다시 쓸 필요가 없다는 게 장점이에요.
+
+**꼬리질문**
+- Q. Bitmap과 HyperLogLog는 별도 타입인가요? → `TYPE`으로 보면 둘 다 `string`이에요. String 위에서 동작하는 명령 모음이에요. Geo는 `zset`으로 나와요.
+- Q. List에서 n번째 원소 꺼내기는 빠른가요? → 아니에요. 양 끝은 O(1)이지만 `LINDEX`는 O(N)이에요.
+</details>
+
+<details>
+<summary>Q. 실시간 랭킹을 Redis로 어떻게 만들고, 왜 Sorted Set인가요?</summary>
+
+**답변(30초)** Sorted Set에 사용자를 멤버, 점수를 score로 넣어요. 점수가 바뀔 때마다 `ZINCRBY`로 올리면 Redis가 정렬 상태를 유지해 줘서, 상위 10명은 `ZRANGE key 0 9 REV WITHSCORES`, 내 순위는 `ZREVRANK`로 바로 나와요. 내부가 skip list와 해시 테이블을 함께 써서 갱신과 순위 조회가 O(log N), 점수 조회가 O(1)이에요. DB에서 매번 `ORDER BY`로 정렬하는 것보다 훨씬 가벼워요.
+
+**꼬리질문**
+- Q. `ZREVRANGE`를 써도 되나요? → 6.2부터 deprecated라 `ZRANGE ... REV`를 쓰는 게 권장이에요. 동작은 아직 해요.
+- Q. 순위가 1등인데 `ZREVRANK`가 0이에요. → 순위는 0부터 세요. 화면에는 +1 해서 보여 줘요.
+- Q. 점수가 같으면요? → 멤버 이름의 사전순으로 정렬돼요. 다른 기준이 필요하면 점수에 반영해야 해요.
+</details>
+
+<details>
+<summary>Q. 객체를 캐시할 때 JSON String과 Hash 중 무엇을 쓰나요?</summary>
+
+**답변(30초)** 접근 방식에 따라 골라요. 필드 몇 개만 자주 바뀌거나 `HINCRBY`처럼 필드 단위로 원자적으로 고쳐야 하면 Hash가 좋아요. 객체를 항상 통째로 읽고 쓰거나 중첩 구조가 있으면 JSON String이 단순해요. 메모리는 작은 Hash가 압축 인코딩(listpack) 덕분에 유리할 수 있지만, 필드 512개나 값 64바이트를 넘으면 hashtable로 바뀌어 오히려 JSON String보다 커질 수 있어서 "Hash가 항상 작다"고 하면 틀려요.
+
+**꼬리질문**
+- Q. 필드마다 다른 만료 시간을 줄 수 있나요? → Redis 7.4부터 `HEXPIRE` 등으로 가능해요. 그 전에는 키 단위로만 돼요.
+- Q. 인코딩은 어떻게 확인해요? → `OBJECT ENCODING 키`로 보고, `MEMORY USAGE 키`로 크기를 재요.
+</details>
+
+<details>
+<summary>Q. 큰 Set에 SMEMBERS, 큰 Hash에 HGETALL을 쓰면 왜 위험한가요?</summary>
+
+**답변(30초)** 둘 다 원소 전체를 돌려주는 O(N) 명령이라, 수십만 개짜리 큰 키(big key)에 쓰면 실행이 오래 걸려요. Redis는 명령을 한 스레드가 순서대로 실행해서, 그동안 다른 모든 요청이 줄 서서 기다려요. 그래서 큰 키는 `SSCAN`·`HSCAN`으로 나눠 읽고, 개수만 필요하면 `SCARD`·`HLEN`(O(1))을 쓰고, 애초에 키를 쪼개서 설계해요.
+
+**꼬리질문**
+- Q. 큰 키를 지울 때는요? → `DEL` 대신 `UNLINK`로 뒤에서 지워 메인 스레드를 덜 붙잡아요.
+</details>
+
+<details>
+<summary>Q. 수억 명의 순 방문자 수를 적은 메모리로 세려면요?</summary>
+
+**답변(30초)** HyperLogLog를 써요. `PFADD`로 사용자 ID를 넣고 `PFCOUNT`로 개수를 보는데, 원소를 저장하지 않아서 키 하나가 최대 약 12KB예요. 대신 결과는 추정값이고 표준 오차가 0.81%예요. 여러 날을 합칠 때는 `PFMERGE`를 써요. 정확한 수나 "누가 왔는지" 목록이 필요하면 Set을 쓰는데, 사람 수만큼 메모리가 늘어요.
+
+**꼬리질문**
+- Q. HLL에서 특정 사용자가 왔는지 확인할 수 있나요? → 없어요. 원소 자체를 저장하지 않아서 개수 추정만 돼요.
+</details>
+
+## 서술형 연습
+
+<details>
+<summary>상황: 쇼핑몰에 "실시간 인기 상품 TOP 10"을 띄우려고 합니다. 지금은 요청마다 주문 테이블에서 GROUP BY + ORDER BY를 돌리는데, 트래픽이 늘자 DB가 버거워졌습니다.</summary>
+
+**상황 파악**
+TOP 10은 모든 방문자가 같은 결과를 보는데, 요청마다 주문 전체를 모아 정렬하고 있어요. 주문이 늘수록 쿼리가 무거워지고 DB를 다른 일에 못 써요. "정렬된 상태를 계속 유지해 두고, 읽을 때는 꺼내기만" 하는 구조가 필요해요.
+
+**원인 후보**
+1. 매 요청마다 집계·정렬을 새로 계산해요.
+2. 같은 결과를 수많은 요청이 반복해서 계산해요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. DB 쿼리 결과를 1분간 캐시 | 코드 변경이 가장 작음 | 최대 1분 늦은 순위. 캐시가 만료되는 순간 쿼리가 다시 몰림 |
+| B. Sorted Set 랭킹: 주문마다 `ZINCRBY rank:2026-11-27 1 상품ID`, 조회는 `ZRANGE rank:2026-11-27 0 9 REV WITHSCORES` | 갱신 O(log N), 조회 O(log N + 10)이라 사실상 실시간. DB 집계가 사라짐 | Redis 점수와 DB 주문이 어긋날 수 있음(주문 취소 반영, 장애 시 재계산 필요). 키 관리가 필요 |
+
+B를 쓸 때 챙길 것들이에요.
+- **기간별 키**: `rank:2026-11-27`처럼 날짜를 키에 넣고 `EXPIRE`로 지난 키를 지워요.
+- **동점 처리**: 점수가 같으면 상품 ID 사전순이 돼요. 먼저 그 점수에 도달한 상품을 위로 올리고 싶다면 시각을 점수에 섞는 식으로 규칙을 정해야 해요.
+- **크기 관리**: 상품이 아주 많으면 `ZREMRANGEBYRANK`로 하위권을 정리해요.
+
+**내가 고를 방법**
+B를 골라요. "인기 순위"는 Sorted Set이 공식 문서에서 대표로 드는 용도이고, 쓰는 순간 정렬이 유지돼서 읽기가 가볍기 때문이에요. 다만 Redis는 순위를 보여 주는 용도로 쓰고, 정산 같은 정확한 숫자는 DB 주문 기록을 기준으로 둬요. Redis가 날아가면 DB에서 그날 주문으로 다시 채우는 복구 배치를 함께 준비해요.
+
+**채점 포인트**: Sorted Set 선택 이유, `ZINCRBY`로 갱신, `ZRANGE ... REV`(ZREVRANGE deprecated), 시간 복잡도 O(log N), 기간별 키 + TTL, 동점 처리, DB가 원본·Redis는 파생 데이터, 장애 시 재구성.
+</details>
+
+<details>
+<summary>상황: 게시글 좋아요 기능을 만듭니다. 같은 사람이 버튼을 빠르게 두 번 누르면 좋아요가 2개 올라가는 버그가 있고, 인기 글은 좋아요가 수백만 개입니다.</summary>
+
+**상황 파악**
+두 가지 문제가 섞여 있어요. 하나는 **중복 방지**(한 사람은 한 번만)이고, 다른 하나는 **개수를 빠르게 보여 주기**예요. 두 번 눌러 2개가 오르는 건 "눌렀는지 확인"과 "추가"가 따로 실행되는 사이에 두 요청이 끼어들기 때문이에요.
+
+**원인 후보**
+1. 앱이 "눌렀나 조회 → 없으면 추가"를 두 단계로 해서 동시 요청이 둘 다 통과해요.
+2. 개수를 매번 `COUNT(*)`로 세서 인기 글일수록 느려요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. Set 하나로 처리: `SADD like:post:1 user:7`의 반환값 1이면 처음, 0이면 중복. 개수는 `SCARD` | 확인+추가가 명령 하나라 원자적. `SCARD`는 O(1) | 좋아요 수백만 개면 그 사람 ID가 전부 메모리에 올라가서 Set이 커짐. `SMEMBERS` 같은 전체 조회는 위험 |
+| B. DB 유니크 제약(게시글ID+사용자ID)으로 중복 방지, 개수는 Redis String `INCR`로 따로 | 중복 방지가 DB에서 확실하고, Redis는 숫자 하나라 가벼움 | 쓰기마다 DB를 거침. DB와 카운터가 어긋날 수 있어(장애, 취소) 주기적 보정이 필요 |
+
+**내가 고를 방법**
+명단은 DB가 원본이 되게 하고(B의 유니크 제약), 화면에 보여 줄 개수는 Redis `INCR`/`DECR`로 둬요. `SADD`가 1을 돌려줄 때만 `INCR`하는 식으로 A를 앞단에 붙일 수도 있지만, 좋아요가 수백만인 글에서 Set 전체를 메모리에 들고 있는 비용이 커요. 그래서 Set은 "최근 며칠 좋아요"처럼 범위를 줄여서 쓸 때만 고려해요. 카운터가 DB와 어긋날 수 있으니 주기적으로 DB 개수로 덮어쓰는 보정 작업을 둬요.
+
+**채점 포인트**: 확인과 추가가 분리되면 경쟁 조건, `SADD` 반환값 1/0으로 원자적 중복 판별, `SCARD` O(1), 큰 Set의 메모리와 `SMEMBERS` O(N) 위험, 카운트는 String `INCR`로 분리, DB가 원본·정합성 보정.
+</details>
+
+<details>
+<summary>상황: 서비스 페이지별 "오늘 방문한 사람 수(일일 순 방문자, UV)"를 대시보드에 보여 줘야 합니다. 페이지는 수천 개, 하루 방문자는 수백만 명입니다.</summary>
+
+**상황 파악**
+순 방문자는 **같은 사람이 여러 번 와도 1명**으로 세야 해요. 그러려면 "이 사람 이미 셌나?"를 기억해야 하는데, 페이지 수천 개 × 날짜마다 수백만 명의 ID를 다 기억하면 메모리가 크게 들어요. 먼저 **숫자가 정확해야 하는지**를 기획·정산 담당과 정해야 해요.
+
+**원인 후보(메모리가 커지는 이유)**
+1. 정확히 세려면 방문자 ID를 전부 저장해야 해요.
+2. 페이지 × 날짜만큼 키가 늘어나요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 정확도 | 메모리 | 할 수 있는 것 |
+|---|---|---|---|
+| A. Set: `SADD uv:page1:2026-11-27 userId`, `SCARD`로 개수 | 정확 | 방문자 수에 비례해 커짐 | 개수 + "누가 왔나" 목록 |
+| B. HyperLogLog: `PFADD uv:page1:2026-11-27 userId`, `PFCOUNT`로 개수 | 추정(표준 오차 0.81%) | 키당 최대 약 12KB로 고정 | 개수만. 주간 UV는 `PFMERGE`로 합치기 |
+
+실험에서 서로 다른 10만 명을 넣었을 때 HLL은 100,425(+0.425%)를 돌려줬고 키는 약 14KB였어요. Set은 10만 개 ID를 모두 저장해야 해요.
+
+**내가 고를 방법**
+대시보드용이라면 B(HyperLogLog)를 골라요. 추세를 보는 화면에서 1% 미만 오차는 의사 결정을 바꾸지 않고, 페이지 수천 개 × 날짜만큼 키가 늘어도 키당 메모리가 12KB 안팎으로 묶여서 예측 가능해요. 날짜를 키에 넣고 `EXPIRE`로 오래된 키를 지워요. 반대로 광고 정산이나 이벤트 당첨자 선정처럼 **정확한 수나 명단**이 필요하면 HLL로는 안 돼서, 방문 로그를 DB에 남기고 거기서 정확히 집계해요. 둘 다 필요하면 "실시간 화면은 HLL, 정산은 DB 집계"로 나눠요.
+
+**채점 포인트**: 순 방문자 = 중복 제거 개수, 정확도 요구 먼저 확인, Set은 정확하지만 메모리 비례 증가, HLL은 추정(0.81%)·최대 약 12KB·원소 저장 안 함(명단 불가), `PFMERGE`로 기간 합치기, 날짜별 키 + TTL, 정산은 DB.
+</details>
+
+## 필기 포인트
+
+- **Bitmap·HyperLogLog의 `TYPE`은 `string`**, Geo는 `zset`이에요.
+- List: 양 끝 O(1), `LINDEX` O(N). "최근 N개" = `LPUSH` + `LTRIM`.
+- Set: `SADD`/`SISMEMBER`/`SCARD` O(1), `SMEMBERS` O(N).
+- Sorted Set: skip list + 해시 테이블. `ZADD`/`ZRANK` O(log N), `ZSCORE` O(1), `ZRANGE` O(log N + M). 순위는 0부터.
+- `ZREVRANGE`는 **6.2부터 deprecated** → `ZRANGE ... REV`.
+- HyperLogLog: 최대 약 12KB, 표준 오차 **0.81%**, 원소 저장 안 함.
+- 압축 인코딩 기본 한도: Hash 512개/64바이트, Sorted Set 128개/64바이트, Set(intset) 정수 512개. 6.2 이하는 이름이 `ziplist`.
+- 버전별 기능: Hash 필드 TTL **7.4+**, `HGETEX`/`HSETEX` **8.0+**, Set 멤버 TTL **8.12+**.
+
+## 함께 보기
+
+- [Redis란? 인메모리·싱글 스레드](../redis-basics/) — O(N) 명령이 왜 다른 요청을 막는지
+- [만료와 퇴출](../expire-eviction/) — 랭킹·UV 키에 거는 TTL
+- [Redis 실무 활용](../redis-practice/) — 세션, 처리율 제한 같은 실제 사례
+- [Pub/Sub와 Streams](../pubsub-streams/) — Stream과 Pub/Sub, List 큐 비교
+- [Java 컬렉션](../../java/collections/) — HashMap·HashSet·TreeMap과 비교
+
+## 출처
+
+- [Redis data types — redis.io](https://redis.io/docs/latest/develop/data-types/)
+- [Redis Strings — redis.io](https://redis.io/docs/latest/develop/data-types/strings/)
+- [Redis lists — redis.io](https://redis.io/docs/latest/develop/data-types/lists/)
+- [Redis hashes — redis.io](https://redis.io/docs/latest/develop/data-types/hashes/)
+- [Redis sets — redis.io](https://redis.io/docs/latest/develop/data-types/sets/)
+- [Redis sorted sets — redis.io](https://redis.io/docs/latest/develop/data-types/sorted-sets/)
+- [ZREVRANGE — redis.io](https://redis.io/docs/latest/commands/zrevrange/)
+- [Redis Streams — redis.io](https://redis.io/docs/latest/develop/data-types/streams/)
+- [Memory optimization — redis.io](https://redis.io/docs/latest/operate/oss_and_stack/management/optimization/memory-optimization/)
+- [Redis bitmaps — redis.io](https://redis.io/docs/latest/develop/data-types/strings/bitmaps/)
+- [HyperLogLog — redis.io](https://redis.io/docs/latest/develop/data-types/probabilistic/hyperloglogs/)
+- [Redis geospatial — redis.io](https://redis.io/docs/latest/develop/data-types/geospatial/)
+- 직접 실험: Docker 공식 `redis:8` 이미지(Redis 8.10), 1회 측정
