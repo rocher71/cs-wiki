@@ -12,6 +12,14 @@ import TryWithResourcesClose from '~/components/viz/TryWithResourcesClose.astro'
 `Error`는 보통 복구를 기대하지 않는 JVM 수준 문제, `Exception`은 프로그램이 복구를 시도할 수 있는 문제예요. 이 중 컴파일러가 "잡거나 선언하라"고 강제하는 게 checked 예외이고, `RuntimeException`과 `Error` 계열은 강제하지 않는 unchecked 예외예요.
 :::
 
+:::note[처음이라면 여기까지]
+① Error는 프로그램이 손쓰기 어려운 큰 사고, Exception은 프로그램이 대처해 볼 수 있는 문제예요.
+
+② checked 예외는 컴파일러가 "잡거나 미리 알려라"라고 강제하고, RuntimeException 계열(unchecked)은 강제하지 않아요.
+
+③ 면접에선 질문 1·2·3번 먼저 연습하세요.
+:::
+
 ## 쉽게 이해하기
 
 예외는 **회사의 보고 체계**와 비슷해요. 사원(메서드)이 일하다 문제가 생기면 그 자리에서 일을 멈추고 위로 보고해요. 팀장이 해결할 수 있으면 거기서 끝나고, 못 하면 부장, 사장까지 올라가요. 끝까지 아무도 처리하지 않으면 그 업무 라인(스레드)이 멈춰요.
@@ -140,7 +148,7 @@ cause를 넘기면 스택트레이스에 `Caused by: java.sql.SQLException ...`�
 
 Spring도 이 방식을 써요. `SQLException` 같은 기술별 예외를 `DataAccessException`을 뿌리로 한 자체 계층으로 바꾸는데, 이 예외들은 전부 unchecked라서 DAO에 throws나 catch가 필요 없어요. 원래 예외는 cause로 감싸 두고, `@Repository`를 붙이면 이 변환이 켜져요.
 
-### 7. 예외 생성은 왜 비싸다고 할까
+### 심화: 7. 예외 생성은 왜 비싸다고 할까
 
 표준 생성자는 예외를 만들 때 `fillInStackTrace()`를 불러 현재 스레드의 **스택 프레임**(호출 중인 메서드 하나당 하나씩 쌓인 기록)을 전부 기록해요. 이게 예외 객체 생성 비용의 주된 원인이에요. 그래서 "재고 부족"처럼 자주 일어나는 예상된 실패를 초당 수천 번 예외로 던지면 비용과 로그가 함께 불어나요. 이런 경우엔 결과 객체를 반환하는 방식이 대안이에요.
 

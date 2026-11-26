@@ -12,6 +12,16 @@ import MvcExceptionFlow from '~/components/viz/MvcExceptionFlow.astro';
 스프링 MVC는 `DispatcherServlet` 하나가 모든 요청을 먼저 받는 프론트 컨트롤러 구조예요. 요청은 필터를 지나 DispatcherServlet에 들어오고, HandlerMapping이 컨트롤러를 찾고, HandlerAdapter가 실행하고, `@RestController`면 HttpMessageConverter가 반환값을 JSON으로 바꿔 바로 응답해요.
 :::
 
+:::note[처음이라면 여기까지]
+① 모든 요청은 DispatcherServlet이라는 접수 창구 하나를 먼저 거쳐요.
+
+② 창구가 담당 컨트롤러를 찾아 실행하고, 결과를 JSON이나 화면으로 돌려줘요.
+
+③ 요청 하나는 처음부터 끝까지 스레드(일하는 직원) 하나가 처리해요.
+
+④ 면접에선 질문 1·2번을 먼저 연습하세요.
+:::
+
 ## 쉽게 이해하기
 
 큰 병원을 떠올려 보세요. 환자는 의사 진료실로 바로 들어가지 않아요. 건물 입구에서 보안 검색과 체온 측정을 먼저 받고(**필터**), 1층 **접수 데스크**로 가요(**DispatcherServlet**).
@@ -68,7 +78,7 @@ DispatcherServlet이 일을 맡기는 부품들이에요.
 9. 인터셉터 `postHandle` → `afterCompletion` 순으로 불려요.
 10. 필터를 거꾸로 지나 응답이 나가고, 스레드는 풀로 돌아가요.
 
-### 4. 왜 HandlerAdapter가 따로 있나
+### 심화: 4. 왜 HandlerAdapter가 따로 있나
 
 컨트롤러의 모양은 하나가 아니에요. `@RequestMapping` 메서드도 있고, `HttpRequestHandler`를 구현한 클래스도 있고, 함수형 라우터도 있어요. DispatcherServlet이 이걸 전부 직접 알면 새 종류가 생길 때마다 DispatcherServlet을 고쳐야 해요.
 
@@ -183,7 +193,7 @@ class GlobalErrorHandler {
 
 Spring 6.1부터는 `@RequestParam @Min(1) int page`처럼 파라미터에 제약을 직접 달면 **메서드 검증**이 돌고, 실패 시 `HandlerMethodValidationException`이 나요. 그래서 요즘은 두 예외를 **둘 다** 전역 처리해야 응답 형식이 통일돼요. 이 내장 메서드 검증을 쓰려면 컨트롤러 클래스에 붙은 `@Validated`는 빼야 해요(그게 있으면 AOP 프록시 방식으로 검증해요).
 
-### 9. 톰캣 스레드 풀과 thread-per-request
+### 심화: 9. 톰캣 스레드 풀과 thread-per-request
 
 스프링 MVC는 **요청 하나당 스레드 하나**(thread-per-request) 모델이에요. 톰캣 워커 스레드(`http-nio-8080-exec-N`) 하나가 필터부터 응답까지 전부 처리해요. 그래서 트랜잭션 정보, 로그인 정보(SecurityContext), 로그 추적값(MDC)처럼 **ThreadLocal**(스레드마다 따로 갖는 저장 칸)에 담는 기능이 요청 단위로 동작한다고 설명해요.
 
@@ -221,15 +231,6 @@ Spring 6.1부터는 `@RequestParam @Min(1) int page`처럼 파라미터에 제�
 </details>
 
 <details>
-<summary>Q. HandlerMapping과 HandlerAdapter는 어떻게 다르고, 어댑터는 왜 필요한가요?</summary>
-
-**답변(30초)** HandlerMapping은 "누가 처리할지 찾는" 역할이고, HandlerAdapter는 "찾은 걸 어떻게 실행할지" 맡는 역할이에요. 핸들러는 `@RequestMapping` 메서드, `HttpRequestHandler` 구현체, 함수형 엔드포인트처럼 모양이 여러 가지예요. 어댑터가 `supports()`로 실행 가능 여부를 답하고 `handle()`로 실행해 주니, DispatcherServlet은 핸들러 종류를 몰라도 돼요. 새 종류가 생겨도 어댑터만 추가하면 되는 어댑터 패턴이자 OCP 사례예요.
-
-**꼬리질문**
-- Q. 우리가 쓰는 `@GetMapping` 메서드는 어떤 어댑터가 실행하나요? → `RequestMappingHandlerAdapter`예요. 인자 준비, `@RequestBody` 변환, 반환값 처리도 여기서 해요.
-</details>
-
-<details>
 <summary>Q. @Controller와 @RestController의 차이는? JSON은 누가 만드나요?</summary>
 
 **답변(30초)** `@RestController`는 `@Controller`에 `@ResponseBody`를 합친 거예요. `@Controller`는 반환값을 화면 이름으로 보고 ViewResolver가 렌더링하지만, `@RestController`는 반환값을 HttpMessageConverter가 바디로 직렬화해요. JSON은 Jackson 기반 메시지 컨버터가 만들고, 어떤 컨버터를 쓸지는 응답 땐 Accept 헤더, 요청 바디를 읽을 땐 Content-Type 헤더를 보고 골라요.
@@ -250,15 +251,6 @@ Spring 6.1부터는 `@RequestParam @Min(1) int page`처럼 파라미터에 제�
 </details>
 
 <details>
-<summary>Q. preHandle, postHandle, afterCompletion의 차이는? postHandle에서 헤더 추가가 안 되는 이유는?</summary>
-
-**답변(30초)** preHandle은 핸들러 전에 불리고 `false`를 돌려주면 핸들러를 실행하지 않아요. postHandle은 핸들러 실행 후, afterCompletion은 요청이 완전히 끝난 뒤에 불려요. 그런데 `@ResponseBody`나 `ResponseEntity` 메서드는 HandlerAdapter 안에서 응답이 이미 써지고 커밋된 뒤에 postHandle이 불려서, 그때 헤더를 넣으면 늦어요. 그래서 응답을 바꾸려면 `ResponseBodyAdvice`나 필터를 써요.
-
-**꼬리질문**
-- Q. 예외가 나면 셋 중 무엇이 불리나요? → postHandle은 건너뛰고 afterCompletion은 항상 불려요. 그래서 정리 작업은 afterCompletion에 둬요.
-</details>
-
-<details>
 <summary>Q. 전역 예외 처리는 어떻게 하나요?</summary>
 
 **답변(30초)** `@RestControllerAdvice` 클래스에 `@ExceptionHandler` 메서드를 모아 둬요. 예외가 나면 DispatcherServlet이 HandlerExceptionResolver 체인에 넘기고, 그중 `ExceptionHandlerExceptionResolver`가 맞는 `@ExceptionHandler`를 찾아 실행해요. 컨트롤러 안의 핸들러가 먼저고 전역 핸들러가 그다음이에요. 상태 코드를 직접 정하지 않으면 200이 나가니 `ResponseEntity`나 `@ResponseStatus`로 명시해야 해요.
@@ -266,6 +258,24 @@ Spring 6.1부터는 `@RequestParam @Min(1) int page`처럼 파라미터에 제�
 **꼬리질문**
 - Q. 필터에서 던진 예외도 잡히나요? → 아니요. 필터는 DispatcherServlet 바깥이라 톰캣의 `/error`로 가요.
 - Q. 아무도 못 잡으면? → 톰캣이 `/error`로 다시 디스패치하고, 부트의 `BasicErrorController`가 기본 에러 응답을 줘요.
+</details>
+
+<details>
+<summary>Q. HandlerMapping과 HandlerAdapter는 어떻게 다르고, 어댑터는 왜 필요한가요?</summary>
+
+**답변(30초)** HandlerMapping은 "누가 처리할지 찾는" 역할이고, HandlerAdapter는 "찾은 걸 어떻게 실행할지" 맡는 역할이에요. 핸들러는 `@RequestMapping` 메서드, `HttpRequestHandler` 구현체, 함수형 엔드포인트처럼 모양이 여러 가지예요. 어댑터가 `supports()`로 실행 가능 여부를 답하고 `handle()`로 실행해 주니, DispatcherServlet은 핸들러 종류를 몰라도 돼요. 새 종류가 생겨도 어댑터만 추가하면 되는 어댑터 패턴이자 OCP 사례예요.
+
+**꼬리질문**
+- Q. 우리가 쓰는 `@GetMapping` 메서드는 어떤 어댑터가 실행하나요? → `RequestMappingHandlerAdapter`예요. 인자 준비, `@RequestBody` 변환, 반환값 처리도 여기서 해요.
+</details>
+
+<details>
+<summary>Q. preHandle, postHandle, afterCompletion의 차이는? postHandle에서 헤더 추가가 안 되는 이유는?</summary>
+
+**답변(30초)** preHandle은 핸들러 전에 불리고 `false`를 돌려주면 핸들러를 실행하지 않아요. postHandle은 핸들러 실행 후, afterCompletion은 요청이 완전히 끝난 뒤에 불려요. 그런데 `@ResponseBody`나 `ResponseEntity` 메서드는 HandlerAdapter 안에서 응답이 이미 써지고 커밋된 뒤에 postHandle이 불려서, 그때 헤더를 넣으면 늦어요. 그래서 응답을 바꾸려면 `ResponseBodyAdvice`나 필터를 써요.
+
+**꼬리질문**
+- Q. 예외가 나면 셋 중 무엇이 불리나요? → postHandle은 건너뛰고 afterCompletion은 항상 불려요. 그래서 정리 작업은 afterCompletion에 둬요.
 </details>
 
 <details>

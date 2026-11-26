@@ -12,6 +12,14 @@ import VirtualThreadPinning from '~/components/viz/VirtualThreadPinning.astro';
 가상 스레드는 OS 스레드에 묶이지 않고 JVM이 스케줄링하는 가벼운 스레드예요. I/O를 기다리는 동안 자기가 올라타 있던 OS 스레드(캐리어)에서 내려와 다른 가상 스레드에게 자리를 내줘서, 적은 OS 스레드로 많은 요청을 동시에 처리해요. 목적은 속도가 아니라 처리량이에요.
 :::
 
+:::note[처음이라면 여기까지]
+① 가상 스레드는 OS가 아니라 JVM이 관리하는 가벼운 스레드예요.
+
+② 기다리는 동안 OS 스레드를 놓아줘서, 적은 OS 스레드로 많은 요청을 동시에 받아요.
+
+③ 한 요청이 빨라지는 게 아니라 동시에 처리하는 양이 늘어요. 면접에선 질문 1·2·3번 먼저 연습하세요.
+:::
+
 ## 쉽게 이해하기
 
 식당에 요리사(OS 스레드)가 4명뿐이라고 해 볼게요. 예전 방식은 주문 하나마다 요리사 한 명을 붙여서, 오븐에 빵을 넣고 20분 기다리는 동안에도 요리사가 오븐 앞에 서 있었어요. 손님이 몰리면 요리사가 모자라서 주문을 못 받아요.
@@ -63,7 +71,7 @@ import VirtualThreadPinning from '~/components/viz/VirtualThreadPinning.astro';
 프로세스와 스레드의 차이, 스레드 상태, 컨텍스트 스위칭은 [스레드 기초](../thread-basics/)에서 먼저 보고 오세요.
 </Aside>
 
-### 3. 캐리어 스레드와 mount / unmount
+### 심화: 3. 캐리어 스레드와 mount / unmount
 
 가상 스레드도 실제로 실행되려면 결국 OS 스레드 위에 올라가야 해요.
 
@@ -86,7 +94,7 @@ import VirtualThreadPinning from '~/components/viz/VirtualThreadPinning.astro';
 많은 파일 시스템 연산(OS 한계 때문)과 JDK 21의 `Object.wait()`는 unmount하지 못하고 캐리어를 붙잡아요. 이때 JDK는 캐리어를 잠시 더 만들어 **보상**해요(상한 `jdk.virtualThreadScheduler.maxPoolSize`, 기본 256). 그래서 플랫폼 스레드 수가 코어 수를 잠깐 넘을 수 있어요. 다음 절의 pinning은 이런 보상이 **없다**는 점이 달라요.
 </Aside>
 
-### 4. Pinning (고정)
+### 심화: 4. Pinning (고정)
 
 **pinning**은 가상 스레드가 블로킹되는데도 캐리어에서 내려오지 못하고 붙어 버리는 상태예요. JDK 21에서는 두 경우에 생겨요.
 
@@ -122,7 +130,7 @@ try {
 }
 ```
 
-### 5. JDK 24 (JEP 491): synchronized pinning 해소
+### 심화: 5. JDK 24 (JEP 491): synchronized pinning 해소
 
 JDK 24부터는 JVM이 가상 스레드가 캐리어와 상관없이 모니터를 잡고, 들고, 놓을 수 있게 바뀌었어요. 그래서 synchronized 안에서 I/O를 기다리거나 자물쇠를 기다릴 때도 unmount돼요. `Object.wait()`도 기다리는 동안 unmount돼요.
 
@@ -226,7 +234,7 @@ spring.threads.virtual.enabled=true
 - `server.tomcat.threads.max`(기본 200)는 효과가 없어져요. 즉 **동시 요청 수의 상한이 사라져요.** 서술형 연습에서 이게 왜 중요한지 봐요.
 - 가상 스레드는 항상 데몬이라 다른 스레드가 모두 가상이면 JVM이 꺼질 수 있어요. 이를 막는 `spring.main.keep-alive=true`가 있어요.
 
-### 10. 함께 나오는 기능들의 버전 상태
+### 심화: 10. 함께 나오는 기능들의 버전 상태
 
 | 기능 | 하는 일 | 상태 |
 |---|---|---|
@@ -247,16 +255,6 @@ spring.threads.virtual.enabled=true
 </details>
 
 <details>
-<summary>Q. 적은 OS 스레드로 어떻게 많은 요청을 처리하나요?</summary>
-
-**답변(30초)** 블로킹될 때 캐리어에서 내려오기 때문이에요. 가상 스레드가 소켓 읽기 같은 블로킹 I/O를 부르면, 런타임이 속으로 논블로킹 호출을 걸어 두고 가상 스레드를 unmount해요. 빈 캐리어에는 다른 가상 스레드가 mount돼서 일해요. 데이터가 오면 원래 가상 스레드가 다시 줄에 서서 아무 캐리어에나 올라가 이어서 실행돼요.
-
-**꼬리질문**
-- Q. 캐리어가 바뀌면 `Thread.currentThread()` 값도 바뀌나요? → 아니요. 항상 가상 스레드 자신을 돌려줘요. 캐리어의 ThreadLocal도 보이지 않아요.
-- Q. 모든 블로킹에서 unmount되나요? → 아니요. 파일 시스템 연산 상당수와 JDK 21의 `Object.wait()`는 캐리어를 붙잡아요. 대신 이때는 JDK가 캐리어를 잠시 늘려 보상해요.
-</details>
-
-<details>
 <summary>Q. 가상 스레드를 쓰면 응답이 빨라지나요?</summary>
 
 **답변(30초)** 아니요. 가상 스레드는 더 빠른 스레드가 아니라 더 많이 만들 수 있는 스레드예요. 요청 하나의 응답 시간은 그대로이고, 동시에 처리하는 요청 수가 늘어서 처리량이 올라가요. 리틀의 법칙상 응답 시간이 같을 때 처리량을 올리려면 동시 처리 수를 늘려야 하는데, 그 동시 처리 수의 한계를 스레드 개수에서 풀어 주는 거예요. 그래서 동시 작업이 수천 개 이상이고 대부분 I/O를 기다리는 서버에서 효과가 커요.
@@ -264,6 +262,35 @@ spring.threads.virtual.enabled=true
 **꼬리질문**
 - Q. 언제 쓰면 안 되나요? → CPU 바운드 작업이에요. 계산만 하면 코어 수가 한계라 스레드를 늘려도 소용없으니, 코어 수에 맞춘 플랫폼 스레드 풀이 맞아요. 동시 작업이 적은 앱도 이득이 거의 없어요.
 - Q. CompletableFuture로 짠 비동기 코드에 가상 스레드를 쓰면? → 이득이 별로 없어요. 가상 스레드는 동기 블로킹 스타일로 짤 때 효과가 커요.
+</details>
+
+<details>
+<summary>Q. 가상 스레드는 왜 풀링하지 말라고 하나요?</summary>
+
+**답변(30초)** 풀은 비싼 스레드를 재사용하려는 장치인데, 가상 스레드는 싸서 재사용할 이유가 없어요. 대부분 쿼리 한 번, HTTP 호출 한 번 하고 끝나는 짧은 스레드라 작업마다 새로 만드는 게 맞아요. 풀 크기로 동시 접근 수를 제한하던 목적이라면 Semaphore를 써요. 풀 큐에서 기다리는 작업과 세마포어 앞에서 기다리는 가상 스레드는 사실상 같은 모습이에요.
+
+**꼬리질문**
+- Q. DB 호출에도 세마포어를 둬야 하나요? → 아니요. 커넥션 풀이 이미 세마포어 역할을 해요. 커넥션이 다 쓰이면 다음 스레드는 커넥션을 얻을 때 기다려요.
+- Q. `newVirtualThreadPerTaskExecutor()`는 풀 아닌가요? → 이름은 Executor지만 작업마다 새 가상 스레드를 만들고 개수 제한도 없어요. 재사용하지 않아요.
+</details>
+
+<details>
+<summary>Q. Spring Boot에서는 어떻게 켜고, 켜면 무엇이 바뀌나요?</summary>
+
+**답변(30초)** Spring Boot 3.2 이상, Java 21 이상에서 `spring.threads.virtual.enabled=true`로 켜요. Tomcat이 요청을 가상 스레드로 처리하고, `@Async` 같은 기본 실행기도 가상 스레드를 쓰는 `SimpleAsyncTaskExecutor`로 바뀌어요. 그래서 `server.tomcat.threads.max`나 풀 관련 속성은 효과가 없어져요. 동시 요청 수의 상한이 사라지는 셈이라, 그다음 병목인 DB 커넥션 풀을 꼭 확인해야 해요.
+
+**꼬리질문**
+- Q. `spring.main.keep-alive`는 왜 있나요? → 가상 스레드는 항상 데몬이라, 다른 스레드가 모두 가상이면 JVM이 그냥 꺼질 수 있어서예요.
+</details>
+
+<details>
+<summary>Q. 적은 OS 스레드로 어떻게 많은 요청을 처리하나요?</summary>
+
+**답변(30초)** 블로킹될 때 캐리어에서 내려오기 때문이에요. 가상 스레드가 소켓 읽기 같은 블로킹 I/O를 부르면, 런타임이 속으로 논블로킹 호출을 걸어 두고 가상 스레드를 unmount해요. 빈 캐리어에는 다른 가상 스레드가 mount돼서 일해요. 데이터가 오면 원래 가상 스레드가 다시 줄에 서서 아무 캐리어에나 올라가 이어서 실행돼요.
+
+**꼬리질문**
+- Q. 캐리어가 바뀌면 `Thread.currentThread()` 값도 바뀌나요? → 아니요. 항상 가상 스레드 자신을 돌려줘요. 캐리어의 ThreadLocal도 보이지 않아요.
+- Q. 모든 블로킹에서 unmount되나요? → 아니요. 파일 시스템 연산 상당수와 JDK 21의 `Object.wait()`는 캐리어를 붙잡아요. 대신 이때는 JDK가 캐리어를 잠시 늘려 보상해요.
 </details>
 
 <details>
@@ -286,31 +313,12 @@ spring.threads.virtual.enabled=true
 </details>
 
 <details>
-<summary>Q. 가상 스레드는 왜 풀링하지 말라고 하나요?</summary>
-
-**답변(30초)** 풀은 비싼 스레드를 재사용하려는 장치인데, 가상 스레드는 싸서 재사용할 이유가 없어요. 대부분 쿼리 한 번, HTTP 호출 한 번 하고 끝나는 짧은 스레드라 작업마다 새로 만드는 게 맞아요. 풀 크기로 동시 접근 수를 제한하던 목적이라면 Semaphore를 써요. 풀 큐에서 기다리는 작업과 세마포어 앞에서 기다리는 가상 스레드는 사실상 같은 모습이에요.
-
-**꼬리질문**
-- Q. DB 호출에도 세마포어를 둬야 하나요? → 아니요. 커넥션 풀이 이미 세마포어 역할을 해요. 커넥션이 다 쓰이면 다음 스레드는 커넥션을 얻을 때 기다려요.
-- Q. `newVirtualThreadPerTaskExecutor()`는 풀 아닌가요? → 이름은 Executor지만 작업마다 새 가상 스레드를 만들고 개수 제한도 없어요. 재사용하지 않아요.
-</details>
-
-<details>
 <summary>Q. 가상 스레드에서 ThreadLocal을 쓸 때 주의할 점은?</summary>
 
 **답변(30초)** ThreadLocal은 지원되고 요청 문맥을 담는 용도는 괜찮아요. 문제는 비싼 객체를 스레드마다 캐시해서 재사용하던 패턴이에요. 가상 스레드는 작업마다 새로 생기니 캐시가 재사용되지 않고, 스레드 수가 많아 메모리만 크게 먹어요. 그래서 `SimpleDateFormat` 같은 건 불변인 `DateTimeFormatter`를 공유하고, 값 전달에는 JDK 25에서 정식이 된 Scoped Values를 검토해요.
 
 **꼬리질문**
 - Q. 이런 코드를 어떻게 찾나요? → `-Djdk.traceVirtualThreadLocals=true`로 가상 스레드가 ThreadLocal에 값을 넣을 때 스택 트레이스를 찍어요.
-</details>
-
-<details>
-<summary>Q. Spring Boot에서는 어떻게 켜고, 켜면 무엇이 바뀌나요?</summary>
-
-**답변(30초)** Spring Boot 3.2 이상, Java 21 이상에서 `spring.threads.virtual.enabled=true`로 켜요. Tomcat이 요청을 가상 스레드로 처리하고, `@Async` 같은 기본 실행기도 가상 스레드를 쓰는 `SimpleAsyncTaskExecutor`로 바뀌어요. 그래서 `server.tomcat.threads.max`나 풀 관련 속성은 효과가 없어져요. 동시 요청 수의 상한이 사라지는 셈이라, 그다음 병목인 DB 커넥션 풀을 꼭 확인해야 해요.
-
-**꼬리질문**
-- Q. `spring.main.keep-alive`는 왜 있나요? → 가상 스레드는 항상 데몬이라, 다른 스레드가 모두 가상이면 JVM이 그냥 꺼질 수 있어서예요.
 </details>
 
 ## 서술형 연습

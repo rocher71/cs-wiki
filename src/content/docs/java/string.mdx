@@ -12,6 +12,14 @@ import ConcatLoopVsBuilder from '~/components/viz/ConcatLoopVsBuilder.astro';
 String은 만든 뒤 내용을 바꿀 수 없는 불변 객체예요. 불변이라 안심하고 공유할 수 있어서, 같은 내용의 리터럴은 힙 안의 문자열 풀에 하나만 두고 모두가 같은 객체를 가리켜요. 자주 바꿔야 하는 문자열은 StringBuilder로 만들어요.
 :::
 
+:::note[처음이라면 여기까지]
+① String은 한 번 만들면 내용을 못 바꿔요(불변). 바꾸는 것처럼 보여도 새 String이 생겨요.
+
+② 같은 글자의 리터럴은 문자열 풀에 하나만 두고 같이 써요.
+
+③ 자주 이어 붙여야 하면 StringBuilder를 써요. 면접에선 질문 1·2·3번 먼저 연습하세요.
+:::
+
 ## 쉽게 이해하기
 
 String은 **인쇄된 명함**과 비슷해요. 한 번 찍으면 글자를 고칠 수 없어요. 전화번호가 바뀌면 명함을 고치는 게 아니라 **새 명함을 찍고**, 옛 명함은 버려요.
@@ -84,7 +92,7 @@ a == c.intern(); // true  (풀에 있던 "java"를 돌려줌)
 면접 단골이에요. 보통 답은 **"풀에 'abc'가 없으면 2개(풀의 리터럴 + new로 만든 힙 객체), 이미 있으면 1개"**예요. 명세와 javadoc 규칙을 조합한 설명이고, 리터럴이 정확히 어느 시점에 풀에 올라가는지는 JVM 구현 세부예요.
 </Aside>
 
-### 4. intern()과 상수식
+### 심화: 4. intern()과 상수식
 
 `intern()`을 부르면 풀에서 `equals`로 같은 문자열을 찾아 그걸 돌려주고, 없으면 지금 객체를 풀에 넣고 돌려줘요. 그래서 `s.intern() == t.intern()`은 `s.equals(t)`일 때만 true예요.
 
@@ -105,7 +113,7 @@ hello == ("Hel" + lo).intern();   // true
 - `final String x = getLo();`처럼 메서드 결과로 초기화하면 final이어도 상수 변수가 아니에요.
 - 텍스트 블록(`"""`로 감싼 여러 줄 문자열)도 리터럴과 같은 규칙으로 인턴돼요.
 
-### 5. `+` 연결은 내부에서 어떻게 바뀌나
+### 심화: 5. `+` 연결은 내부에서 어떻게 바뀌나
 
 - 한쪽만 String이어도 다른 쪽은 문자열로 바뀌어요. null이면 `"null"` 네 글자가 돼요.
 - `+`는 왼쪽부터 계산해요. `1 + 2 + "개"`는 `"3개"`, `"개" + 1 + 2`는 `"개12"`예요.
@@ -139,7 +147,7 @@ JEP 280이 다루는 건 **한 식 안의** 연결이에요. 반복문 전체를
 - 기본 생성자의 초기 용량은 16자예요. 넘치면 자동으로 늘어나고, 크기를 미리 알면 `new StringBuilder(10000)`처럼 정할 수 있어요.
 - StringBuffer도 **메서드 하나하나**만 동기화돼요. `if (sb.length() == 0) sb.append(x)`처럼 두 호출을 묶은 동작까지 원자적이진 않아요.
 
-### 7. 내부 표현: Compact Strings (JDK 9+)
+### 심화: 7. 내부 표현: Compact Strings (JDK 9+)
 
 | 버전 | 내부 필드 | `"abc"` | `"가나"` |
 |---|---|---|---|
@@ -151,7 +159,7 @@ JEP 280이 다루는 건 **한 식 안의** 연결이에요. 반복문 전체를
 - 공개 API는 그대로예요. `length()`는 여전히 바이트 수가 아니라 char 개수예요.
 - 기본으로 켜져 있고 `-XX:-CompactStrings`로 끌 수 있어요.
 
-### 8. 문자열이 메모리를 너무 먹을 때: intern vs 중복 제거
+### 심화: 8. 문자열이 메모리를 너무 먹을 때: intern vs 중복 제거
 
 **G1 문자열 중복 제거**(JEP 192, JDK 8u20)는 GC가 내용이 같은 String들이 **내부 배열만 함께 쓰도록** 바꿔 주는 기능이에요. 측정상 큰 앱에서 힙의 약 25%가 String이고 그 절반쯤이 중복이었던 게 출발점이에요.
 
@@ -189,16 +197,6 @@ JEP 280이 다루는 건 **한 식 안의** 연결이에요. 반복문 전체를
 </details>
 
 <details>
-<summary>Q. "Hel" + "lo" == "Hello"는 true인가요? 변수를 쓰면요?</summary>
-
-**답변(30초)** true예요. 리터럴끼리 연결은 상수식이라 컴파일 때 `"Hello"`로 합쳐지고 인턴돼요. 하지만 `String lo = "lo"`로 두고 `"Hel" + lo`를 하면 실행 중에 새 객체가 만들어져 false예요. 다만 `final String lo = "lo"`처럼 상수로 초기화한 final 변수는 상수 변수라 다시 true가 돼요.
-
-**꼬리질문**
-- Q. `final String lo = getLo()`면요? → 메서드 결과로 초기화했으니 상수 변수가 아니고 false예요.
-- Q. 그럼 문자열은 무조건 `equals`로 비교하나요? → 네. 내용 비교는 항상 `equals`예요. null일 수 있으면 `"ADMIN".equals(role)`처럼 리터럴 쪽에서 불러요.
-</details>
-
-<details>
 <summary>Q. String, StringBuilder, StringBuffer의 차이와 언제 무엇을 쓰나요?</summary>
 
 **답변(30초)** String은 불변이고 나머지 둘은 내용을 바꿀 수 있어요. StringBuilder와 StringBuffer는 API가 같고, StringBuffer만 메서드가 synchronized라 여러 스레드가 공유해도 안전해요. 대신 잠금 비용이 있어서 한 스레드 안에서 조립할 때는 StringBuilder가 빠르고, javadoc도 가능하면 StringBuilder를 권해요. 실무에선 대부분 메서드 안 지역 변수로 StringBuilder를 써요.
@@ -206,6 +204,16 @@ JEP 280이 다루는 건 **한 식 안의** 연결이에요. 반복문 전체를
 **꼬리질문**
 - Q. StringBuffer면 멀티스레드에서 완전히 안전한가요? → 메서드 하나씩만 동기화라, 길이를 확인하고 붙이는 것처럼 여러 호출을 묶은 동작은 원자적이지 않아요.
 - Q. StringBuilder 초기 용량은? → 기본 16자이고, 넘치면 자동으로 늘어나요. 크기를 알면 생성자로 미리 정해요.
+</details>
+
+<details>
+<summary>Q. "Hel" + "lo" == "Hello"는 true인가요? 변수를 쓰면요?</summary>
+
+**답변(30초)** true예요. 리터럴끼리 연결은 상수식이라 컴파일 때 `"Hello"`로 합쳐지고 인턴돼요. 하지만 `String lo = "lo"`로 두고 `"Hel" + lo`를 하면 실행 중에 새 객체가 만들어져 false예요. 다만 `final String lo = "lo"`처럼 상수로 초기화한 final 변수는 상수 변수라 다시 true가 돼요.
+
+**꼬리질문**
+- Q. `final String lo = getLo()`면요? → 메서드 결과로 초기화했으니 상수 변수가 아니고 false예요.
+- Q. 그럼 문자열은 무조건 `equals`로 비교하나요? → 네. 내용 비교는 항상 `equals`예요. null일 수 있으면 `"ADMIN".equals(role)`처럼 리터럴 쪽에서 불러요.
 </details>
 
 <details>

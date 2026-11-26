@@ -12,6 +12,14 @@ import GenericInvariance from '~/components/viz/GenericInvariance.astro';
 제네릭은 `List<String>`처럼 담을 타입을 정해 두고, 잘못된 타입을 **컴파일 때** 막아 주는 기능이에요. 검사가 끝나면 컴파일러가 타입 정보를 지우고(타입 소거) 필요한 캐스트를 대신 넣어 주기 때문에, 런타임에는 `List<String>`과 `List<Integer>`가 똑같은 `List`예요.
 :::
 
+:::note[처음이라면 여기까지]
+① `List<String>`처럼 담을 종류를 정해 두면, 엉뚱한 값을 넣는 실수를 실행 전에 컴파일러가 잡아 줘요.
+
+② 검사가 끝나면 타입 정보는 지워져서(타입 소거) 실행 중에는 그냥 List예요.
+
+③ 면접에선 질문 1·2번 먼저 연습하세요.
+:::
+
 ## 쉽게 이해하기
 
 제네릭은 **보관함에 붙이는 라벨**과 비슷해요. 그냥 `List`는 라벨 없는 상자라 아무거나 들어가요. 사과를 기대하고 꺼냈는데 양말이 나오면 그때서야 문제가 터져요. `List<사과>`는 상자에 "사과 전용" 라벨을 붙인 거예요. 입구의 검수원(컴파일러)이 라벨을 보고 양말을 넣으려는 순간 바로 막아 줘요.
@@ -87,7 +95,7 @@ String s = b.get();                   // String s = (String) b.get();
 제네릭은 Java 5에 뒤늦게 들어왔어요. 이미 제네릭 없이 짠 코드와 라이브러리가 많았기 때문에, 바이트코드를 예전 형태(일반 클래스)로 유지해 **기존 코드와 섞여 돌아가게** 하는 쪽을 택했어요. JLS도 raw 타입(아래 6번)을 "레거시 코드 호환을 위한 양보"라고 설명해요.
 </Aside>
 
-### 3. 브리지 메서드
+### 심화: 3. 브리지 메서드
 
 ```java
 class Node<T> { public void setData(T data) { ... } }
@@ -170,7 +178,7 @@ double sum(List<? extends Number> nums) {   // List<Long>, List<BigDecimal> 다 
 - **반환 타입에는 와일드카드를 쓰지 않아요.** 받는 쪽이 와일드카드를 떠안게 돼요.
 - `? extends` 리스트도 완전한 읽기 전용은 아니에요. `null` 추가, `clear()`, iterator의 `remove()`는 돼요. 그래서 "사실상 읽기 전용"이라고 말해요.
 
-### 6. raw 타입과 힙 오염
+### 심화: 6. raw 타입과 힙 오염
 
 **raw 타입**(raw type, 타입 인자를 빼고 쓴 제네릭 타입. `List<String>` 대신 `List`)은 레거시 호환 때문에만 허용돼요. raw로 값을 넣으면 **unchecked 경고**(컴파일러가 타입 안전을 보장 못 한다는 경고)가 나요.
 
@@ -189,7 +197,7 @@ String s = strs.get(0);       // 한참 뒤 여기서 ClassCastException
 
 제네릭 가변인자(`T... args`)도 내부적으로 배열이라 "Possible heap pollution" 경고가 나요. 메서드가 그 배열을 밖으로 내보내거나 다른 타입을 넣지 않는다면 `@SafeVarargs`로 경고를 끌 수 있어요. 이 애너테이션은 static·final 메서드, 생성자, (Java 9+) private 메서드에 붙여요.
 
-### 7. reifiable 타입과 제네릭의 제한
+### 심화: 7. reifiable 타입과 제네릭의 제한
 
 **reifiable 타입**(실체화 타입, 런타임에도 타입 정보가 온전히 남는 타입)은 일반 클래스, 기본형, raw 타입, `List<?>`처럼 비한정 와일드카드만 쓴 타입, 그리고 이런 것들의 배열이에요. `List<String>`, `List<? extends Number>`, `T`는 소거되니 reifiable이 아니에요. 제네릭의 제한은 대부분 여기서 나와요.
 
@@ -208,7 +216,7 @@ String s = strs.get(0);       // 한참 뒤 여기서 ClassCastException
 - `List<String>[] arr;` 같은 **변수 선언**과 `new List<?>[n]`(reifiable)은 돼요.
 - 흔한 우회 `(T[]) new Object[n]`은 unchecked 경고가 나고, 이 배열을 `T[]`로 밖에 내보내면 호출부에서 `ClassCastException`이 날 수 있어요. `ArrayList`가 내부에 `Object[]`를 들고 있는 것도 이 때문이에요. 밖으로 내보내야 하면 `Array.newInstance(Class<T>, n)`이나 `List<T>`를 써요.
 
-### 8. 런타임에 남는 제네릭 정보: 슈퍼 타입 토큰
+### 심화: 8. 런타임에 남는 제네릭 정보: 슈퍼 타입 토큰
 
 객체에는 타입 인자가 없지만, 클래스 파일의 **선언부**(필드 타입, 메서드 시그니처, 상위 클래스)에는 제네릭 정보가 남아 리플렉션으로 읽혀요. 지역 변수나 객체 인스턴스의 타입 인자는 남지 않아요.
 

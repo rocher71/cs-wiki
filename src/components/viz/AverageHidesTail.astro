@@ -1,0 +1,61 @@
+---
+import Stepper from '../Stepper.astro';
+// 리서치 실험(응답 시간 1000개: 980개 ~50ms, 20개 2~5초)의 통계값. 점 위치는 같은 분포를 다시 뽑아 그린 것.
+const MEAN = 119.6, P50 = 50, P99 = 3330;
+// 가로축 로그 눈금: 10ms~10초를 16~304에. 10배마다 96 단위.
+const x = (ms: number) => 16 + 96 * (Math.log10(ms) - 1);
+let s = 42; // 고정 시드라 빌드마다 같은 그림
+const rnd = () => { s = (s + 0x6d2b79f5) | 0; let t = Math.imul(s ^ (s >>> 15), 1 | s); t ^= t + Math.imul(t ^ (t >>> 7), 61 | t); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+const gauss = () => Math.sqrt(-2 * Math.log(1 - rnd())) * Math.cos(2 * Math.PI * rnd());
+const fast = Array.from({ length: 980 }, () => ({ cx: x(Math.max(15, 50 + 11 * gauss())), cy: 104 + rnd() * 112 }));
+const slow = Array.from({ length: 20 }, () => ({ cx: x(2000 + 3000 * rnd()), cy: 104 + rnd() * 112 }));
+const steps = [
+  { caption: '응답 시간 1000개를 점으로 찍었어요. 980개가 50ms 근처에 몰려 있어요. 가로축은 10ms, 100ms, 1초, 10초처럼 한 칸마다 10배씩 커져요(로그 눈금). 그래야 50ms와 5초를 한 그림에 담을 수 있어요.', show: ['dots', 'axis', 'many'] },
+  { caption: '평균은 119.6ms. 이 숫자만 보면 "괜찮네" 싶어요.', show: ['dots', 'axis', 'many', 'mean'] },
+  { caption: 'p50(중앙값)은 50ms. 대부분 사용자가 실제로 느끼는 속도예요. 평균이 p50의 두 배가 넘는 건 느린 요청 몇 개가 끌어올렸기 때문이에요.', show: ['dots', 'axis', 'many', 'mean', 'p50'] },
+  { caption: '오른쪽 끝 2~5초에 20개(2%)가 흩어져 있어요. 평균 숫자에는 이들이 안 보여요.', show: ['dots', 'axis', 'many', 'mean', 'p50', 'tail'] },
+  { caption: 'p99는 3330ms. 100명 중 1~2명은 3초 넘게 기다린다는 뜻이에요. 그래서 평균 대신 p99를 봐요.', show: ['dots', 'axis', 'many', 'mean', 'p50', 'tail', 'p99'] },
+];
+---
+<Stepper title="평균이 숨기는 느린 꼬리" steps={steps}>
+  <svg class="viz aht" viewBox="0 0 320 340" role="img" aria-label="응답 시간 1000개 분포. 평균 119.6ms, p50 50ms, p99 3330ms. 20개(2%)가 2~5초에 있다.">
+    <text class="l" x="16" y="14">응답 시간 1000개 (실험값)</text>
+    <g data-id="dots">
+      {fast.map((d) => <circle class="dot" cx={d.cx.toFixed(1)} cy={d.cy.toFixed(1)} r="1.6" />)}
+    </g>
+    <g data-id="tail">
+      {slow.map((d) => <circle class="slow" cx={d.cx.toFixed(1)} cy={d.cy.toFixed(1)} r="3.5" />)}
+      <path class="line" d={`M${x(2000)} 226 V232 H${x(5000)} V226`} />
+      <text class="l hi" x="304" y="320" style="text-anchor:end">느린 20개(2%): 2~5초</text>
+    </g>
+    <g data-id="mean">
+      <line class="line" stroke-dasharray="5 4" x1={x(MEAN)} y1="60" x2={x(MEAN)} y2="222" />
+      <text class="l" x={x(MEAN) + 4} y="60">평균 119.6ms</text>
+    </g>
+    <g data-id="p50">
+      <line class="line" x1={x(P50)} y1="82" x2={x(P50)} y2="222" />
+      <text class="l" x={x(P50) - 4} y="82" style="text-anchor:end">p50 50ms</text>
+    </g>
+    <g data-id="p99">
+      <line class="p99" x1={x(P99)} y1="38" x2={x(P99)} y2="222" />
+      <text class="l hi" x={x(P99) - 4} y="38" style="text-anchor:end">p99 3330ms</text>
+    </g>
+    <g data-id="axis">
+      <line class="line" x1="16" y1="244" x2="304" y2="244" />
+      {[[10, '10ms'], [100, '100ms'], [1000, '1초'], [10000, '10초']].map(([ms, t]) => (
+        <>
+          <line class="line" x1={x(+ms)} y1="240" x2={x(+ms)} y2="248" />
+          <text class="sub" x={x(+ms)} y="262" style={`text-anchor:${ms === 10 ? 'start' : ms === 10000 ? 'end' : 'middle'}`}>{t}</text>
+        </>
+      ))}
+      <text class="l sub" x="16" y="282">가로축: 한 칸 갈 때마다 10배 (로그 눈금)</text>
+    </g>
+    <text data-id="many" class="l" x="16" y="300">980개가 50ms 근처</text>
+  </svg>
+</Stepper>
+
+<style>
+  .aht .dot { fill: var(--sl-color-gray-3); opacity: .45; }
+  .aht .slow { fill: var(--sl-color-accent); stroke: var(--sl-color-white); stroke-width: 1; }
+  .aht .p99 { stroke: var(--sl-color-accent); stroke-width: 2.4; }
+</style>

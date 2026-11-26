@@ -13,6 +13,16 @@ import RequiresNewFlow from '~/components/viz/RequiresNewFlow.astro';
 `@Transactional`은 스프링이 만든 **프록시**가 메서드 호출 앞에서 트랜잭션을 시작하고, 끝나면 커밋하거나 롤백해 주는 기능이에요. 트랜잭션은 **스레드에 묶여** 같은 스레드의 DB 작업이 모두 참여하고, 기본 전파는 `REQUIRED`, 기본 롤백은 **런타임 예외와 Error만**이에요.
 :::
 
+:::note[처음이라면 여기까지]
+① 트랜잭션은 여러 DB 작업을 "전부 성공 또는 전부 취소"로 묶는 단위예요.
+
+② `@Transactional`을 붙이면 스프링의 대리 객체(프록시)가 시작·확정(커밋)·취소(롤백)를 대신 해 줘요.
+
+③ 대리 객체를 거치지 않는 호출(같은 클래스 안에서 부르기)에는 적용이 안 돼요.
+
+④ 면접에선 질문 1·2·3번을 먼저 연습하세요.
+:::
+
 ## 쉽게 이해하기
 
 은행 창구에서 "A 통장에서 빼서 B 통장에 넣기"를 부탁한다고 해 봐요. 빼기만 되고 넣기가 실패하면 돈이 사라져요. 그래서 창구 직원은 **둘 다 되거나, 둘 다 없던 일로** 처리해요. 이 묶음이 **트랜잭션**(transaction, 여러 DB 작업을 하나로 묶어 전부 성공 또는 전부 취소하는 단위)이에요.
@@ -113,7 +123,7 @@ import RequiresNewFlow from '~/components/viz/RequiresNewFlow.astro';
 바깥 트랜잭션의 커넥션은 묶인 채로, 안쪽이 커넥션을 하나 **더** 얻어요. 여러 스레드가 바깥 커넥션을 쥔 채 안쪽 커넥션을 기다리면 풀이 바닥나고 서로 영원히 기다리는 **데드락**에 빠질 수 있어요. 스프링 문서는 **커넥션 풀 크기가 동시 스레드 수보다 최소 1 이상 크지 않으면 REQUIRES_NEW를 쓰지 말라**고 해요.
 </Aside>
 
-### 5. 논리 트랜잭션, 물리 트랜잭션, rollback-only
+### 심화: 5. 논리 트랜잭션, 물리 트랜잭션, rollback-only
 
 여기가 실무 장애가 가장 많이 나는 곳이에요.
 
@@ -209,7 +219,7 @@ DB 쪽에서는 예를 들어 MySQL 8.0 InnoDB가 읽기 전용으로 인식한 
 
 참고로 Spring Data JPA의 기본 Repository(`SimpleJpaRepository`)는 조회 메서드에 `readOnly = true`, 나머지에 일반 `@Transactional`이 붙어 있어요. 직접 선언한 쿼리 메서드에는 기본 트랜잭션 설정이 없어요.
 
-### 8. 격리 수준과 timeout
+### 심화: 8. 격리 수준과 timeout
 
 **격리 수준**(isolation, 동시에 실행되는 트랜잭션끼리 서로의 중간 결과를 얼마나 보게 할지)은 `isolation` 속성으로 정해요.
 
@@ -236,7 +246,7 @@ DB 쪽에서는 예를 들어 MySQL 8.0 InnoDB가 읽기 전용으로 인식한 
 - 외부 호출에 **타임아웃**을 꼭 걸어요.
 - 결과가 어긋날 수 있으니 `PENDING` 같은 상태값을 두고, 재조회나 **보상 트랜잭션**(이미 확정된 작업을 반대 작업으로 되돌리는 것)으로 맞춰요.
 
-### 10. 커밋된 뒤에 할 일: @TransactionalEventListener
+### 심화: 10. 커밋된 뒤에 할 일: @TransactionalEventListener
 
 "주문이 **확정된 다음에만** 알림을 보내고 싶다"면 `@TransactionalEventListener`를 써요. 이벤트를 트랜잭션 단계에 묶어 주는 리스너예요.
 
@@ -271,26 +281,6 @@ DB 쪽에서는 예를 들어 MySQL 8.0 InnoDB가 읽기 전용으로 인식한 
 </details>
 
 <details>
-<summary>Q. REQUIRED, REQUIRES_NEW, NESTED의 차이는?</summary>
-
-**답변(30초)** REQUIRED는 기본값으로, 진행 중 트랜잭션이 있으면 참여하고 없으면 새로 만들어요. REQUIRES_NEW는 바깥을 일시 중단하고 완전히 별개의 물리 트랜잭션을 만들어서, 안쪽과 바깥이 따로 커밋·롤백돼요. NESTED는 물리 트랜잭션은 하나인 채로 세이브포인트를 둬서, 안쪽 실패 시 세이브포인트까지만 되돌려요. 바깥이 롤백되면 NESTED 안쪽도 같이 롤백되지만 REQUIRES_NEW 안쪽은 남아요.
-
-**꼬리질문**
-- Q. REQUIRES_NEW의 부작용은? → 커넥션을 동시에 2개 쥐어서 풀 고갈과 데드락 위험이 있어요. 스프링 문서는 풀 크기가 동시 스레드 수보다 최소 1 이상 크지 않으면 쓰지 말라고 해요.
-- Q. JPA에서 NESTED를 쓸 수 있나요? → 기본 제공으로는 JDBC `DataSourceTransactionManager`에서만 동작해요.
-</details>
-
-<details>
-<summary>Q. 안쪽 메서드 예외를 바깥에서 catch했는데 UnexpectedRollbackException이 났어요. 왜죠?</summary>
-
-**답변(30초)** 안쪽과 바깥이 REQUIRED로 같은 물리 트랜잭션을 공유하기 때문이에요. 안쪽에서 런타임 예외가 나면 안쪽 프록시가 공유 트랜잭션에 rollback-only를 표시해요. 바깥이 예외를 삼키고 커밋을 시도해도 이미 커밋할 수 없는 상태라, 스프링은 실제로 롤백하고 "커밋된 줄 착각하지 말라"는 뜻으로 `UnexpectedRollbackException`을 던져요. 그래서 바깥 작업까지 전부 사라져요.
-
-**꼬리질문**
-- Q. 어떻게 고치나요? → 안쪽을 REQUIRES_NEW로 바꾸고 바깥에서 catch하거나, 안쪽이 예외 대신 결과를 돌려주게 설계를 바꾸거나, 커밋 후 이벤트로 분리해요.
-- Q. REQUIRES_NEW로 바꾸면 바깥은 무조건 안전한가요? → 아니요. 트랜잭션 상태는 독립이지만 예외는 호출 스택을 타고 바깥으로 올라와요. 바깥이 catch하지 않으면 바깥도 롤백돼요.
-</details>
-
-<details>
 <summary>Q. checked 예외가 나면 롤백되나요?</summary>
 
 **답변(30초)** 기본으로는 롤백되지 않고 커밋돼요. 스프링 기본 규칙은 런타임 예외와 Error만 롤백이에요. checked 예외도 롤백하려면 `rollbackFor = Exception.class`를 주거나, Spring 6.2부터는 `@EnableTransactionManagement(rollbackOn = ALL_EXCEPTIONS)`로 전역 기본값을 바꿀 수 있어요. 그리고 예외를 catch해서 삼키면 프록시가 예외를 못 봐서 종류와 상관없이 커밋돼요.
@@ -311,12 +301,32 @@ DB 쪽에서는 예를 들어 MySQL 8.0 InnoDB가 읽기 전용으로 인식한 
 </details>
 
 <details>
+<summary>Q. REQUIRED, REQUIRES_NEW, NESTED의 차이는?</summary>
+
+**답변(30초)** REQUIRED는 기본값으로, 진행 중 트랜잭션이 있으면 참여하고 없으면 새로 만들어요. REQUIRES_NEW는 바깥을 일시 중단하고 완전히 별개의 물리 트랜잭션을 만들어서, 안쪽과 바깥이 따로 커밋·롤백돼요. NESTED는 물리 트랜잭션은 하나인 채로 세이브포인트를 둬서, 안쪽 실패 시 세이브포인트까지만 되돌려요. 바깥이 롤백되면 NESTED 안쪽도 같이 롤백되지만 REQUIRES_NEW 안쪽은 남아요.
+
+**꼬리질문**
+- Q. REQUIRES_NEW의 부작용은? → 커넥션을 동시에 2개 쥐어서 풀 고갈과 데드락 위험이 있어요. 스프링 문서는 풀 크기가 동시 스레드 수보다 최소 1 이상 크지 않으면 쓰지 말라고 해요.
+- Q. JPA에서 NESTED를 쓸 수 있나요? → 기본 제공으로는 JDBC `DataSourceTransactionManager`에서만 동작해요.
+</details>
+
+<details>
 <summary>Q. 트랜잭션 안에서 외부 API를 호출하면 무엇이 문제인가요?</summary>
 
 **답변(30초)** 두 가지예요. 첫째, 응답을 기다리는 동안 DB 커넥션과 락을 쥐고 있어서, 외부가 느려지면 커넥션 풀이 바닥나 다른 API까지 멈춰요. 둘째, 외부 호출은 DB 롤백으로 되돌릴 수 없어서 정합성이 깨질 수 있어요. 그래서 외부 호출은 트랜잭션 밖으로 빼고, 타임아웃을 걸고, 상태값과 보상 처리로 어긋남을 맞춰요.
 
 **꼬리질문**
 - Q. 커밋된 뒤에만 알림을 보내려면? → `@TransactionalEventListener`의 기본 phase인 AFTER_COMMIT을 써요. 기본은 동기라 느리면 `@Async`를 함께 써요.
+</details>
+
+<details>
+<summary>Q. 안쪽 메서드 예외를 바깥에서 catch했는데 UnexpectedRollbackException이 났어요. 왜죠?</summary>
+
+**답변(30초)** 안쪽과 바깥이 REQUIRED로 같은 물리 트랜잭션을 공유하기 때문이에요. 안쪽에서 런타임 예외가 나면 안쪽 프록시가 공유 트랜잭션에 rollback-only를 표시해요. 바깥이 예외를 삼키고 커밋을 시도해도 이미 커밋할 수 없는 상태라, 스프링은 실제로 롤백하고 "커밋된 줄 착각하지 말라"는 뜻으로 `UnexpectedRollbackException`을 던져요. 그래서 바깥 작업까지 전부 사라져요.
+
+**꼬리질문**
+- Q. 어떻게 고치나요? → 안쪽을 REQUIRES_NEW로 바꾸고 바깥에서 catch하거나, 안쪽이 예외 대신 결과를 돌려주게 설계를 바꾸거나, 커밋 후 이벤트로 분리해요.
+- Q. REQUIRES_NEW로 바꾸면 바깥은 무조건 안전한가요? → 아니요. 트랜잭션 상태는 독립이지만 예외는 호출 스택을 타고 바깥으로 올라와요. 바깥이 catch하지 않으면 바깥도 롤백돼요.
 </details>
 
 ## 서술형 연습

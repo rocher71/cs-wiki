@@ -1,0 +1,409 @@
+---
+title: Pod·ReplicaSet·Deployment
+description: "Pod는 컨테이너를 담는 가장 작은 배포 단위, ReplicaSet은 똑같은 Pod를 정해진 개수만큼 유지하는 관리자, Deployment는 ReplicaSet을 바꿔 끼우며 새 버전을 조금씩 배포하고 되돌리는 관리자예요."
+sidebar: { order: 5 }
+tags: [면접빈출, 서술형]
+---
+import { Aside } from '@astrojs/starlight/components';
+import DeploymentReplicaSetPod from '~/components/viz/DeploymentReplicaSetPod.astro';
+import RollingUpdateReplicas4 from '~/components/viz/RollingUpdateReplicas4.astro';
+
+:::tip[한 줄 요약]
+**Pod**는 컨테이너를 담는 쿠버네티스의 가장 작은 배포 단위, **ReplicaSet**은 똑같은 Pod를 정해진 개수만큼 늘 띄워 두는 관리자, **Deployment**는 그 ReplicaSet을 새 것으로 바꿔 끼우면서 **새 버전을 조금씩 배포(롤링 업데이트)하고 되돌리는(롤백)** 관리자예요.
+:::
+
+<Aside type="note" title="이 페이지의 기준">
+쿠버네티스 공식 문서 현재판(v1.37, 2026-11 조회)을 바탕으로 했어요. 쿠버네티스의 큰 구조(컨트롤 플레인, "원하는 상태"를 적으면 맞춰 주는 방식)는 [쿠버네티스 구조](../k8s-architecture/)를 먼저 보면 좋아요.
+</Aside>
+
+## 쉽게 이해하기
+
+도시락 가게를 떠올려 봐요.
+
+**Pod는 도시락 통**이에요. 밥과 반찬(컨테이너)을 한 통에 담아서, 통째로 같은 테이블(서버)에 놓아요. 한 통에 든 음식은 뚜껑 하나(같은 IP 주소)를 같이 써요. 가게는 밥알 하나하나가 아니라 **통 단위**로 세고 나르고 버려요.
+
+**ReplicaSet은 진열대 담당 직원**이에요. "도시락 4개를 항상 진열해 둬"라는 지시만 받아요. 하나가 팔리거나 상하면 같은 틀로 하나를 바로 새로 채워요. 많으면 하나를 치워요.
+
+**Deployment는 메뉴를 바꾸는 점장**이에요. 새 메뉴(새 버전)가 나오면 진열대를 한 번에 비우지 않아요. 새 메뉴 담당 직원(새 ReplicaSet)을 붙여서 새 도시락을 하나씩 올리고, 옛 도시락을 하나씩 내려요. 새 메뉴 반응이 나쁘면 옛 메뉴 담당을 다시 불러 되돌려요.
+
+단, 실제로는 도시락 통에 보통 **밥 하나만**(컨테이너 1개) 담아요. 또 상한 도시락은 다른 테이블로 옮기는 게 아니라 버리고 **새 통**을 만들어요. Pod는 고쳐 쓰는 물건이 아니라 갈아 끼우는 일회용이에요.
+
+## 그림으로 보기
+
+<DeploymentReplicaSetPod />
+
+<RollingUpdateReplicas4 />
+
+## 제대로 알기
+
+### 1. Pod: 컨테이너를 담는 가장 작은 단위
+
+쿠버네티스는 컨테이너를 직접 다루지 않아요. 컨테이너를 **Pod**(파드, 컨테이너 1개 이상을 묶은 실행 단위)로 감싸서 Pod 단위로 만들고, 배치하고, 지워요. → 컨테이너가 뭔지는 [컨테이너와 VM](../container-vs-vm/)
+
+같은 Pod 안의 컨테이너들은 이런 걸 함께 써요.
+
+- **같은 서버(노드)**에 항상 같이 놓여요. 쿠버네티스에서 서버 한 대를 **노드**(node)라고 불러요.
+- **네트워크를 공유**해요. IP 주소가 하나라서 서로 `localhost`로 통신해요. 대신 같은 Pod 안 두 컨테이너가 같은 포트를 쓸 수는 없어요.
+- 저장 공간(볼륨)을 같이 붙여 쓸 수 있어요.
+
+가장 흔한 건 **컨테이너 1개짜리 Pod**예요. 여러 개를 넣는 건 서로 꼭 붙어서 자원을 나눠야 할 때만 써요.
+
+<Aside type="caution" title="서버 대수를 늘리려고 Pod에 컨테이너를 더 넣지 않아요">
+같은 앱을 여러 개 띄우는 **스케일 아웃**(같은 서버를 여러 대로 늘려 부하를 나누는 것)은 **Pod 개수**를 늘려서 해요. Pod 개수는 아래의 ReplicaSet·Deployment가 맞춰 줘요.
+</Aside>
+
+#### Pod는 일회용이에요
+
+- Pod는 **다른 노드로 옮겨지지 않아요.** 노드가 고장 나면 그 Pod는 사라지고, 관리자가 **새 Pod**를 만들어요. 이름이 같아 보여도 내부 고유 번호(UID)가 다른 새 Pod예요.
+- 그래서 **Pod IP는 바뀌어요.** Pod IP로 직접 접속하지 말고 Service를 거쳐요. → [Service와 Ingress](../k8s-service-ingress/)
+- Pod 설정 대부분은 만든 뒤 못 바꿔요. 바꾸려면 새 Pod로 갈아 끼워야 하고, 그 일을 Deployment가 해요.
+- 그래서 Pod를 직접 만들기보다 Deployment 같은 관리자가 만들게 해요.
+
+#### init 컨테이너와 사이드카
+
+Pod에 앱 말고 보조 컨테이너를 붙이는 대표 방법이 두 가지 있어요.
+
+| | init 컨테이너 | 사이드카 컨테이너 |
+|---|---|---|
+| 한 줄 뜻 | 앱보다 **먼저 돌고 끝나는** 준비 작업 | 앱보다 **먼저 뜨고 계속 같이 도는** 도우미 |
+| 예 | DB가 뜰 때까지 기다리기, 설정 파일 준비 | 로그를 밖으로 보내는 에이전트, 프록시 |
+| 동작 | 여러 개면 순서대로 하나씩, 성공해야 다음으로 | Pod가 살아 있는 내내 실행, 죽으면 따로 재시작 |
+| 쓰는 법 | `initContainers`에 넣기 | `initContainers`에 넣고 `restartPolicy: Always` |
+
+사이드카를 이렇게 정식으로 쓰는 방식은 v1.28에 들어왔고 **v1.33에 정식(stable)**이 됐어요. 예전엔 `containers`에 두 번째 컨테이너로 넣었는데, 지금 방식은 앱보다 먼저 뜨는 순서가 보장돼요.
+
+#### Pod 상태(phase)
+
+| phase | 뜻 |
+|---|---|
+| Pending | 클러스터가 받았지만 아직 준비 중(배치 대기, 이미지 다운로드 포함) |
+| Running | 노드에 배치됐고 컨테이너가 다 만들어짐. 최소 1개가 실행·시작·재시작 중 |
+| Succeeded | 모든 컨테이너가 정상 종료, 다시 안 띄움(배치 작업 끝) |
+| Failed | 모든 컨테이너가 종료, 그중 최소 1개가 실패 |
+| Unknown | 보통 노드와 통신이 안 돼서 상태를 모름 |
+
+#### CrashLoopBackOff는 phase가 아니에요
+
+`kubectl get pods`의 STATUS 열에 자주 보이는 **CrashLoopBackOff**는 "컨테이너가 죽고 재시작하고 또 죽어서, **다음 재시작까지 일부러 기다리는 중**"이라는 표시예요. 이때 phase는 보통 Running이에요.
+
+- 기다리는 시간(**백오프**, back-off)은 **10초 → 20초 → 40초 …**로 두 배씩 늘고 **최대 5분**이에요.
+- 컨테이너가 **10분 동안 문제없이 돌면** 대기 시간이 처음으로 돌아가요.
+- 흔한 원인: 앱 오류로 종료, 환경 변수·설정 누락, 메모리 부족, 살아 있는지 검사(liveness probe) 실패. → [Probe와 스케일링](../k8s-probes-scaling/)
+
+Pod의 `restartPolicy`(컨테이너가 끝나면 다시 띄울지)는 `Always`(기본), `OnFailure`, `Never` 세 가지인데, Deployment가 만드는 Pod는 `Always`만 돼요. 컨테이너가 다시 뜨는 것과 Pod가 새로 생기는 건 다른 일이에요. 컨테이너는 같은 Pod 안에서 재시작돼요.
+
+### 2. ReplicaSet: 개수 맞추는 관리자
+
+**ReplicaSet**(레플리카셋, 똑같은 Pod를 정해진 개수만큼 유지하는 오브젝트)은 세 가지만 알아요.
+
+| 필드 | 뜻 |
+|---|---|
+| `selector` | 어떤 라벨의 Pod를 "내 것"으로 셀지 |
+| `replicas` | 몇 개를 유지할지 |
+| `template` | 모자랄 때 새 Pod를 찍어낼 틀 |
+
+모자라면 만들고, 많으면 지워요. 그래서 `kubectl delete pod`로 Pod를 지워도 **바로 다시 생겨요.** 개수를 줄이려면 `replicas`를 줄여야 해요.
+
+ReplicaSet은 **라벨**로 자기 Pod를 세요. **라벨**(label)은 오브젝트에 붙이는 `key: value` 이름표이고, 여러 오브젝트가 같은 라벨을 가져도 돼요. **셀렉터**(selector)는 "이런 라벨이 붙은 것들"이라는 조건이에요.
+
+- 조건은 `app=web`처럼 같다/다르다로 고르는 방식과, `env in (dev, qa)`처럼 집합으로 고르는 방식이 있어요.
+- 조건 여러 개는 **AND**로만 묶여요. OR는 없어요.
+- 템플릿의 라벨은 셀렉터와 맞아야 해요. 안 맞으면 API가 거부해요.
+
+<Aside type="caution" title="라벨이 겹치면 남의 Pod를 데려가요">
+ReplicaSet은 셀렉터에 맞고 주인이 없는 Pod를 **자기가 만들지 않았어도 바로 자기 것으로 세요.** 테스트용으로 띄운 Pod에 운영 Deployment와 같은 라벨을 달면, 개수가 하나 넘쳐서 Pod 하나가 지워질 수 있어요.
+</Aside>
+
+공식 문서는 ReplicaSet을 **직접 쓰지 말고 Deployment를 쓰라**고 권해요. Deployment가 만든 ReplicaSet을 손으로 고치는 것도 피해요.
+
+### 3. Deployment: 버전 바꾸기를 관리하는 관리자
+
+ReplicaSet은 개수만 맞출 줄 알아요. 이미지를 새 버전으로 바꾸는 일은 못 해요. 이걸 해 주는 게 **Deployment**(디플로이먼트)예요. "이 이미지로 4개"라고 적어 두면, Deployment가 실제 상태를 그 모습으로 천천히 맞춰요. 주로 상태를 안 갖는(stateless) 웹·API 서버에 써요.
+
+| | Pod | ReplicaSet | Deployment |
+|---|---|---|---|
+| 하는 일 | 컨테이너 실행 | Pod 개수 유지 | 버전 교체·롤백 |
+| 만드는 것 | 컨테이너 | Pod | ReplicaSet |
+| 직접 다루나 | 보통 안 함 | 안 함 | **이걸 씀** |
+| 바뀌면 | 새 Pod로 교체 | 새로 안 만듦 | 템플릿이 바뀌면 새 ReplicaSet |
+
+#### YAML 예시
+
+`kubectl create deployment web --image=nginx:1.27 --replicas=4 --dry-run=client -o yaml`로 뽑은 틀에 배포 전략을 적어 넣은 거예요.
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: web
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27
+```
+
+| 줄 | 뜻 |
+|---|---|
+| `apiVersion: apps/v1`, `kind: Deployment` | Deployment 오브젝트라는 선언 |
+| `metadata.name: web` | 이 Deployment의 이름 |
+| `replicas: 4` | Pod를 항상 4개 유지 |
+| `selector.matchLabels.app: web` | `app=web` 라벨이 붙은 Pod를 내 것으로 셈. **만든 뒤엔 못 바꿔요** |
+| `strategy.type: RollingUpdate` | 조금씩 교체하는 전략(기본값) |
+| `maxSurge: 25%` | 4개보다 **더 띄워도 되는** 최대 개수(올림 → 1개) |
+| `maxUnavailable: 25%` | 교체 중 **빠져도 되는** 최대 개수(내림 → 1개) |
+| `template` | Pod를 찍어낼 틀. **이 아래가 바뀌면 새 버전 배포가 시작돼요** |
+| `template.metadata.labels.app: web` | selector와 반드시 같아야 함 |
+| `image: nginx:1.27` | 실행할 이미지. 보통 이 태그를 바꿔서 배포해요 |
+
+`--dry-run=client`로 뽑아 보면 `strategy: {}`로 비어 있어요. 그래도 동작하는 건 **API 서버가 기본값(RollingUpdate, 25%, 25%)을 채워 주기** 때문이에요. 위 예시는 기본값을 눈에 보이게 적어 둔 거예요.
+
+#### 무엇이 새 버전을 만드나
+
+- **`template` 아래가 바뀔 때만** 새 배포(롤아웃)가 일어나요. 이미지 태그, 템플릿 라벨 같은 것들이요.
+- 템플릿이 바뀌면 Deployment는 **새 ReplicaSet**을 만들고 **리비전**(배포 이력 번호)을 하나 올려요.
+- `replicas`만 바꾸는 건 개수 조절(스케일)이라 리비전이 안 생겨요.
+- Deployment가 만든 ReplicaSet과 Pod에는 `pod-template-hash` 라벨이 자동으로 붙어요. Pod 이름 `web-75675f5897-7ci7o`의 가운데 값이 그거예요. 같은 Deployment의 옛 ReplicaSet과 새 ReplicaSet이 서로의 Pod를 섞어 세지 않게 해 줘요.
+
+### 4. 배포 전략: RollingUpdate와 Recreate
+
+| | RollingUpdate(기본) | Recreate |
+|---|---|---|
+| 방식 | 새 Pod를 조금 늘리고 옛 Pod를 조금 줄이기를 반복 | 옛 Pod를 **전부** 끄고, 다 꺼진 뒤 새 Pod를 띄움 |
+| 다운타임 | 없게 설계됨 | **있음**(0개인 구간) |
+| 두 버전 동시 실행 | 있음 | 없음 |
+| 쓸 때 | 대부분의 웹·API 서버 | 두 버전이 동시에 돌면 안 될 때(예: DB 구조가 호환 안 됨) |
+
+#### 롤링 업데이트 계산
+
+손잡이 두 개로 속도와 안전을 조절해요.
+
+- **maxSurge**: `replicas`보다 **더 띄울 수 있는** 개수. %면 **올림**.
+- **maxUnavailable**: 교체 중 **빠져도 되는** 개수. %면 **내림**.
+- 기본은 둘 다 25%예요. 그래서 원하는 개수의 **최소 75%는 늘 가용**, **최대 125%까지** 떠 있어요.
+- 둘 다 0이면 아무것도 못 바꾸니 안 돼요.
+
+| replicas | maxSurge(25%, 올림) | maxUnavailable(25%, 내림) | 교체 중 Pod 수 |
+|---|---|---|---|
+| 4 | ceil(1) = **1** | floor(1) = **1** | 가용 최소 **3**, 전체 최대 **5** |
+| 10 | ceil(2.5) = **3** | floor(2.5) = **2** | 가용 최소 **8**, 전체 최대 **13** |
+| 3 | ceil(0.75) = **1** | floor(0.75) = **0** | 가용 최소 **3**, 전체 최대 **4** |
+
+올림·내림 방향은 둘 다 **가용성 쪽으로 안전하게** 가는 선택이에요. 덜 끄고(내림), 적어도 하나는 더 띄워서 진행되게(올림) 해요.
+
+replicas=4라면 이렇게 흘러가요(위 두 번째 그림).
+
+1. 시작: v1 4개, v2 0개.
+2. 이미지 태그 변경 → 새 ReplicaSet(v2) 생성, 리비전 +1.
+3. v2를 먼저 1개 띄워요 → v1 4개 + v2 1개 = **전체 5개**(maxSurge 한도).
+4. 가용이 최소선(3개)보다 많은 만큼 v1을 줄이고, 빈 자리에 v2를 더 띄워요. 이후 v2가 하나 준비될 때마다 v1이 하나 빠지고 v2가 하나 늘어 → v1 0개, v2 4개.
+5. 끝나도 **옛 ReplicaSet은 replicas=0인 채로 남아요.** 롤백용이에요.
+
+한 번에 정확히 몇 개씩 움직이는지는 Pod가 준비되는 타이밍에 따라 달라요. 지켜지는 건 "전체 5개 이하, 가용 3개 이상"이라는 규칙이에요.
+
+<Aside type="caution" title="롤링 업데이트가 '무중단'을 보장하진 않아요">
+- **readiness probe**(요청을 받을 준비가 됐는지 검사)가 없으면 아직 준비 안 된 v2 Pod에 요청이 가서 실패할 수 있어요.
+- 교체 중엔 **v1과 v2가 동시에 요청을 받아요.** API와 DB 구조가 두 버전 모두와 맞아야 해요.
+</Aside>
+
+배포 도중 또 이미지를 바꾸면, 하던 ReplicaSet을 끝까지 기다리지 않고 바로 더 새로운 ReplicaSet으로 넘어가요(rollover).
+
+### 5. 롤백과 배포 상태 보기
+
+| 명령 | 하는 일 |
+|---|---|
+| `kubectl rollout status deployment/web` | 배포가 진행 중인지, 끝났는지 확인 |
+| `kubectl rollout history deployment/web` | 리비전 목록. CHANGE-CAUSE 열은 `kubernetes.io/change-cause` 어노테이션 값 |
+| `kubectl rollout undo deployment/web` | 바로 전 리비전으로 되돌리기 |
+| `kubectl rollout undo deployment/web --to-revision=3` | 3번 리비전으로 되돌리기 |
+| `kubectl rollout pause` / `resume` | 멈춘 동안의 템플릿 수정을 모았다가 한 번에 배포 |
+
+- 롤백은 **옛 ReplicaSet을 다시 늘리고 새 것을 줄이는** 롤링 업데이트를 거꾸로 하는 거예요. 이미지를 다시 받을 필요가 거의 없어서 빨라요.
+- 되돌아가는 건 **Pod 템플릿만**이에요. `replicas` 같은 값은 그대로예요.
+- 남겨 두는 옛 ReplicaSet 개수는 `revisionHistoryLimit`(기본 **10**)이에요. 지워진 리비전으로는 못 돌아가고, 0이면 롤백 자체가 안 돼요.
+- `progressDeadlineSeconds`(기본 **600초**) 안에 배포가 진행되지 않으면 Deployment 상태에 `ProgressDeadlineExceeded`가 찍혀요. **자동으로 롤백하진 않아요.** 되돌리는 건 사람이나 배포 도구 몫이에요.
+- `minReadySeconds`(기본 0)를 주면, 새 Pod가 준비된 뒤 그 시간 동안 안 죽어야 "가용"으로 쳐요.
+
+일부 사용자에게만 새 버전을 먼저 보여 주는 **카나리**, 두 환경을 통째로 바꿔 끼우는 **블루그린** 같은 전략은 Deployment 기능이 아니에요. Deployment만으로는 Deployment를 두 개 만들어 Pod 수 비율로 거칠게 나누는 정도예요. 자세한 비교는 아키텍처·배포 섹션에서 다룰 예정이에요.
+
+## 면접 질문
+
+<details>
+<summary>Q. Pod가 무엇이고, 왜 컨테이너가 아니라 Pod 단위로 관리하나요?</summary>
+
+**답변(30초)** Pod는 쿠버네티스에서 만들고 관리하는 가장 작은 배포 단위로, 컨테이너 1개 이상을 묶은 거예요. 같은 Pod의 컨테이너는 같은 노드에 함께 놓이고, IP와 포트를 공유해서 localhost로 통신해요. 그래서 로그 수집기나 프록시처럼 앱 옆에 꼭 붙어야 하는 컨테이너를 한 단위로 다룰 수 있어요. 보통은 컨테이너 하나짜리 Pod를 쓰고, 개수를 늘릴 땐 Pod 수를 늘려요.
+
+**꼬리질문**
+- Q. 같은 Pod 안의 두 컨테이너가 8080 포트를 둘 다 쓸 수 있나요? → 안 돼요. 네트워크를 공유해서 포트 공간이 하나예요.
+- Q. 노드가 죽으면 Pod는 다른 노드로 옮겨가나요? → 옮겨가지 않아요. 그 Pod는 사라지고 관리자가 새 UID·새 IP의 새 Pod를 만들어요. 그래서 Pod IP 대신 Service로 접근해요.
+- Q. init 컨테이너와 사이드카 차이는요? → init은 앱보다 먼저 돌고 끝나는 준비 작업이고, 사이드카는 앱보다 먼저 떠서 Pod가 사는 내내 같이 도는 도우미예요.
+</details>
+
+<details>
+<summary>Q. ReplicaSet과 Deployment는 어떤 관계인가요?</summary>
+
+**답변(30초)** Deployment가 ReplicaSet을 만들고, ReplicaSet이 Pod를 만드는 3계층이에요. ReplicaSet은 라벨 셀렉터로 Pod를 세서 개수만 맞춰요. Deployment는 Pod 템플릿이 바뀌면 새 ReplicaSet을 만들어 늘리고 옛 것을 줄여서 버전을 교체해요. 옛 ReplicaSet을 남겨 두기 때문에 롤백도 돼요. 그래서 ReplicaSet은 직접 쓰지 않고 Deployment를 써요.
+
+**꼬리질문**
+- Q. replicas만 4에서 6으로 바꾸면 새 리비전이 생기나요? → 안 생겨요. 템플릿이 바뀔 때만 롤아웃돼요.
+- Q. Pod를 지웠는데 다시 생겨요. 왜죠? → ReplicaSet이 원하는 개수와 실제 개수를 계속 비교해서 모자란 만큼 새로 만들기 때문이에요. 줄이려면 replicas를 줄여요.
+</details>
+
+<details>
+<summary>Q. 롤링 업데이트는 어떻게 동작하나요? replicas가 4일 때 maxSurge·maxUnavailable 기본값으로 계산해 보세요.</summary>
+
+**답변(30초)** 새 ReplicaSet을 조금씩 늘리고 옛 ReplicaSet을 조금씩 줄여서 버전을 교체해요. maxSurge는 replicas보다 더 띄울 수 있는 수로 %면 올림, maxUnavailable은 빠져도 되는 수로 %면 내림이에요. 기본값 25%에 replicas 4면 둘 다 1이라서, 교체 중 Pod는 최대 5개, 가용 Pod는 최소 3개예요. replicas 10이면 surge 3, unavailable 2라서 8~13개 사이를 오가요.
+
+**꼬리질문**
+- Q. 둘 다 0으로 하면요? → 더 띄우지도 빼지도 못해 진행이 안 되므로 허용되지 않아요.
+- Q. Recreate는 언제 쓰나요? → 두 버전이 동시에 돌면 안 될 때요. 예를 들어 DB 구조가 옛 버전과 호환되지 않으면 다운타임을 감수하고 Recreate를 써요.
+- Q. 롤링 업데이트면 무중단이 보장되나요? → 아니에요. readiness probe가 없으면 준비 안 된 Pod로 요청이 가고, 두 버전이 동시에 요청을 받으니 하위 호환도 필요해요.
+</details>
+
+<details>
+<summary>Q. 배포를 롤백하면 내부에서 무슨 일이 일어나나요?</summary>
+
+**답변(30초)** Deployment는 배포 때마다 새 ReplicaSet을 만들고, 옛 ReplicaSet은 replicas 0으로 남겨 둬요. `kubectl rollout undo`를 하면 그 옛 ReplicaSet을 다시 늘리고 현재 것을 줄이는 롤링 업데이트가 거꾸로 일어나요. 되돌아가는 건 Pod 템플릿뿐이고 replicas는 그대로예요. 남겨 두는 옛 ReplicaSet 수는 revisionHistoryLimit, 기본 10개예요.
+
+**꼬리질문**
+- Q. 배포가 10분 넘게 안 끝나면 자동 롤백되나요? → 안 돼요. progressDeadlineSeconds를 넘기면 상태에 ProgressDeadlineExceeded가 찍힐 뿐이고, 되돌리는 건 사람이나 배포 도구가 해야 해요.
+</details>
+
+<details>
+<summary>Q. CrashLoopBackOff는 무엇인가요?</summary>
+
+**답변(30초)** 컨테이너가 죽고 재시작하기를 반복해서, 다음 재시작까지 기다리는 중이라는 표시예요. Pod phase가 아니라 STATUS 열에 보이는 값이고, phase는 보통 Running이에요. 대기 시간은 10초, 20초, 40초로 두 배씩 늘어 최대 5분이고, 10분 정상 실행하면 초기화돼요. 원인은 앱 오류, 설정 누락, 메모리 부족, liveness probe 실패 등이에요.
+
+**꼬리질문**
+- Q. 원인은 어떻게 찾나요? → `kubectl describe pod`로 이벤트와 직전 종료 이유를 보고, `kubectl logs --previous`로 죽기 직전 컨테이너의 로그를 봐요.
+</details>
+
+## 서술형 연습
+
+<details>
+<summary>상황: replicas=4인 주문 API Deployment에 새 이미지를 배포했더니, 새 Pod가 CrashLoopBackOff 상태입니다. 서비스는 아직 응답하고 있습니다.</summary>
+
+**상황 파악**
+서비스가 아직 살아 있는 건 롤링 업데이트 덕분이에요. maxUnavailable이 1이라 옛 v1 Pod가 최소 3개 남아 있고, 새 Pod가 준비되지 않으니 Deployment가 새 ReplicaSet 확대를 멈춘 상태예요. 다만 처리 능력은 4개에서 3개로 줄었고, 이대로 두어도 **자동 롤백은 일어나지 않아요.** 먼저 사용자 영향을 막고, 그다음 원인을 찾아요.
+
+**원인 찾는 순서**
+1. `kubectl rollout status deployment/order-api`와 `kubectl get pods`로 범위를 확인해요. 새 Pod만 죽는지, RESTARTS가 얼마나 올라갔는지 봐요.
+2. `kubectl describe pod <새 Pod>`의 **Events**와 직전 종료 상태를 봐요. 메모리 부족으로 죽었는지(→ [컨테이너와 VM](../container-vs-vm/)의 exit 137), liveness probe 실패로 재시작됐는지가 여기 나와요.
+3. `kubectl logs <새 Pod> --previous`로 **죽기 직전 컨테이너의 로그**를 봐요. 그냥 `logs`는 방금 다시 뜬 컨테이너 로그라 비어 있을 수 있어요.
+
+**원인 후보**
+- 앱이 시작하다 예외로 종료(코드 버그, 새 버전이 요구하는 DB 컬럼이 없음 등)
+- 새 버전에 필요한 환경 변수·설정이 빠짐 → [ConfigMap·Secret](../k8s-config/)
+- 메모리 한도 부족으로 강제 종료
+- liveness probe가 앱 시작 시간보다 빨라서 계속 재시작됨 → [Probe와 스케일링](../k8s-probes-scaling/)
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. `kubectl rollout undo`로 즉시 롤백 후 원인 분석 | 남아 있는 옛 ReplicaSet을 다시 늘려 빠르게 4개 복구 | 새 기능 배포가 늦어짐 |
+| B. 롤아웃을 그대로 두고 원인을 고쳐 다시 배포 | 롤백·재배포 왕복이 없음 | 고치는 동안 3개로 버티며 여유가 줄어듦. 원인이 바로 안 보이면 길어짐 |
+
+**내가 고를 방법**
+A를 골라요. 원인이 설정 한 줄로 바로 보이는 경우가 아니라면, 운영 중엔 사용자 영향을 먼저 없애는 게 우선이에요. 롤백 후 Events와 `logs --previous`에서 본 원인을 고치고 다시 배포해요. 재발을 막으려면 배포 도구가 `ProgressDeadlineExceeded`를 보고 알림을 보내거나 롤백하게 해 둬요.
+
+**채점 포인트**: 서비스가 살아 있는 이유(maxUnavailable로 옛 Pod 유지, 새 ReplicaSet 확대 중단), CrashLoopBackOff = 재시작 백오프(phase 아님), `describe pod` Events, `logs --previous`, 원인 후보(앱 오류·설정 누락·메모리·liveness probe), `rollout undo`, 자동 롤백 없음(progressDeadlineSeconds는 보고만).
+</details>
+
+<details>
+<summary>상황: 결제 화면 API를 배포했는데 10분 뒤 특정 결제 수단에서 오류가 난다는 신고가 들어왔습니다. 배포는 이미 끝났고 Pod는 모두 정상(Running)입니다. 가장 빨리 되돌려야 합니다.</summary>
+
+**상황 파악**
+Pod는 정상인데 기능이 틀린 경우라 쿠버네티스는 문제를 모르고 있어요. 배포와 오류 시점이 겹치니, 먼저 직전 버전으로 되돌려 영향을 끊고 원인은 그다음에 봐요. `kubectl rollout history`로 직전 리비전이 무엇인지 확인해요.
+
+**원인 후보**
+- 이번 배포에 들어간 코드 변경
+- 새 버전과 함께 바뀐 설정값
+- (배포와 무관한) 외부 결제사 쪽 문제. 롤백 후에도 오류가 계속되면 이쪽을 봐요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. `kubectl rollout undo deployment/pay-api` | 남아 있는 옛 ReplicaSet을 다시 키우는 거라 가장 빠름. 명령 한 줄 | 클러스터 상태가 Git의 YAML과 달라짐. YAML을 맞춰 두지 않으면 다음 배포 때 문제 버전이 다시 나감. revisionHistoryLimit이 0이거나 옛 ReplicaSet이 지워졌으면 불가 |
+| B. YAML의 이미지 태그를 직전 버전으로 고쳐 다시 배포(`kubectl set image` 또는 apply) | Git 기록과 실제가 일치. 배포 기록에 "롤백"이 남음 | 새 리비전으로 처리돼 커밋·빌드·배포 절차만큼 느림 |
+
+어느 쪽이든 되돌아가는 건 Pod 템플릿뿐이라 replicas는 그대로예요. 또 이번 배포에 **DB 구조 변경**이 같이 들어갔다면 옛 버전이 새 DB 구조와 맞는지 먼저 확인해야 해요.
+
+**내가 고를 방법**
+지금은 속도가 우선이라 A로 즉시 되돌리고, 오류가 멈췄는지 확인해요. 그다음 B처럼 YAML의 이미지 태그도 직전 버전으로 맞춰 커밋해서 다음 배포가 문제 버전을 다시 내보내지 않게 해요. 평소에는 `kubernetes.io/change-cause` 어노테이션으로 리비전마다 무엇을 배포했는지 남기고, revisionHistoryLimit을 0으로 두지 않아요.
+
+**채점 포인트**: 영향 차단 먼저, `rollout history`로 리비전 확인, `rollout undo`(옛 ReplicaSet 재사용, 빠름), `--to-revision`, 이미지 태그로 되돌리는 방법과 차이, Git과 클러스터 불일치 주의, 템플릿만 롤백(replicas 그대로), revisionHistoryLimit, DB 하위 호환 확인.
+</details>
+
+<details>
+<summary>상황: replicas=4인 API 서버를 배포할 때마다 몇 분간 응답이 느려지고 타임아웃이 늘어납니다. 평소 4개 Pod가 거의 꽉 차게 일하고 있습니다.</summary>
+
+**상황 파악**
+기본 전략은 maxUnavailable 25%라서 replicas 4면 교체 중 **1개가 빠져도 되는** 설정이에요. 평소에 4개가 꽉 차게 일하면, 1개가 빠지는 순간 처리 능력이 75%로 떨어져서 느려져요. 배포 때만 반복된다는 점이 이걸 가리켜요.
+
+**원인 후보**
+1. maxUnavailable=1 때문에 교체 중 가용 Pod가 3개로 줄어요.
+2. 새 Pod가 준비(워밍업)되기 전에 요청을 받아 느리게 처리해요. readiness probe가 없거나 너무 이르면 생겨요.
+3. 옛 Pod가 처리 중인 요청을 마무리하지 못하고 꺼져요(종료 유예 시간 기본 30초 안에 정리 못 함).
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. `maxUnavailable: 0`, `maxSurge: 1` | 교체 중에도 가용 Pod 4개 유지, 새 Pod가 준비돼야 옛 Pod를 끔 | 순간적으로 5개분 자원(CPU·메모리)이 더 필요. 노드에 여유가 없으면 새 Pod가 Pending으로 멈춤. 배포가 느려짐 |
+| B. replicas를 평소보다 늘려 여유 확보(예: 5~6개) | 배포 때뿐 아니라 평소 트래픽 급증에도 버팀 | 상시 비용 증가 |
+| C. readiness probe와 `minReadySeconds` 설정 | 준비 안 된 Pod로 요청이 가는 걸 막음 | 설정·튜닝이 필요하고 배포 시간이 늘어남. 용량 부족 자체는 못 고침 |
+
+참고로 replicas만 바꾸는 건 새 리비전을 만들지 않아서, B는 배포와 따로 조정할 수 있어요.
+
+**내가 고를 방법**
+A와 C를 함께 써요. maxUnavailable을 0으로 해서 처리 능력이 줄지 않게 하고, readiness probe로 새 Pod가 정말 준비된 뒤에 요청을 받게 해요. 다만 A는 노드에 Pod 하나분 여유가 있어야 하니 먼저 확인해요. 여유가 없다면 그건 평소에도 꽉 찬 상태라는 신호라 B로 기본 개수를 늘리는 걸 같이 검토해요. 적용 후 배포 중 응답 시간과 타임아웃 그래프가 평소와 같은지 확인해요. → [관측성](../observability/)
+
+**채점 포인트**: maxUnavailable 25% 내림 → replicas 4면 1개, 교체 중 처리 능력 75%, maxUnavailable=0 + maxSurge≥1(둘 다 0 불가), 추가 자원 필요·Pending 위험, readiness probe·minReadySeconds, 여유 replicas와 비용, 적용 후 지표 확인.
+</details>
+
+## 필기 포인트
+
+- 계층: **Deployment → ReplicaSet → Pod → 컨테이너**. ReplicaSet은 직접 쓰지 않고 Deployment를 씀.
+- 같은 Pod 컨테이너 = 같은 노드, 같은 IP, `localhost` 통신, 같은 포트 사용 불가.
+- Pod phase 5개: Pending, Running, Succeeded, Failed, Unknown. **CrashLoopBackOff는 phase가 아님.**
+- 재시작 백오프: 10초부터 두 배, 최대 5분, 10분 정상 실행 시 초기화.
+- restartPolicy: Always(기본)·OnFailure·Never. Deployment는 Always만.
+- 롤아웃은 **템플릿 변경 시에만**. replicas 변경은 리비전 없음.
+- 전략: **RollingUpdate(기본)**, Recreate(다운타임 있음).
+- maxSurge **올림**, maxUnavailable **내림**, 기본 25%. replicas 4 → 3~5개, replicas 10 → 8~13개. 둘 다 0 불가.
+- revisionHistoryLimit 기본 10, progressDeadlineSeconds 기본 600초(자동 롤백 없음), terminationGracePeriodSeconds 기본 30초.
+- 롤백은 템플릿만 되돌림. Deployment selector는 생성 후 변경 불가.
+- 셀렉터: 같음 기반(`=`, `!=`)과 집합 기반(`in`, `notin`, 존재). 여러 조건은 AND, **OR 없음**.
+
+## 함께 보기
+
+- [쿠버네티스 구조](../k8s-architecture/) — 원하는 상태를 맞춰 주는 컨트롤 플레인과 조정 루프
+- [Service와 Ingress](../k8s-service-ingress/) — 계속 바뀌는 Pod IP 앞에 고정 주소 두기
+- [Probe와 스케일링](../k8s-probes-scaling/) — readiness·liveness probe, 자동으로 Pod 수 조절
+- [ConfigMap·Secret](../k8s-config/) — 설정을 이미지 밖으로 빼기
+
+## 출처
+
+- [Pods — Kubernetes](https://kubernetes.io/docs/concepts/workloads/pods/)
+- [Pod Lifecycle — Kubernetes](https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/)
+- [Init Containers — Kubernetes](https://kubernetes.io/docs/concepts/workloads/pods/init-containers/)
+- [Sidecar Containers — Kubernetes](https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/)
+- [ReplicaSet — Kubernetes](https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/)
+- [Deployments — Kubernetes](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/)
+- [Labels and Selectors — Kubernetes](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/)
+- 직접 확인: kubectl 클라이언트로 `create deployment --dry-run=client -o yaml` 출력(클러스터 연결 없이)

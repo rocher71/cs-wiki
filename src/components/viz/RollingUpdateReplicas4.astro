@@ -1,0 +1,75 @@
+---
+// 롤링 업데이트 replicas 4, maxSurge 1, maxUnavailable 1 → 전체 ≤ 5, 가용 ≥ 3
+import Stepper from '../Stepper.astro';
+// 각 단계: v1/v2 = [준비된 수, 시작 중인 수], v2가 null이면 새 RS 없음
+const S = [
+  { v1: [4, 0], v2: null, c: '시작: 옛 ReplicaSet(v1)이 Pod 4개를 돌려요. 지킬 규칙은 전체 최대 5개(4 + maxSurge 1), 가용 최소 3개(4 − maxUnavailable 1).' },
+  { v1: [4, 0], v2: [0, 0], c: '이미지를 v2로 바꾸면 Deployment가 새 ReplicaSet(v2)을 만들어요. 리비전이 1에서 2로 올라가요. 아직 v2 Pod는 0개예요.' },
+  { v1: [4, 0], v2: [0, 1], c: '먼저 새 ReplicaSet을 1개 늘려요. v1 4개는 그대로라 전체 5개, maxSurge 한도까지 찼어요. 새 Pod는 아직 시작 중이라 가용은 4개예요.' },
+  { v1: [3, 0], v2: [0, 2], c: '가용 4개가 최소선 3개보다 1개 많으니 v1을 1개 줄이고, 빈 자리에 v2를 하나 더 띄워요. 전체 5개, 가용 3개로 두 한도에 딱 맞아요.' },
+  { v1: [2, 0], v2: [1, 2], c: 'v2 하나가 준비되면 가용에 여유가 생겨 v1을 하나 줄이고, 그 자리에 v2를 하나 더 띄워요. v1 2개, v2 3개.' },
+  { v1: [1, 0], v2: [2, 2], c: '같은 방식으로: v2가 준비될 때마다 v1이 하나 빠지고 v2가 하나 늘어요. 전체는 5개를 넘지 않고, 가용은 3개 아래로 내려가지 않아요.' },
+  { v1: [0, 0], v2: [4, 0], c: '완료: v2 4개가 모두 준비됐어요. 옛 ReplicaSet은 지우지 않고 replicas 0으로 남겨 둬요(롤백용). 실제 한 번에 움직이는 개수는 준비 타이밍에 따라 달라요.' },
+  { v1: [0, 2], v2: [3, 0], c: 'rollout undo: 남겨 둔 v1 ReplicaSet을 다시 늘리고 v2를 줄여요. 같은 규칙(전체 5 이하, 가용 3 이상)으로 거꾸로 밟고, 리비전은 3이 돼요.' },
+];
+const sum = (a: number[] | null) => (a ? a[0] + a[1] : 0);
+const slotIds = (row: number, a: number[] | null) =>
+  a ? [...Array(a[0]).keys()].map((k) => `r${row}-${k}-ok`).concat([...Array(a[1]).keys()].map((k) => `r${row}-${a[0] + k}-wait`)) : [];
+const steps = S.map((s) => {
+  const tot = sum(s.v1) + sum(s.v2);
+  const av = s.v1[0] + (s.v2 ? s.v2[0] : 0);
+  return {
+    caption: s.c,
+    show: ['row1', 'cnt', 'legend', `rep1-${sum(s.v1)}`, `tot-${tot}`, `av-${av}`, ...slotIds(1, s.v1),
+      ...(s.v2 ? ['row2', `rep2-${sum(s.v2)}`, ...slotIds(2, s.v2)] : [])],
+  };
+});
+const xs = [16, 92, 168, 244];
+const rows = [{ r: 1, y: 34, v: 'v1' }, { r: 2, y: 134, v: 'v2' }];
+---
+<Stepper title="롤링 업데이트 (replicas 4, maxSurge 1, maxUnavailable 1)" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 374" role="img" aria-label="v1 ReplicaSet을 한 개씩 줄이고 v2 ReplicaSet을 한 개씩 늘려, 전체 Pod는 5개 이하, 가용 Pod는 3개 이상으로 유지하는 롤링 업데이트">
+    {rows.map(({ r, y, v }) => (
+      <g>
+        <g data-id={`row${r}`}>
+          <text class="l" x="16" y={y - 16} style="font-weight:700">{r === 1 ? '옛' : '새'} ReplicaSet ({v})</text>
+          {xs.map((x) => <rect class="frame" x={x} y={y} width="60" height="52" rx="8" />)}
+        </g>
+        {[0, 1, 2, 3, 4].map((n) => (
+          <text data-id={`rep${r}-${n}`} class="sub hide" x="304" y={y - 16} style="text-anchor:end">replicas {n}</text>
+        ))}
+        {xs.map((x, k) => (
+          <g>
+            <g data-id={`r${r}-${k}-ok`} class="hide">
+              <rect class="chip" x={x} y={y} width="60" height="52" rx="8" />
+              <text x={x + 30} y={y + 17} style="font-weight:700">{v}</text>
+              <text class="sub" x={x + 30} y={y + 37}>준비</text>
+            </g>
+            <g data-id={`r${r}-${k}-wait`} class="hide">
+              <rect class="bad" x={x} y={y} width="60" height="52" rx="8" />
+              <text x={x + 30} y={y + 17} style="font-weight:700">{v}</text>
+              <text class="sub" x={x + 30} y={y + 37}>시작 중</text>
+            </g>
+          </g>
+        ))}
+      </g>
+    ))}
+
+    <g data-id="cnt">
+      <rect class="box" x="16" y="208" width="288" height="88" rx="10" />
+      <text class="l" x="32" y="234">전체 Pod</text>
+      <text class="sub" x="288" y="234" style="text-anchor:end">/ 최대 5</text>
+      <text class="l" x="32" y="270">가용 Pod</text>
+      <text class="sub" x="288" y="270" style="text-anchor:end">/ 최소 3</text>
+    </g>
+    {[4, 5].map((n) => <text data-id={`tot-${n}`} class="hide" x="200" y="234" style="font-weight:700;font-size:18px">{n}</text>)}
+    {[3, 4].map((n) => <text data-id={`av-${n}`} class="hide" x="200" y="270" style="font-weight:700;font-size:18px">{n}</text>)}
+
+    <g data-id="legend">
+      <rect class="chip" x="16" y="318" width="36" height="28" rx="6" />
+      <text class="sub l" x="60" y="332">준비(트래픽 받음)</text>
+      <rect class="bad" x="196" y="318" width="36" height="28" rx="6" />
+      <text class="sub l" x="240" y="332">시작 중</text>
+    </g>
+  </svg>
+</Stepper>

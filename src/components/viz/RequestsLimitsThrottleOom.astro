@@ -1,0 +1,95 @@
+---
+// requests = 스케줄러가 노드에 잡아 두는 예약, limits = 실행 중 상한.
+// CPU는 limit에서 잘려 느려질 뿐(스로틀링), 메모리는 limit을 넘으면 커널이 죽인다(OOMKilled, 137).
+// 노드 전체 메모리 부족은 별개: kubelet이 Pod를 내쫓는다(Evicted).
+import Stepper from '../Stepper.astro';
+const node = ['node', 'reqA', 'reqB'];
+const gauge = ['g-cpu', 'g-mem'];
+const steps = [
+  { caption: '스케줄러는 노드의 남은 칸과 Pod의 request를 비교해서, 들어가는 노드에 Pod를 놓아요. request만큼은 그 Pod 몫으로 예약돼요.', show: [...node, 'free', 'sched', ...gauge, 'cpu-low', 'mem-low'] },
+  { caption: '실행 중엔 request보다 더 써도 돼요. 노드에 여유가 있으면 limit 선까지는 허용돼요.', show: [...node, 'free', ...gauge, 'cpu-mid', 'mem-mid'] },
+  { caption: 'CPU가 limit에 닿으면 커널이 CPU 시간을 잘라요(스로틀링). 느려질 뿐 죽지는 않아요.', show: [...node, 'free', ...gauge, 'cpu-cap', 'cpu-t', 'mem-mid'] },
+  { caption: '메모리가 limit을 넘으면 커널이 컨테이너를 죽여요. describe에 OOMKilled, Exit Code 137이 찍히고 같은 Pod 안에서 재시작돼 Restart Count가 1 늘어요.', show: [...node, 'free', ...gauge, 'cpu-cap', 'cpu-t', 'mem-over', 'mem-t'] },
+  { caption: '대비: 이번엔 노드 전체 메모리가 바닥(memory.available<100Mi)이에요. kubelet이 Pod를 노드 밖으로 내보내요(Evicted). 그 Pod는 다른 노드에서 새로 떠요.', show: ['node', 'reqA', 'full', 'evict'] },
+];
+---
+<Stepper title="requests·limits: 스로틀링 vs OOMKilled vs 축출" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 396" role="img" aria-label="노드에 Pod 두 개의 request가 예약되고, Pod 사용량은 limit까지 늘 수 있다. CPU는 limit에서 잘려 느려지고, 메모리는 limit을 넘으면 OOMKilled로 재시작된다. 노드 전체 메모리가 부족하면 kubelet이 Pod를 축출한다">
+    <!-- 노드 -->
+    <g data-id="node">
+      <text class="l" x="10" y="14" style="font-weight:700">노드 메모리 (할당 가능)</text>
+      <rect class="frame" x="10" y="26" width="300" height="40" rx="6" style="stroke-dasharray:none" />
+    </g>
+    <g data-id="reqA">
+      <rect class="chip" x="12" y="28" width="100" height="36" rx="4" />
+      <text x="62" y="46">A request</text>
+    </g>
+    <g data-id="reqB">
+      <rect class="chip" x="114" y="28" width="100" height="36" rx="4" />
+      <text x="164" y="46">B request</text>
+    </g>
+    <text data-id="free" class="sub" x="262" y="46">남은 칸</text>
+    <text data-id="sched" class="sub hide" x="160" y="84">스케줄러: 남은 칸 ≥ request면 배치</text>
+    <g data-id="full" class="hide">
+      <rect class="err" x="114" y="28" width="194" height="36" rx="4" />
+      <text class="err-t" x="211" y="46">가득 참</text>
+      <text class="mono sub" x="160" y="84">memory.available&lt;100Mi</text>
+    </g>
+    <g data-id="evict" class="hide">
+      <rect class="bad" x="60" y="150" width="200" height="56" rx="6" />
+      <text x="160" y="168">B → Evicted (kubelet)</text>
+      <text class="sub" x="160" y="190">다른 노드에서 새로 뜸</text>
+      <path class="line" d="M164 70 V144" style="stroke-dasharray:4 3" />
+      <text class="sub" x="160" y="240">limit 초과가 아니라</text>
+      <text class="sub" x="160" y="260">노드를 지키려는 축출이에요</text>
+    </g>
+
+    <!-- Pod A 컨테이너 게이지 -->
+    <text data-id="g-cpu" class="l hide" x="10" y="108" style="font-weight:700">Pod A 컨테이너 사용량</text>
+    <g data-id="g-cpu" class="hide">
+      <text x="105" y="132">CPU</text>
+      <rect class="frame" x="70" y="144" width="70" height="190" style="stroke-dasharray:none" />
+      <text class="sub" x="66" y="184" style="text-anchor:end">limit</text>
+      <text class="sub" x="66" y="274" style="text-anchor:end">request</text>
+    </g>
+    <g data-id="g-mem" class="hide">
+      <text x="265" y="132">메모리</text>
+      <rect class="frame" x="230" y="144" width="70" height="190" style="stroke-dasharray:none" />
+      <text class="sub" x="226" y="184" style="text-anchor:end">limit</text>
+      <text class="sub" x="226" y="274" style="text-anchor:end">request</text>
+    </g>
+
+    <rect data-id="cpu-low" class="chip hide" x="72" y="300" width="66" height="32" />
+    <rect data-id="cpu-mid" class="chip hide" x="72" y="230" width="66" height="102" />
+    <g data-id="cpu-cap" class="hide">
+      <rect class="chip" x="72" y="184" width="66" height="148" />
+      <text class="hi" x="105" y="220">잘림</text>
+    </g>
+    <g data-id="cpu-t" class="hide">
+      <text class="hi" x="105" y="350">스로틀링</text>
+      <text class="sub" x="105" y="370">느려질 뿐 생존</text>
+    </g>
+
+    <rect data-id="mem-low" class="chip hide" x="232" y="300" width="66" height="32" />
+    <rect data-id="mem-mid" class="chip hide" x="232" y="230" width="66" height="102" />
+    <g data-id="mem-over" class="hide">
+      <rect class="err" x="232" y="160" width="66" height="172" />
+      <text class="err-t" x="265" y="240" style="font-size:30px">✕</text>
+    </g>
+    <g data-id="mem-t" class="hide">
+      <text class="err-t" x="265" y="350">OOMKilled</text>
+      <text class="mono sub" x="265" y="370">Exit 137</text>
+      <text class="sub" x="265" y="388">재시작 +1</text>
+    </g>
+
+    <!-- 기준선: 게이지 위에 그려야 채움에 가려지지 않음 -->
+    <g data-id="g-cpu" class="hide">
+      <path d="M68 184 H142" style="stroke:var(--sl-color-red);stroke-width:2" />
+      <path class="line" d="M68 274 H142" style="stroke-dasharray:4 3" />
+    </g>
+    <g data-id="g-mem" class="hide">
+      <path d="M228 184 H302" style="stroke:var(--sl-color-red);stroke-width:2" />
+      <path class="line" d="M228 274 H302" style="stroke-dasharray:4 3" />
+    </g>
+  </svg>
+</Stepper>

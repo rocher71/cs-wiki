@@ -1,0 +1,59 @@
+---
+// 쓰기 층은 컨테이너와 운명을 같이하고, 볼륨은 컨테이너 밖에 남는다.
+import Stepper from '../Stepper.astro';
+const steps = [
+  { caption: '이미지(읽기 전용 층) 위에 컨테이너 A가 생겨요. 맨 위에 A만의 쓰기 층이 붙어요.', show: ['img', 'cA', 'wA', 'cmd1'] },
+  { caption: 'A가 /data.txt는 쓰기 층에, DB 파일은 볼륨에 써요. 볼륨은 컨테이너 밖, Docker가 관리하는 영역이에요.', show: ['img', 'cA', 'wA', 'f-data', 'vol', 'f-db', 'mnt', 'cmd2'] },
+  { caption: 'docker rm으로 A를 지우면 쓰기 층과 /data.txt가 함께 사라져요. 볼륨과 DB 파일은 그대로예요.', show: ['img', 'gone', 'vol', 'f-db', 'cmd3'] },
+  { caption: '같은 이미지로 컨테이너 B를 만들고 같은 볼륨을 붙여요. DB 파일은 보이지만 /data.txt는 없어요. B의 쓰기 층은 새것이에요.', show: ['img', 'cB', 'wB', 'vol', 'f-db', 'mnt', 'cmd4'] },
+];
+---
+<Stepper title="쓰기 층 vs 볼륨: 컨테이너를 지우면?" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 214" role="img" aria-label="컨테이너의 쓰기 층에 쓴 파일은 컨테이너를 지우면 사라지고, 볼륨에 쓴 DB 파일은 남아 새 컨테이너 B에 붙이면 다시 보인다">
+    <g data-id="cA" class="hide">
+      <rect class="frame" x="6" y="6" width="190" height="156" rx="8" />
+      <text class="l" x="16" y="22" style="font-weight:700">컨테이너 A</text>
+    </g>
+    <g data-id="cB" class="hide">
+      <rect class="frame" x="6" y="6" width="190" height="156" rx="8" style="stroke:var(--sl-color-accent)" />
+      <text class="l hi" x="16" y="22">컨테이너 B (새것)</text>
+    </g>
+    <g data-id="wA" class="hide">
+      <rect class="chip" x="16" y="34" width="170" height="52" rx="6" />
+      <text x="101" y="50">쓰기 층 (A 전용)</text>
+    </g>
+    <text data-id="f-data" class="mono hide" x="101" y="72">/data.txt</text>
+    <g data-id="gone" class="hide">
+      <rect class="err" x="16" y="34" width="170" height="52" rx="6" />
+      <text class="err-t" x="101" y="50">✕ A 삭제됨</text>
+      <text class="err-t" x="101" y="72">쓰기 층·/data.txt</text>
+    </g>
+    <g data-id="wB" class="hide">
+      <rect class="chip" x="16" y="34" width="170" height="52" rx="6" />
+      <text x="101" y="50">쓰기 층 (B, 빈 상태)</text>
+      <text class="err-t" x="101" y="72">/data.txt 없음</text>
+    </g>
+    <g data-id="img">
+      <rect class="box" x="16" y="96" width="170" height="56" rx="6" />
+      <text x="101" y="114">이미지</text>
+      <text class="sub" x="101" y="136">읽기 전용 층들</text>
+    </g>
+
+    <line data-id="mnt" class="line hide" x1="186" y1="60" x2="214" y2="60" style="stroke:var(--sl-color-accent);stroke-width:2.4" />
+    <g data-id="vol">
+      <rect class="zone-c" x="214" y="34" width="100" height="118" rx="6" />
+      <text x="264" y="52" style="font-weight:700">볼륨</text>
+      <text class="sub" x="264" y="74">컨테이너 밖</text>
+    </g>
+    <g data-id="f-db">
+      <rect class="box" x="222" y="100" width="84" height="40" rx="4" />
+      <text x="264" y="120">DB 파일</text>
+    </g>
+
+    <text data-id="cmd1" class="mono sub hide" x="160" y="186">docker run --name A …</text>
+    <text data-id="cmd2" class="mono sub hide" x="160" y="186">-v mydata:/var/lib/mysql</text>
+    <text data-id="cmd3" class="mono err-t hide" x="160" y="186">docker rm A</text>
+    <text data-id="cmd4" class="mono sub hide" x="160" y="186">docker run --name B -v mydata:…</text>
+    <text class="sub" x="160" y="206">(볼륨은 docker volume rm 해야 지워져요)</text>
+  </svg>
+</Stepper>

@@ -1,0 +1,398 @@
+---
+title: ConfigMap·Secret·리소스 관리
+description: "ConfigMap은 평범한 설정, Secret은 비밀 설정을 Pod 밖에 두는 객체예요. Secret은 기본이 base64 인코딩일 뿐이라 따로 지켜야 해요. requests는 자리 예약, limits는 상한이고, CPU는 넘으면 느려지고 메모리는 넘으면 죽어요."
+sidebar: { order: 7 }
+tags: [면접빈출, 서술형]
+---
+import { Aside } from '@astrojs/starlight/components';
+import RequestsLimitsThrottleOom from '~/components/viz/RequestsLimitsThrottleOom.astro';
+import JvmMemoryInContainer from '~/components/viz/JvmMemoryInContainer.astro';
+
+:::tip[한 줄 요약]
+**ConfigMap**은 평범한 설정, **Secret**은 비밀번호 같은 비밀 설정을 이미지 밖에 따로 두는 객체예요. 단, Secret은 기본이 **base64 인코딩일 뿐 암호화가 아니라서** 따로 지켜야 해요. **requests**는 "이만큼 자리 잡아 줘"(배치 기준), **limits**는 "이 이상은 못 써"(상한)이고, CPU는 넘으면 **느려지고** 메모리는 넘으면 **OOMKilled로 죽어요**.
+:::
+
+<Aside type="note" title="이 페이지의 기준">
+설명은 쿠버네티스 공식 문서와 Oracle JDK 21 `java` 명령 문서를 바탕으로 했어요(2026-11 조회). JVM과 base64 실험은 로컬 Docker에서 한 번 돌려 본 결과라 "이런 값이 나온다"는 예시로 봐 주세요.
+</Aside>
+
+## 쉽게 이해하기
+
+Pod를 **식당 주방에 들어온 요리사**라고 해 봐요.
+
+**ConfigMap은 벽에 붙은 레시피 메모**예요. "오늘 소금은 3g", "영업 시작은 11시" 같은 거라 누가 봐도 괜찮아요. 요리사(이미지)를 새로 뽑지 않고 메모만 바꿔 끼우면 돼요.
+
+**Secret은 금고 비밀번호가 적힌 봉투**예요. 그런데 쿠버네티스가 기본으로 주는 봉투는 **반투명 봉투**예요. 글씨를 좀 흐리게(base64) 바꿨을 뿐이라 불빛에 비추면 누구나 읽어요. 진짜로 지키려면 봉투를 금고에 넣고(저장 암호화), 열쇠 가진 사람을 줄여야(권한 제한) 해요.
+
+**requests와 limits는 주방 자리 배정**이에요. requests는 "이 요리사에게 화구 2개는 꼭 맡아 둬"라는 예약이고, 매니저(스케줄러)는 이 예약을 보고 어느 주방에 보낼지 정해요. limits는 "화구 4개 넘게는 못 써"라는 상한이에요. 화구(CPU)를 더 달라고 하면 **차례를 기다리게** 하면 그만이에요. 그런데 냉장고 칸(메모리)은 이미 음식을 넣어 버려서 뺏을 수가 없어요. 그래서 메모리를 상한보다 더 쓰면 **요리사를 내보내요**(OOMKilled).
+
+단, 실제로 요리사를 내보내는 방식은 두 가지예요. 한 요리사가 자기 칸을 넘으면 그 사람만 내보내 다시 들이고(OOMKilled), 주방 전체 냉장고가 꽉 차면 매니저가 몇 명을 아예 **다른 주방으로 옮겨요**(축출, Evicted). 뒤에서 둘을 나눠 봐요.
+
+## 그림으로 보기
+
+<RequestsLimitsThrottleOom />
+
+<JvmMemoryInContainer />
+
+## 제대로 알기
+
+### 1. 왜 설정을 이미지 밖에 두나
+
+같은 이미지를 개발·운영 환경에 그대로 쓰고 싶은데, DB 주소나 로그 레벨은 환경마다 달라요. 설정을 이미지에 구워 넣으면 환경마다 이미지를 따로 만들어야 해요. 그래서 설정은 쿠버네티스 객체로 따로 두고, Pod가 뜰 때 주입해요. 스프링이 `application.yml`을 환경변수로 덮어쓰게 해 둔 것과 같은 생각이에요. → [스프링 부트와 자동 설정](../../spring/boot-autoconfig/)
+
+**ConfigMap**(컨피그맵, 비밀이 아닌 설정을 키-값으로 담는 객체)을 Pod에서 쓰는 방법은 4가지예요.
+
+| 방법 | 설명 |
+|---|---|
+| 환경변수 | 키 하나씩(`configMapKeyRef`) 또는 통째로(`envFrom`) |
+| 볼륨 파일 | 읽기 전용 파일로 마운트. 키가 파일 이름, 값이 내용 |
+| 컨테이너 command/args | 실행 명령의 인자로 넣기 |
+| 앱이 쿠버네티스 API로 직접 읽기 | 변경을 구독(watch)해 바로 반응할 수 있음 |
+
+앞의 3가지는 **kubelet**(노드마다 있으면서 Pod를 실제로 띄우는 관리 프로그램)이 컨테이너를 띄울 때 값을 넣어요. → [쿠버네티스 구조](../k8s-architecture/)
+
+### 2. ConfigMap vs Secret
+
+**Secret**(시크릿)은 비밀번호·토큰·인증서 같은 기밀 값을 담는 객체예요. 쓰는 방법(환경변수, 볼륨)은 ConfigMap과 거의 같아요.
+
+| | ConfigMap | Secret |
+|---|---|---|
+| 용도 | 비밀 아닌 설정(로그 레벨, 외부 URL, 기능 플래그) | 기밀(DB 비밀번호, API 토큰, TLS 인증서) |
+| 값 저장 형태 | 평문 | `data`는 **base64 인코딩** 문자열 (`stringData`에 평문을 쓰면 API가 `data`로 바꿔 줌) |
+| 비밀 보호 | 없음. 문서가 "기밀은 넣지 말라"고 함 | 기본도 사실상 없음. 저장 암호화·RBAC를 직접 켜야 함 |
+| 최대 크기 | 1MiB | 1MiB |
+| 노드 전달 | 쓰는 Pod가 있는 노드 | 쓰는 Pod가 있는 노드에만, 볼륨은 **tmpfs**(메모리 위 파일시스템)에 저장해 디스크에 안 남김 |
+| 타입 | 없음 | `Opaque`(기본), `kubernetes.io/tls`, `kubernetes.io/dockerconfigjson`(이미지 pull 인증) 등 |
+| 변경 불가 옵션 | `immutable: true` (v1.19+) | 같음 |
+
+`immutable: true`를 걸면 실수로 값이 바뀌는 걸 막고, kubelet이 변경을 감시할 필요가 없어 부하도 줄어요.
+
+### 3. 실험: Secret은 base64일 뿐이에요
+
+**base64**는 아무 데이터나 영문자·숫자·`+/=`로만 바꿔 적는 **인코딩**(표기 방식 바꾸기)이에요. 열쇠가 필요한 **암호화**와 달리 누구나 되돌릴 수 있어요.
+
+```bash
+# Secret의 data에 들어가는 모양으로 바꾸기
+echo -n 'p@ssw0rd' | base64
+# cEBzc3cwcmQ=
+
+# 열쇠 없이 바로 원문 복원
+echo 'cEBzc3cwcmQ=' | base64 -d
+# p@ssw0rd
+```
+
+그러니 `kubectl get secret 이름 -o yaml`로 본 값이나 Git에 올라간 Secret YAML은 **평문이 공개된 것과 같아요**. 쿠버네티스 문서도 이런 값을 "가려졌을 뿐 비밀은 아니다"라고 표현해요.
+
+### 4. Secret이 실제로 안전하려면
+
+문제는 YAML만이 아니에요. Secret은 기본 설정에서 API 서버의 저장소인 **etcd**(클러스터 상태를 저장하는 키-값 DB)에 **암호화 없이** 저장돼요. 그래서 다음 사람들이 Secret을 읽을 수 있어요.
+
+- 쿠버네티스 API에서 Secret 읽기 권한이 있는 사람
+- etcd에 직접 접근할 수 있는 사람
+- 그 네임스페이스에 Pod를 만들 수 있는 사람(Secret을 Pod에 마운트해서 꺼내 보면 되니까요)
+
+공식 문서가 권하는 최소 조치는 4가지예요.
+
+| 조치 | 내용 |
+|---|---|
+| 저장 시 암호화(Encryption at Rest) | kube-apiserver의 `--encryption-provider-config`로 켬. provider는 aescbc, aesgcm, secretbox, KMS v2(외부 키 관리 서비스) 등 |
+| RBAC 최소 권한 | **RBAC**(역할 기반 접근 제어)로 Secret을 읽을 수 있는 사람·서비스를 최소로 |
+| 필요한 컨테이너에만 노출 | Pod 안에서도 그 Secret이 필요한 컨테이너에만 마운트 |
+| 외부 비밀 저장소 | Secrets Store CSI Driver 등으로 클러스터 밖 저장소에서 가져오기 |
+
+<Aside type="caution" title="암호화를 켜도 옛 Secret은 그대로예요">
+설정이 없거나 첫 provider가 `identity`면 평문 저장이에요(identity = 아무것도 안 함). 암호화를 켠 뒤에도 **이미 저장된** Secret은 한 번 다시 써야 암호화돼요(`kubectl get secrets -A -o json | kubectl replace -f -`).
+</Aside>
+
+### 5. 설정을 바꾸면 언제 반영되나
+
+"ConfigMap 바꿨는데 왜 그대로죠?"는 아주 흔한 질문이에요. 넣은 방식마다 달라요.
+
+| 넣은 방식 | 값을 바꾸면 |
+|---|---|
+| 환경변수 | **자동 반영 안 됨.** 프로세스가 시작할 때 받은 값이라 Pod를 재시작해야 함 |
+| 볼륨 파일 | **결국** 바뀜. kubelet의 주기적 sync + 캐시 지연만큼 늦게 |
+| 볼륨 + `subPath` | **안 바뀜** (`subPath`는 볼륨 안 파일 하나만 골라 붙이는 옵션) |
+| API로 직접 읽기 | 앱이 변경을 구독하면 바로 반응 가능 |
+
+볼륨 파일이 바뀌어도 끝이 아니에요. 대부분의 앱은 설정 파일을 **시작할 때 한 번만** 읽어요. 앱이 파일을 다시 읽지 않으면 효과가 없어요.
+
+그래서 실무에서 가장 확실한 방법은 설정을 바꾼 뒤 `kubectl rollout restart deployment/이름`으로 Pod를 차례로 새로 띄우는 거예요. 설정 내용의 **해시**(내용이 바뀌면 같이 바뀌는 짧은 지문 값)를 Pod 템플릿 어노테이션에 넣어 두면, 설정이 바뀔 때 템플릿도 바뀌어서 롤링 업데이트가 자동으로 일어나요. → [Pod·ReplicaSet·Deployment](../k8s-pod-deployment/)
+
+### 6. requests와 limits
+
+컨테이너마다 CPU와 메모리를 이렇게 적어요.
+
+```yaml
+resources:
+  requests:          # 스케줄러가 배치할 때 보는 값(예약)
+    cpu: "500m"      # 0.5코어 = 500 밀리코어
+    memory: "512Mi"
+  limits:            # 실행 중 넘을 수 없는 상한
+    cpu: "1"         # 1코어
+    memory: "512Mi"
+```
+
+| | requests | limits |
+|---|---|---|
+| 누가 쓰나 | **kube-scheduler**(Pod를 어느 노드에 둘지 정하는 컴포넌트) | kubelet과 리눅스 커널(cgroup) |
+| 뜻 | 이만큼은 예약해 둠. 노드의 남은 자리와 비교해 들어갈 노드를 고름 | 이 이상은 못 씀 |
+| 넘어서 쓰면 | 노드에 여유가 있으면 limit까지는 괜찮음 | 아래 표 참고 |
+| 안 적으면 | limit만 적었으면 request = limit으로 복사됨 | 상한 없음 |
+
+limit을 넘었을 때 CPU와 메모리의 반응이 완전히 달라요.
+
+| | CPU limit 초과 | 메모리 limit 초과 |
+|---|---|---|
+| 결과 | **스로틀링**(throttling): 커널이 CPU 시간을 덜 줘서 **느려짐** | **OOM kill**: 커널이 컨테이너 프로세스를 **죽임** |
+| 컨테이너 | 계속 살아 있음 | `Reason: OOMKilled`, `Exit Code: 137`, `Restart Count` 증가 |
+| 왜 다른가 | CPU는 "압축 가능" 자원. 덜 주면 기다리면 됨 | 메모리는 "압축 불가" 자원. 이미 쓴 걸 뺏을 수 없음 |
+| 겉으로 보이는 증상 | 응답 지연이 튀는데 평균 CPU 그래프는 낮아 보일 수 있음 | Pod가 반복 재시작 |
+
+**OOM**(Out Of Memory, 메모리 부족)으로 죽는 원리와 exit 137의 뜻은 [컨테이너와 VM](../container-vs-vm/)의 cgroup 실험에서 봤어요.
+
+<Aside type="caution" title="단위 오타 주의">
+CPU `100m` = 0.1코어예요. 그런데 **메모리** `400m`은 400**밀리바이트**, 즉 0.4바이트예요. 400MiB를 원했다면 `400Mi`로 써야 해요. `Mi`·`Gi`는 2의 거듭제곱(1Mi = 1024×1024바이트), `M`·`G`는 10의 거듭제곱이에요.
+</Aside>
+
+### 7. QoS 클래스 3등급
+
+**QoS 클래스**(Quality of Service, 서비스 품질 등급)는 YAML에 직접 적는 값이 아니에요. 쿠버네티스가 컨테이너들의 requests/limits를 보고 **자동으로** 붙여요.
+
+| 클래스 | 조건 | 쉽게 말하면 |
+|---|---|---|
+| **Guaranteed** | **모든** 컨테이너가 CPU·메모리 둘 다 request와 limit이 있고, 각각 request == limit | 예약한 만큼이 곧 상한. 가장 안전 |
+| **Burstable** | Guaranteed는 아니지만, 어느 컨테이너든 CPU나 메모리 request/limit이 하나라도 있음 | 예약은 했지만 더 쓸 수도 있음 |
+| **BestEffort** | 어떤 컨테이너에도 CPU·메모리 request/limit이 전혀 없음 | 예약 없음. 남는 자리 쓰기 |
+
+결제 API처럼 중요한 Pod를 Guaranteed로 만들려면 모든 컨테이너에 CPU·메모리 request와 limit을 **같은 값으로** 적으면 돼요.
+
+### 8. 노드 메모리가 바닥나면: 축출 순서
+
+노드 전체의 남은 메모리가 기준 아래로 떨어지면(리눅스 기본 hard 기준 `memory.available<100Mi`), kubelet이 노드를 지키려고 Pod를 **축출**(Eviction, 노드에서 내보내기)해요. hard 기준은 유예 없이 바로 종료해요.
+
+흔히 "BestEffort → Burstable → Guaranteed 순으로 쫓겨난다"고 외우는데, 이건 **근사**예요. 공식 문서에 따르면 kubelet은 QoS 클래스를 직접 보지 않고 다음 순서로 순위를 매겨요.
+
+1. 메모리 사용량이 **request를 넘었는가** (넘은 Pod가 먼저 후보)
+2. **Pod Priority**(PriorityClass로 정한 중요도, 낮을수록 먼저)
+3. **request 대비 얼마나 더 쓰고 있나** (많이 넘을수록 먼저)
+
+그 결과 "request를 넘겨 쓰는 BestEffort·Burstable"이 먼저, "Guaranteed와 request 이하로 쓰는 Burstable"이 마지막이 돼요. BestEffort는 request가 0이라 조금만 써도 request 초과라서 앞쪽에 서게 돼요. QoS 클래스는 이 순서를 짐작하게 해 주는 도구예요. 디스크(ephemeral-storage) 부족 때는 이 QoS식 분류가 적용되지 않아요.
+
+kubelet이 손쓰기 전에 노드 전체가 OOM에 빠지면 리눅스 커널의 **oom_killer**가 직접 프로세스를 골라요. 이때 kubelet이 미리 걸어 둔 점수(`oom_score_adj`)가 쓰여요. Guaranteed는 -997, BestEffort는 1000, Burstable은 메모리 request 비율에 따라 2~999이고, 점수가 높을수록 먼저 죽어요.
+
+### 9. 축출(Evicted)과 OOMKilled는 달라요
+
+|  | OOMKilled | Evicted(축출) |
+|---|---|---|
+| 누가 | 리눅스 커널 | kubelet |
+| 왜 | **그 컨테이너가** 자기 메모리 limit을 넘음 | **노드 전체** 자원이 부족함 |
+| 결과 | 같은 Pod 안에서 컨테이너 재시작(restartPolicy에 따라) | Pod가 노드에서 쫓겨나고, Deployment라면 다른 노드에 새 Pod가 뜸 |
+| 확인 | `kubectl describe pod`의 `Reason: OOMKilled`, `Exit Code: 137` | Pod 상태 `Evicted` |
+| 대응 | limit과 앱 메모리 사용량(JVM 힙 등)을 맞춤 | requests를 제대로 적어 과밀 배치를 막음, 중요 Pod는 Guaranteed·높은 Priority |
+
+### 10. JVM은 컨테이너 limit을 알까
+
+안다면 다행이지만, 기본값이 생각보다 작아요.
+
+- JDK 10부터(8u191에도 백포트) JVM이 **컨테이너를 인식**해요. 리눅스에서 `-XX:+UseContainerSupport`가 기본으로 켜져 있어서, 컨테이너의 메모리 limit과 CPU 수를 읽어 힙과 스레드 풀 크기를 정해요.
+- 최대 힙은 `-XX:MaxRAMPercentage`로 정해지는데 **기본 25%**예요. limit의 4분의 1만 힙으로 써요.
+- JVM이 보는 CPU 수도 컨테이너 설정으로 계산돼요. GC 스레드 수 등에 영향을 주고, `-XX:ActiveProcessorCount`로 덮어쓸 수 있어요.
+
+실험으로 확인해 봤어요(OpenJDK 21, 컨테이너 메모리 512MiB).
+
+```bash
+# 메모리 512MiB 컨테이너에서 JVM이 정한 값 출력
+docker run --rm --memory 512m eclipse-temurin:21-jre \
+  java -XX:+PrintFlagsFinal -version | grep -E 'UseContainerSupport|MaxRAMPercentage|MaxHeapSize'
+# UseContainerSupport = true {default}
+# MaxRAMPercentage    = 25.0 {default}
+# MaxHeapSize         = 134217728   ← 128MiB = 512MiB의 25%
+
+# 같은 조건에 -XX:MaxRAMPercentage=75 추가
+# MaxHeapSize         = 402653184   ← 384MiB = 512MiB의 75%
+```
+
+### 11. 힙만 메모리가 아니에요
+
+컨테이너 limit 안에는 **힙**(Java 객체가 놓이는 영역)만 들어가는 게 아니에요. JVM은 힙 밖에서도 메모리를 써요.
+
+| 힙 밖 메모리 | 무엇 |
+|---|---|
+| 메타스페이스 | 로드한 클래스의 정보 |
+| 스레드 스택 | 스레드마다 따로 잡히는 호출 기록 공간 |
+| 코드 캐시 | JIT 컴파일러가 만든 기계어 코드 |
+| GC 자료구조 | GC가 쓰는 관리용 메모리 |
+| 다이렉트 버퍼 | 네트워크·파일 입출력용으로 힙 밖에 잡는 버퍼 |
+
+그래서 양쪽 다 문제예요.
+
+- **힙을 limit과 같게**(`-Xmx`=limit) 잡으면: 힙 + 힙 밖이 limit을 넘어 **OOMKilled**.
+- **기본 25%** 그대로 두면: limit 대부분을 놀리고, 힙이 작아 **GC**(안 쓰는 객체를 치우는 작업)가 잦아져 응답이 느려질 수 있어요.
+
+실무에서는 `MaxRAMPercentage`를 50~75% 정도로 올리는 경우가 많아요. 다만 이건 업계 관행이지 공식 권장값이 아니에요. 정확한 비율은 앱의 실제 힙 밖 사용량을 재 보고 정해요. → [JVM 구조와 가비지 컬렉션(GC)](../../java/jvm-gc/)
+
+## 면접 질문
+
+<details>
+<summary>Q. ConfigMap과 Secret의 차이는 무엇이고, Secret은 안전한가요?</summary>
+
+**답변(30초)** 둘 다 설정을 이미지 밖에 두고 Pod에 환경변수나 파일로 넣는 객체인데, ConfigMap은 비밀 아닌 설정용이고 Secret은 비밀번호 같은 기밀용이에요. 하지만 Secret도 기본은 안전하지 않아요. 값이 base64로 인코딩될 뿐이라 누구나 되돌릴 수 있고, etcd에도 기본은 암호화 없이 저장돼요. 그래서 etcd 저장 암호화, RBAC 최소 권한, 외부 비밀 저장소를 함께 써야 해요.
+
+**꼬리질문**
+- Q. Secret이 ConfigMap보다 나은 점은 뭔가요? → 쓰는 Pod가 있는 노드에만 전달되고, 볼륨으로 마운트하면 tmpfs(메모리)에 저장돼 디스크에 안 남아요.
+- Q. Pod 생성 권한만 있으면 Secret을 못 읽나요? → 읽을 수 있어요. 그 네임스페이스의 Secret을 Pod에 마운트해서 꺼내 보면 되기 때문이에요.
+</details>
+
+<details>
+<summary>Q. ConfigMap을 바꿨는데 앱에 반영이 안 돼요. 왜 그럴까요?</summary>
+
+**답변(30초)** 어떻게 넣었는지에 따라 달라요. 환경변수로 넣었다면 프로세스가 시작할 때 받은 값이라 Pod를 재시작해야만 바뀌어요. 볼륨으로 넣었다면 파일은 kubelet sync 주기만큼 늦게 결국 바뀌지만, subPath로 붙였으면 아예 안 바뀌어요. 그리고 파일이 바뀌어도 앱이 시작할 때만 읽는다면 효과가 없어요. 그래서 보통 `kubectl rollout restart`로 다시 띄워요.
+
+**꼬리질문**
+- Q. 설정 바뀔 때 자동으로 재배포되게 하려면요? → 설정 내용의 해시를 Pod 템플릿 어노테이션에 넣어 두면, 설정이 바뀔 때 템플릿이 바뀌어 롤링 업데이트가 일어나요.
+- Q. 설정이 실수로 바뀌는 걸 막으려면요? → `immutable: true`로 만들면 값을 못 바꾸고, kubelet 감시 부하도 줄어요.
+</details>
+
+<details>
+<summary>Q. requests와 limits의 차이는요? CPU와 메모리가 limit을 넘으면 각각 어떻게 되나요?</summary>
+
+**답변(30초)** requests는 스케줄러가 Pod를 어느 노드에 둘지 정할 때 보는 예약값이고, limits는 실행 중 넘을 수 없는 상한이에요. 노드에 여유가 있으면 request보다 더 쓰는 건 limit까지 괜찮아요. CPU가 limit에 닿으면 커널이 CPU 시간을 덜 줘서 느려지기만 하고 죽지 않아요. 메모리는 이미 쓴 걸 뺏을 수 없어서, limit을 넘으면 커널이 컨테이너를 죽이고 OOMKilled, exit 137로 재시작돼요.
+
+**꼬리질문**
+- Q. CPU limit을 빡빡하게 걸면 생기는 문제는요? → 스로틀링 때문에 지연이 튀는데, 평균 CPU 사용률 그래프는 낮아 보여서 원인을 놓치기 쉬워요.
+- Q. limit만 적고 request를 안 적으면요? → request가 limit과 같은 값으로 복사돼요.
+</details>
+
+<details>
+<summary>Q. QoS 클래스 3가지와, 노드 메모리가 부족할 때 어떤 Pod가 먼저 쫓겨나는지 설명해 주세요.</summary>
+
+**답변(30초)** QoS는 requests/limits를 보고 자동으로 붙는 등급이에요. 모든 컨테이너가 CPU·메모리 request와 limit을 같게 가지면 Guaranteed, 하나라도 있으면 Burstable, 아무것도 없으면 BestEffort예요. 흔히 BestEffort, Burstable, Guaranteed 순으로 쫓겨난다고 하지만 정확히는 kubelet이 request 초과 여부, Pod Priority, request 대비 사용량 순으로 정해요. 그래서 request를 넘겨 쓰는 Pod가 먼저 나가고, Guaranteed와 request 이하로 쓰는 Pod가 마지막이에요.
+
+**꼬리질문**
+- Q. 중요한 Pod를 보호하려면요? → 모든 컨테이너에 request = limit을 줘서 Guaranteed로 만들고, PriorityClass로 우선순위를 높여요.
+- Q. 축출과 OOMKilled는 같은 건가요? → 달라요. 축출은 노드 전체 자원이 부족해서 kubelet이 Pod를 내보내는 거고, OOMKilled는 그 컨테이너가 자기 limit을 넘어서 커널이 죽이는 거예요.
+</details>
+
+<details>
+<summary>Q. 컨테이너에서 Java 앱의 힙은 어떻게 잡나요? JVM은 limit을 인식하나요?</summary>
+
+**답변(30초)** JDK 10부터(8u191에도 백포트) 리눅스에선 컨테이너 지원이 기본으로 켜져 있어서 JVM이 memory limit을 읽어요. 문제는 최대 힙 기본값이 그 limit의 25%라서 너무 작게 잡힌다는 거예요. 실제로 512MiB 컨테이너에서 힙이 128MiB로 잡혔어요. 그렇다고 힙을 limit과 같게 잡으면 메타스페이스, 스레드 스택 같은 힙 밖 메모리 때문에 OOMKilled가 나요. 그래서 `MaxRAMPercentage`로 힙 비율을 정하고 힙 밖 몫을 남겨 둬요.
+
+**꼬리질문**
+- Q. 보통 몇 %로 잡나요? → 50~75% 정도로 올리는 경우가 많지만 관행일 뿐이고, 앱의 힙 밖 사용량을 재서 정해요.
+- Q. `-Xmx` 대신 비율을 쓰는 이유는요? → limit을 바꿔도 힙이 그 비율대로 따라 바뀌어서, limit과 힙을 두 군데서 맞출 필요가 없어요.
+</details>
+
+## 서술형 연습
+
+<details>
+<summary>상황: Spring Boot 서비스의 memory limit을 1Gi로 줬는데, 트래픽이 몰릴 때마다 Pod가 OOMKilled로 재시작됩니다. 힙 사용량 모니터링 그래프는 최대 힙에 닿지 않았습니다.</summary>
+
+**상황 파악**
+OOMKilled는 커널이 "이 컨테이너가 자기 memory limit을 넘었다"고 판단해 죽인 거예요. 노드 전체 부족으로 쫓겨난 축출(Evicted)과는 달라요. `kubectl describe pod`에서 `Reason: OOMKilled`, `Exit Code: 137`, Restart Count 증가를 먼저 확인해요. 힙 그래프가 여유 있는데 죽었다면, limit 안을 채운 건 **힙 밖 메모리**일 가능성이 커요.
+
+**원인 후보**
+1. 최대 힙을 limit에 너무 가깝게 잡았어요(예: `-Xmx1g` 또는 `MaxRAMPercentage`를 아주 높게). 힙 + 메타스페이스 + 스레드 스택 + 코드 캐시 + GC 자료구조 + 다이렉트 버퍼가 1Gi를 넘어요.
+2. 트래픽이 몰리면 요청 처리 스레드가 늘고, 스레드마다 스택이 잡혀 힙 밖 메모리가 커져요.
+3. 네트워크 입출력용 다이렉트 버퍼가 늘거나 새고 있어요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. `MaxRAMPercentage`를 낮춰 힙 밖 몫 확보(예: 업계에서 흔한 50~75% 범위 안에서 측정해 조정) | limit은 그대로, 설정 한 줄 | 힙이 줄어 GC가 잦아지고, 정말 모자라면 앱 안에서 OutOfMemoryError |
+| B. memory limit(과 request)을 올림 | 힙·힙 밖 모두 여유, 즉시 효과 | 노드에 들어가는 Pod 수가 줄어 비용 증가. 누수라면 죽는 시점만 늦춤 |
+| C. 힙 밖 메모리를 측정해 원인 줄이기(스레드 풀 상한, 다이렉트 버퍼 사용 점검) | 근본 원인 제거 | 분석 시간이 걸려 당장의 재시작은 못 막음 |
+
+**내가 고를 방법**
+먼저 지금 힙이 limit의 몇 %로 잡혔는지 JVM 플래그로 확인해요. 힙이 limit에 바짝 붙어 있다면 A로 힙 비율을 낮춰 힙 밖 몫을 남기는 게 가장 싸고 빨라요. 그래도 죽으면 B로 limit을 올리되 request도 같이 올려 스케줄러가 실제 사용량에 맞게 배치하게 해요. 피크 때 스레드 수가 함께 튄다면 C로 스레드 풀 상한을 걸어요. 적용 후 피크 시간대에 컨테이너 전체 메모리가 limit 아래에서 머무는지, Restart Count가 멈췄는지 확인해요.
+
+**채점 포인트**: OOMKilled = 컨테이너 limit 초과로 커널이 죽임(축출과 구분), Exit Code 137, 컨테이너 limit = 힙 + 힙 밖(메타스페이스·스레드 스택·코드 캐시·GC·다이렉트 버퍼), `-Xmx`를 limit과 같게 잡으면 안 됨, `MaxRAMPercentage`(기본 25%) 조정, 50~75%는 관행이고 측정이 우선, limit 상향의 비용과 한계, 적용 후 모니터링.
+</details>
+
+<details>
+<summary>상황: 운영 중 ConfigMap의 기능 플래그 값을 false에서 true로 바꿨는데, 30분이 지나도 앱 동작이 그대로입니다.</summary>
+
+**상황 파악**
+ConfigMap 객체는 바뀌었지만 **실행 중인 프로세스가 새 값을 못 받았거나, 받았어도 다시 읽지 않은** 상황이에요. 먼저 Deployment에서 이 ConfigMap을 환경변수로 넣었는지, 볼륨으로 넣었는지 확인해요.
+
+**원인 후보**
+1. 환경변수로 넣었어요. 환경변수는 컨테이너가 시작할 때 정해지는 값이라 ConfigMap을 바꿔도 **자동 반영되지 않아요**. 재시작이 필요해요.
+2. 볼륨으로 넣었지만 `subPath`로 파일 하나만 붙였어요. subPath 마운트는 갱신을 받지 못해요.
+3. 볼륨 파일은 바뀌었는데, 앱(예: 스프링)이 설정을 **시작할 때 한 번만** 읽어서 다시 읽지 않아요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. `kubectl rollout restart`로 Pod를 차례로 다시 띄움 | 확실하고 단순. Pod가 하나씩 바뀌어 무중단 | 반영에 Pod 교체 시간이 걸림. 매번 사람이 해야 함 |
+| B. 설정 해시를 Pod 템플릿 어노테이션에 넣어, 설정이 바뀌면 자동 롤링 업데이트 | 설정 변경 = 배포가 되어 누락이 없음. 이전 버전으로 롤백도 됨 | 배포 도구에 해시 계산을 넣어야 함 |
+| C. 볼륨(subPath 없이)으로 넣고 앱이 파일 변경을 감지해 다시 읽게 하거나, API를 구독 | 재시작 없이 반영 | kubelet sync·캐시 지연이 있어 Pod마다 바뀌는 시점이 다름. 앱 코드가 복잡해짐 |
+
+**내가 고를 방법**
+지금 당장은 A로 rollout restart 해서 반영해요. 앞으로는 B로 바꿔서 "설정을 바꾸면 반드시 새 Pod가 뜬다"를 보장해요. 기능 플래그처럼 Pod마다 잠깐이라도 값이 다르면 곤란한 설정은, C처럼 Pod마다 제각각 바뀌는 것보다 롤링으로 확실히 교체되는 쪽이 추적하기 쉬워요. 실수로 바뀌면 안 되는 설정은 `immutable: true`로 두고, 바꿀 땐 새 이름의 ConfigMap을 만들어 참조를 바꾸는 방식도 써요.
+
+**채점 포인트**: 환경변수는 재시작해야 반영, 볼륨은 지연 후 결국 반영, subPath는 갱신 안 됨, 앱이 다시 읽어야 함, `rollout restart`, 설정 해시 어노테이션으로 자동 롤링, Pod마다 반영 시점이 달라지는 문제, immutable.
+</details>
+
+<details>
+<summary>상황: 팀원이 DB 비밀번호가 든 Secret YAML을 공개 Git 저장소에 커밋했습니다. 팀원은 "base64로 바뀌어 있으니 괜찮다"고 합니다.</summary>
+
+**상황 파악**
+괜찮지 않아요. base64는 **인코딩이지 암호화가 아니라서**, `echo 'cEBzc3cwcmQ=' | base64 -d`처럼 열쇠 없이 누구나 원문을 얻어요. 저장소에 올라간 순간 비밀번호가 공개됐다고 보고 움직여야 해요. 커밋을 지워도 Git 기록이나 이미 복제한 사람에게는 남아 있을 수 있어요.
+
+**원인 후보**
+1. "Secret = 암호화"라는 오해로 Secret YAML을 일반 매니페스트처럼 Git에 같이 관리했어요.
+2. 비밀 값을 클러스터 밖 안전한 곳에서 가져오는 체계가 없어서, 결국 누군가 YAML에 직접 적어야 했어요.
+3. 클러스터 안에서도 etcd가 평문 저장이고 Secret 접근 권한이 넓을 수 있어요.
+
+**해결책과 트레이드오프**
+가장 먼저 할 일은 **DB 비밀번호 교체**예요. 무엇을 고르든 이건 공통이에요. 그다음 재발 방지책이에요.
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. 외부 비밀 저장소에 두고 Secrets Store CSI Driver 등으로 가져옴 | Git에는 비밀이 아예 안 들어감. 접근 기록·교체를 한곳에서 관리 | 외부 저장소 운영과 연동 설정이 필요 |
+| B. Git에는 암호화된 형태(Sealed Secrets 등)만 올리고 클러스터 안에서 풀기 | 지금처럼 Git으로 매니페스트를 관리할 수 있음 | 복호화 키 관리가 새 비밀이 됨 |
+| C. 클러스터 쪽 방어: etcd 저장 암호화(aescbc·KMS v2), RBAC로 Secret 접근 최소화 | Git 문제와 별개로 etcd 유출·과한 권한을 막음 | Git 유출 자체는 못 막음. 켠 뒤 기존 Secret은 다시 써야 암호화됨 |
+
+**내가 고를 방법**
+즉시 비밀번호를 바꾸고, 저장소 기록에서 해당 파일을 지워요. 재발 방지는 A로 비밀을 Git 밖 외부 저장소에 두는 걸 기본으로 해요. Git에 비밀이 없으면 이번 같은 실수가 구조적으로 생기지 않기 때문이에요. 여기에 C를 함께 켜서 클러스터 안에서도 etcd 저장 암호화와 RBAC 최소 권한을 맞춰요. Pod 생성 권한만 있어도 Secret을 꺼내 볼 수 있으니 권한 범위도 같이 점검해요.
+
+**채점 포인트**: base64는 인코딩(복원 가능), 유출 즉시 비밀번호 교체, Git 기록에 남음, etcd 기본 평문, Encryption at Rest(`--encryption-provider-config`, identity는 무보호, 기존 Secret 재작성), RBAC 최소 권한, Pod 생성 권한으로도 Secret 열람 가능, 외부 비밀 저장소(Secrets Store CSI Driver)·Sealed Secrets.
+</details>
+
+## 필기 포인트
+
+- ConfigMap은 **비밀 아님**, 암호화 없음. ConfigMap·Secret 모두 최대 **1MiB**.
+- Secret `data`는 **base64**(인코딩 ≠ 암호화). `stringData`엔 평문, 같은 키면 stringData 우선. 기본 타입 `Opaque`.
+- etcd 저장 암호화: `--encryption-provider-config`. 첫 provider가 `identity`면 평문.
+- 환경변수 주입은 **재시작해야** 반영. 볼륨은 결국 반영, **subPath는 반영 안 됨**. `immutable`은 v1.19+.
+- request = **스케줄러** 배치 기준, limit = kubelet·커널이 강제하는 상한. limit만 쓰면 request = limit.
+- CPU 초과 = **스로틀링**, 메모리 초과 = **OOMKilled**(Exit 137).
+- `100m` CPU = 0.1코어. 메모리 `400m` = 0.4바이트(오타 주의). `Mi` = 2의 거듭제곱, `M` = 10의 거듭제곱.
+- QoS: Guaranteed(모든 컨테이너 CPU·메모리 request == limit), Burstable(하나라도 있음), BestEffort(전혀 없음). **자동 부여**.
+- 축출 순위: request 초과 여부 → Priority → request 대비 사용량. kubelet 기본 hard `memory.available<100Mi`.
+- `oom_score_adj`: Guaranteed -997, BestEffort 1000, Burstable 2~999.
+- JVM `MaxRAMPercentage` 기본 **25%**, `UseContainerSupport` 기본 true(JDK 10+, 8u191+).
+
+## 함께 보기
+
+- [컨테이너와 VM](../container-vs-vm/) — cgroup 메모리 한도와 exit 137 실험
+- [Pod·ReplicaSet·Deployment](../k8s-pod-deployment/) — rollout restart와 롤링 업데이트
+- [Probe·우아한 종료·오토스케일링](../k8s-probes-scaling/) — 살아 있는지 검사와 자동 확장
+- [JVM 구조와 가비지 컬렉션(GC)](../../java/jvm-gc/) — 힙과 힙 밖 메모리
+- [스프링 부트와 자동 설정](../../spring/boot-autoconfig/) — 환경변수로 설정 덮어쓰기
+
+## 출처
+
+- [ConfigMaps — Kubernetes](https://kubernetes.io/docs/concepts/configuration/configmap/)
+- [Secrets — Kubernetes](https://kubernetes.io/docs/concepts/configuration/secret/)
+- [Encrypting Confidential Data at Rest — Kubernetes](https://kubernetes.io/docs/tasks/administer-cluster/encrypt-data/)
+- [Resource Management for Pods and Containers — Kubernetes](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/)
+- [Pod Quality of Service Classes — Kubernetes](https://kubernetes.io/docs/concepts/workloads/pods/pod-qos/)
+- [Node-pressure Eviction — Kubernetes](https://kubernetes.io/docs/concepts/scheduling-eviction/node-pressure-eviction/)
+- [The java Command (JDK 21) — Oracle](https://docs.oracle.com/en/java/javase/21/docs/specs/man/java.html)
+- [JDK-8146115 Improve docker container detection and resource configuration usage — OpenJDK](https://bugs.openjdk.org/browse/JDK-8146115)
+- [JDK 8u191 Release Notes — Oracle](https://www.oracle.com/java/technologies/javase/8u191-relnotes.html)
+- 직접 실험: 로컬 Docker, `eclipse-temurin:21-jre`(OpenJDK 21) 컨테이너 1회 실행, base64 인코딩·복원

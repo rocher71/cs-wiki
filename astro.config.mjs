@@ -3,6 +3,7 @@ import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 import { existsSync, readdirSync } from 'node:fs';
 import remarkGfm from 'remark-gfm';
+import remarkCjkFriendly from 'remark-cjk-friendly';
 
 // 폴더 = 사이드바 섹션. 글이 있는 폴더만 보여준다.
 const SECTIONS = [
@@ -23,7 +24,8 @@ export default defineConfig({
   // ponytail: 내장 gfm 대신 remark-gfm을 직접 넣는다. 이유 두 가지:
   // 1) Astro 6.4 + @astrojs/mdx 5 조합은 gfm을 명시 안 하면 .mdx 표가 깨짐(mdx가 이 플러그인 목록을 물려받음).
   // 2) 기본 singleTilde가 "3~5개 … 2~4" 같은 범위 표기를 취소선으로 만든다 → 끈다(~~취소선~~은 그대로 동작).
-  markdown: { gfm: false, remarkPlugins: [[remarkGfm, { singleTilde: false }]] },
+  // 3) 한국어는 `**용어(영문)**를`처럼 굵게 뒤에 조사가 붙으면 CommonMark 규칙상 굵게가 안 먹고 **가 그대로 보인다 → cjk-friendly.
+  markdown: { gfm: false, remarkPlugins: [[remarkGfm, { singleTilde: false }], remarkCjkFriendly] },
   integrations: [
     starlight({
       title: '백엔드 CS 위키',

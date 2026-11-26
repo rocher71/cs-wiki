@@ -12,6 +12,16 @@ import LogicalOrder from '~/components/viz/LogicalOrder.astro';
 **JOIN**은 두 테이블의 행을 조건에 맞춰 **옆으로 이어 붙이는** 연산이에요. INNER JOIN은 짝이 있는 행만 남기고, LEFT JOIN은 왼쪽 행을 전부 남긴 뒤 짝이 없으면 오른쪽 칸을 NULL로 채워요. SQL은 **FROM → WHERE → GROUP BY → HAVING → SELECT → ORDER BY → LIMIT** 순서로 처리된다고 생각하면 대부분의 함정이 풀려요.
 :::
 
+:::note[처음이라면 여기까지]
+① **JOIN**은 두 테이블의 행을 조건에 맞춰 옆으로 이어 붙여요.
+
+② INNER JOIN은 짝이 있는 행만 남기고, LEFT JOIN은 왼쪽 행을 다 남긴 뒤 짝이 없으면 빈칸(NULL)으로 채워요.
+
+③ SQL은 FROM → WHERE → GROUP BY → HAVING → SELECT → ORDER BY 순서로 처리된다고 기억하면 함정 대부분이 풀려요.
+
+④ 면접에선 질문 1·2번 먼저 연습하세요.
+:::
+
 <Aside type="note" title="이 페이지의 기준">
 설명은 MySQL 8.4 공식문서를 바탕으로 했어요. 직접 돌린 실험은 로컬 **MySQL 9.6.0**(기본 설정)이고, 여기 나온 동작은 8.0/8.4와 같은 표준 동작이에요. 예제 테이블은 이 페이지용으로 새로 만든 거예요.
 </Aside>
@@ -101,7 +111,7 @@ LEFT JOIN orders o ON o.member_id = m.id;
 JOIN을 원 두 개가 겹친 그림으로 설명하는 글이 많아요. 그런데 그 그림은 교집합·합집합 같은 **집합 연산**처럼 보이게 해요. JOIN은 행을 이어 붙이는 연산이라, 짝이 여러 개면 행이 늘어나요. 행 수로 생각하는 습관을 들이세요.
 </Aside>
 
-### 3. 셀프 조인과 짝 없는 행 찾기
+### 심화: 3. 셀프 조인과 짝 없는 행 찾기
 
 **셀프 조인**(self join)은 같은 테이블을 별칭 두 개로 조인하는 거예요. 따로 있는 문법이 아니에요. 회원-추천인, 사원-관리자, 하위-상위 카테고리처럼 한 테이블 안에서 서로를 가리킬 때 써요.
 
@@ -250,7 +260,7 @@ LIMIT 2;
 이건 결과의 **의미**를 정하는 순서예요. 실제 실행 순서는 옵티마이저가 결과만 같다면 바꿔요. 예를 들어 인덱스로 정렬을 미리 끝내거나, 조건을 조인 전에 먼저 걸기도 해요. 실제로 어떻게 도는지는 [EXPLAIN](../explain/)으로 확인해요.
 </Aside>
 
-### 9. 서브쿼리와 윈도 함수 맛보기
+### 심화: 9. 서브쿼리와 윈도 함수 맛보기
 
 **서브쿼리**(subquery)는 쿼리 안에 넣은 쿼리예요. 바깥 테이블을 참조하는 서브쿼리를 **상관 서브쿼리**(correlated subquery)라고 하고, 개념상 바깥 행마다 다시 평가돼요.
 
@@ -285,16 +295,6 @@ WHERE rn = 1;   -- 회원별 최근 주문 1건. 안쪽 WHERE에선 rn을 못 �
 </details>
 
 <details>
-<summary>Q. LEFT JOIN에서 조건을 ON에 두는 것과 WHERE에 두는 것은 어떻게 다른가요?</summary>
-
-**답변(30초)** ON의 조건은 "짝을 고르는 조건"이라 안 맞아도 왼쪽 행은 남고 NULL이 붙어요. WHERE의 조건은 조인이 끝난 뒤 행을 거르는 거라, NULL이 붙은 행은 비교가 참이 안 돼서 사라져요. 그래서 오른쪽 테이블 조건을 WHERE에 쓰면 LEFT JOIN이 사실상 INNER JOIN이 돼요. 예제에서도 PAID 조건을 ON에 두면 4행, WHERE에 두면 2행이었어요.
-
-**꼬리질문**
-- Q. INNER JOIN에서도 차이가 있나요? → 없어요. 결과가 같아요. 차이는 외부 조인에서만 생겨요.
-- Q. WHERE에 꼭 둬야 한다면요? → `WHERE (o.id IS NULL OR o.status = 'PAID')`처럼 NULL 행을 살리는 조건을 함께 써요.
-</details>
-
-<details>
 <summary>Q. WHERE와 HAVING의 차이는요?</summary>
 
 **답변(30초)** WHERE는 GROUP BY로 묶기 전에 개별 행을 거르고, HAVING은 묶은 뒤 그룹을 걸러요. 그래서 SUM, COUNT 같은 집계 함수 조건은 WHERE에 못 쓰고 HAVING에 써요. 반대로 그룹과 상관없는 조건은 WHERE에 둬야 해요. HAVING은 거의 마지막에 최적화 없이 적용돼서, 일찍 걸러 낼 행을 늦게까지 끌고 가기 때문이에요.
@@ -302,6 +302,16 @@ WHERE rn = 1;   -- 회원별 최근 주문 1건. 안쪽 WHERE에선 rn을 못 �
 **꼬리질문**
 - Q. `WHERE SUM(amount) > 5000`을 쓰면요? → MySQL은 `ERROR 1111 Invalid use of group function`을 내요.
 - Q. GROUP BY에 없는 컬럼을 SELECT에 쓰면요? → ONLY_FULL_GROUP_BY 모드(5.7.5부터 기본)에서 `ERROR 1055`예요. 그룹 안에 값이 여러 개라 뭘 보여 줄지 정할 수 없어서예요.
+</details>
+
+<details>
+<summary>Q. COUNT(*)와 COUNT(컬럼)의 차이는요?</summary>
+
+**답변(30초)** `COUNT(*)`는 NULL과 상관없이 행 수를 세고, `COUNT(컬럼)`은 그 컬럼이 NULL이 아닌 행만 세요. `COUNT(DISTINCT 컬럼)`은 NULL을 뺀 서로 다른 값의 수예요. 실무에서 차이가 크게 나는 곳은 LEFT JOIN 뒤예요. 주문 없는 회원도 NULL 행이 하나 붙으니 `COUNT(*)`는 1이 되고, `COUNT(o.id)`로 세야 0이 나와요.
+
+**꼬리질문**
+- Q. COUNT(1)은요? → `COUNT(*)`와 같아요. 둘 다 행 수예요.
+- Q. 대상 행이 0개면 SUM은요? → NULL이에요. COUNT만 0이에요. 0이 필요하면 `COALESCE(SUM(x), 0)`.
 </details>
 
 <details>
@@ -315,13 +325,13 @@ WHERE rn = 1;   -- 회원별 최근 주문 1건. 안쪽 WHERE에선 rn을 못 �
 </details>
 
 <details>
-<summary>Q. COUNT(*)와 COUNT(컬럼)의 차이는요?</summary>
+<summary>Q. LEFT JOIN에서 조건을 ON에 두는 것과 WHERE에 두는 것은 어떻게 다른가요?</summary>
 
-**답변(30초)** `COUNT(*)`는 NULL과 상관없이 행 수를 세고, `COUNT(컬럼)`은 그 컬럼이 NULL이 아닌 행만 세요. `COUNT(DISTINCT 컬럼)`은 NULL을 뺀 서로 다른 값의 수예요. 실무에서 차이가 크게 나는 곳은 LEFT JOIN 뒤예요. 주문 없는 회원도 NULL 행이 하나 붙으니 `COUNT(*)`는 1이 되고, `COUNT(o.id)`로 세야 0이 나와요.
+**답변(30초)** ON의 조건은 "짝을 고르는 조건"이라 안 맞아도 왼쪽 행은 남고 NULL이 붙어요. WHERE의 조건은 조인이 끝난 뒤 행을 거르는 거라, NULL이 붙은 행은 비교가 참이 안 돼서 사라져요. 그래서 오른쪽 테이블 조건을 WHERE에 쓰면 LEFT JOIN이 사실상 INNER JOIN이 돼요. 예제에서도 PAID 조건을 ON에 두면 4행, WHERE에 두면 2행이었어요.
 
 **꼬리질문**
-- Q. COUNT(1)은요? → `COUNT(*)`와 같아요. 둘 다 행 수예요.
-- Q. 대상 행이 0개면 SUM은요? → NULL이에요. COUNT만 0이에요. 0이 필요하면 `COALESCE(SUM(x), 0)`.
+- Q. INNER JOIN에서도 차이가 있나요? → 없어요. 결과가 같아요. 차이는 외부 조인에서만 생겨요.
+- Q. WHERE에 꼭 둬야 한다면요? → `WHERE (o.id IS NULL OR o.status = 'PAID')`처럼 NULL 행을 살리는 조건을 함께 써요.
 </details>
 
 <details>

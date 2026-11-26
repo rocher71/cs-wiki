@@ -1,0 +1,290 @@
+---
+title: 컨테이너와 VM
+description: "VM은 컴퓨터를 통째로 흉내 내서 OS까지 따로 부팅하고, 컨테이너는 호스트 커널 하나를 함께 쓰는 격리된 프로세스예요. 컨테이너는 가볍고 빨리 뜨지만, 커널을 공유해서 격리는 VM보다 약해요."
+sidebar: { order: 1 }
+tags: [면접빈출, 서술형]
+---
+import { Aside } from '@astrojs/starlight/components';
+import VmVsContainerLayers from '~/components/viz/VmVsContainerLayers.astro';
+import NamespaceCgroupRoom from '~/components/viz/NamespaceCgroupRoom.astro';
+
+:::tip[한 줄 요약]
+**VM**은 컴퓨터 한 대를 통째로 흉내 내서 **자기 OS(커널 포함)를 따로 부팅**하고, **컨테이너**는 OS 없이 **호스트 커널 하나를 함께 쓰는 격리된 프로세스**예요. 그래서 컨테이너는 가볍고 빨리 뜨지만, 커널을 공유하는 만큼 격리는 VM보다 약해요.
+:::
+
+<Aside type="note" title="이 페이지의 기준">
+설명은 Docker 공식 문서와 리눅스 매뉴얼(man-pages)을 바탕으로 했어요(2026-11 조회). 실험은 Mac의 Docker Desktop에서 한 번 돌려 본 결과라서, 출력은 "이런 모양으로 나온다"는 예시로 봐 주세요.
+</Aside>
+
+## 쉽게 이해하기
+
+서버 한 대를 **건물 한 채**라고 해 봐요.
+
+**VM은 아파트**예요. 집마다 현관, 수도, 전기, **보일러가 따로** 있어요. 옆집 보일러가 고장 나도 우리 집은 멀쩡해요. 대신 집 하나 만들 때마다 보일러까지 새로 들여야 해서 공간과 돈이 많이 들고, 입주(부팅)도 오래 걸려요.
+
+**컨테이너는 원룸 쉐어하우스**예요. 방마다 문이 잠기고 내 짐은 내 방에만 있어서, 내 방에선 다른 방이 안 보여요. 그런데 **보일러는 건물에 하나**라 다 같이 써요. 그래서 방을 금방 하나 더 만들 수 있고 한 건물에 많이 들어가요. 대신 공용 보일러가 고장 나면 모든 방이 같이 추워요.
+
+여기서 보일러가 **커널**(kernel, OS의 핵심. 하드웨어를 직접 다루고 프로그램들에게 CPU·메모리를 나눠 주는 부분)이에요. 쉐어하우스의 "방 칸막이"와 "방별 전기 계량기"가 뒤에 나올 **namespace**와 **cgroup**이에요.
+
+단, 실제로는 둘 중 하나만 고르는 게 아니에요. 클라우드 서버는 보통 VM이고, 그 VM 하나 안에 컨테이너를 여러 개 띄우는 게 흔해요. 아파트 한 채를 빌려서 안을 쉐어하우스로 쓰는 셈이에요.
+
+## 그림으로 보기
+
+<VmVsContainerLayers />
+
+<NamespaceCgroupRoom />
+
+## 제대로 알기
+
+### 1. VM은 컴퓨터를, 컨테이너는 프로세스를 나눈다
+
+**VM**(Virtual Machine, 가상 머신)은 컴퓨터 한 대를 소프트웨어로 통째로 흉내 내요. 그 안에서 **게스트 OS**(VM 안에서 따로 부팅되는 OS, 커널 포함)가 부팅돼요. 여러 VM을 하드웨어 수준에서 나눠 주는 소프트웨어를 **하이퍼바이저**(hypervisor)라고 해요.
+
+**컨테이너**(container)는 Docker 공식 문서 표현으로 "격리된 채 실행되는 평범한 **프로세스**"예요. **프로세스**(process)는 실행 중인 프로그램 하나를 말해요. → [프로세스와 스레드](../../java/thread-basics/)
+
+컨테이너에는 게스트 OS가 없어요. 그냥 프로세스니까, 한 머신의 컨테이너는 전부 **호스트 커널 하나**를 함께 써요. 그런데도 컨테이너마다 자기만의 파일시스템, 프로세스 목록, 네트워크, 호스트명을 보고, 메모리·CPU 한도를 따로 걸 수 있어요. 앱 실행에 필요한 파일은 **이미지**(image, 앱과 라이브러리·설정을 묶어 둔 꾸러미)에 다 들어 있어서, 호스트에 뭐가 깔려 있든 똑같이 돌아요. → [Docker 이미지](../docker-image/)
+
+| | VM | 컨테이너 |
+|---|---|---|
+| 정체 | 흉내 낸 컴퓨터 한 대 | 격리된 프로세스 하나 |
+| OS | 게스트 OS(커널 포함)를 VM마다 따로 | 게스트 OS 없음, 호스트 커널 공유 |
+| 나누는 주체 | 하이퍼바이저(하드웨어 수준) | 커널 기능(namespace·cgroup) |
+| 시작 속도 | OS 부팅이 필요해 느림 | 프로세스 시작이라 1초 안팎 |
+| 한 머신에 띄울 수 있는 수 | 적음(OS가 여러 벌) | 많음 |
+| 격리 강도 | 강함(하드웨어 경계) | 상대적으로 약함(커널 공유) |
+| 이미지에 든 것 | OS 전체 | 앱 + 라이브러리(커널 빼고 프로그램 파일만) |
+
+### 2. 실험: 정말 커널을 공유할까?
+
+`alpine:3.20`(작은 리눅스 배포판)과 `ubuntu:24.04` 컨테이너를 각각 띄워 커널 버전(`uname -r`)을 찍어 봤어요.
+
+- 두 컨테이너 모두 **같은 커널 버전**이 나왔어요(`-linuxkit`으로 끝나는 값).
+- 즉 **우분투 이미지를 써도 우분투 커널이 도는 게 아니에요.** 이미지에는 커널이 없고, 커널은 바깥 것을 같이 써요.
+- 이미지 크기도 `alpine:3.20` 약 13.6MB, `ubuntu:24.04` 약 139MB였어요. OS 전체를 담는 VM 디스크에 비하면 아주 작아요.
+
+그런데 Mac은 리눅스가 아닌데 왜 리눅스 커널(`linuxkit`)이 나왔을까요? 바로 다음 이야기예요.
+
+### 3. Mac의 Docker는 사실 VM 위에서 돈다
+
+리눅스 컨테이너는 **리눅스 커널**이 있어야 돌아요. 그래서 macOS·Windows의 **Docker Desktop**은 안에 작은 **리눅스 VM**을 띄우고, 그 VM 안에서 컨테이너를 실행해요. 위 실험의 `linuxkit` 커널이 바로 그 VM의 커널이에요.
+
+Mac에서 그 VM을 돌리는 방식은 Apple Virtualization framework, Docker VMM(Apple silicon 전용), HyperKit(인텔 Mac용 예전 방식, 지원 종료 예정) 중 하나예요.
+
+여기서 두 가지를 기억해 두면 좋아요.
+
+- "Mac에서도 결국 **VM 위의 컨테이너**"예요. VM과 컨테이너는 경쟁이 아니라 함께 쓰여요.
+- Apple silicon Mac에서 만든 이미지는 기본적으로 **arm64**(Apple silicon·스마트폰 계열 CPU 구조)용이에요. 서버는 **amd64**(인텔·AMD 계열 CPU 구조)인 경우가 많아서, 이 차이가 "로컬에선 되는데 서버에선 안 돼요"의 원인이 되기도 해요. 아래 서술형에서 다시 봐요.
+
+### 4. namespace: 무엇이 보이나 (칸막이)
+
+**namespace**(네임스페이스)는 시스템 전체가 함께 쓰는 자원을 감싸서, 안에 있는 프로세스에게 **"나만의 것"처럼 보이게** 하는 커널 기능이에요. 안에서 바꾼 것은 같은 namespace 안에서만 보여요.
+
+| 종류 | 따로 보이게 하는 것 |
+|---|---|
+| PID | 프로세스 번호 |
+| NET | 네트워크 장치·포트 |
+| MNT | 마운트 지점(파일시스템이 어디 붙어 있나) |
+| UTS | 호스트명 |
+| IPC | 프로세스 간 통신 자원(메시지 큐 등) |
+| USER | 사용자·그룹 ID |
+| Cgroup | cgroup 디렉터리의 루트 |
+| Time | 부팅 이후 시간 같은 시계 |
+
+실험으로 확인해 봤어요.
+
+```bash
+# PID namespace: 컨테이너 안에서 ps를 실행
+docker run --rm alpine:3.20 ps
+#   PID   USER     TIME  COMMAND
+#       1 root      0:00 ps      ← 내가 띄운 ps가 PID 1, 다른 프로세스는 안 보임
+
+# UTS namespace: 호스트명을 따로 줌
+docker run --rm --hostname cswiki-box alpine:3.20 hostname
+# cswiki-box                     ← 호스트(Mac)의 이름과 다름
+```
+
+컨테이너 안에서는 자기가 1번 프로세스인 "자기만의 세상"으로 보이지만, 바깥(호스트 커널) 입장에서는 평범한 프로세스 하나일 뿐이에요.
+
+<Aside type="caution" title="기본 설정에선 USER namespace가 따로 안 생겨요">
+실험 컨테이너를 들여다보니 PID·NET·MNT·UTS·IPC·cgroup 6개는 새로 만들어졌지만, USER와 Time은 바깥 것을 그대로 썼어요. Docker 기본 설정에서는 **컨테이너 안의 root가 바깥(VM/호스트)의 root와 같은 사용자 번호**라는 뜻이에요. 컨테이너 격리를 완벽한 보안 경계로 보면 안 되는 이유 중 하나예요.
+</Aside>
+
+### 5. cgroup: 얼마나 쓸 수 있나 (계량기)
+
+**cgroup**(control groups)은 프로세스들을 그룹으로 묶어서 **CPU·메모리 같은 자원을 얼마나 쓸지 제한하고 재는** 커널 기능이에요. v2에서는 cpu, memory, io, pids 등을 다뤄요. v1은 자원 종류마다 계층을 따로 두고, v2는 **하나의 통합 계층**을 써요.
+
+Docker의 `--memory`, `--cpus` 옵션은 결국 컨테이너의 cgroup 설정을 바꾸는 거예요.
+
+| 옵션 | 뜻 |
+|---|---|
+| `--memory 50m` | 쓸 수 있는 최대 메모리(최소 6m) |
+| `--memory-swap 50m` | `--memory`와 같게 주면 **스왑**(메모리가 모자랄 때 디스크를 대신 쓰는 것) 사용 불가 |
+| `--cpus="1.5"` | CPU를 최대 1.5개 분량까지만 사용 |
+
+메모리 한도를 넘기면 어떻게 되는지 실험해 봤어요.
+
+```bash
+# 메모리 50MiB, 스왑 없음. 문자열을 계속 2배로 늘려 메모리를 먹는다
+docker run --name oom-test --memory 50m --memory-swap 50m alpine:3.20 \
+  sh -c 'cat /sys/fs/cgroup/memory.max; x=a; while true; do x="$x$x"; done'
+# 52428800                       ← 50MiB. --memory가 cgroup 파일에 그대로 들어감
+# (잠시 후 강제 종료)
+
+docker inspect oom-test   # 결과 중 일부
+# ExitCode=137  OOMKilled=true
+```
+
+- 한도를 넘자 커널의 **OOM killer**(Out Of Memory killer, 메모리가 모자랄 때 프로세스를 골라 강제로 죽이는 커널 기능)가 컨테이너 안 프로세스를 죽였어요.
+- 종료 코드 **137** = 128 + 9예요. 9번 신호인 **SIGKILL**(즉시 강제 종료 신호)로 죽었다는 셸의 관례 표기예요.
+- Docker는 컨테이너가 Docker 데몬보다 먼저 OOM killer에게 죽도록 우선순위를 둬요. `--oom-kill-disable`(OOM kill 끄기)은 `--memory` 없이 쓰지 말라고 공식 문서가 경고해요.
+
+<Aside type="tip" title="137 = OOM은 아니에요">
+137은 "SIGKILL로 죽었다"는 뜻이라 `docker kill`로 죽여도 137이 나와요. OOM 때문인지는 `docker inspect`의 **`OOMKilled`** 값으로 확인해요.
+</Aside>
+
+정리하면 **컨테이너 = namespace(칸막이) + cgroup(계량기) + 이미지(자기 파일시스템)를 조합한 평범한 프로세스**예요.
+
+### 6. Docker는 누가 어떻게 돌리나
+
+Docker 자체가 새로운 격리 기술은 아니에요. 커널 기능(namespace·cgroup)을 쉽게 쓰게 해 주는 도구예요.
+
+- **`docker`**(CLI 클라이언트): 내가 치는 명령. API로 데몬에게 일을 시켜요.
+- **`dockerd`**(데몬, 뒤에서 계속 도는 관리 프로그램): 이미지·컨테이너·네트워크·볼륨을 관리해요.
+- **레지스트리**(registry, 이미지를 저장하고 나눠 주는 서비스): 기본은 Docker Hub(`docker.io`)예요. `docker run` 했는데 로컬에 이미지가 없으면 여기서 받아 와요.
+- 실제 실행은 `dockerd` → **containerd** → **runc** 순으로 넘어가요. runc가 namespace와 cgroup을 만들며 프로세스를 띄워요.
+
+**OCI**(Open Container Initiative)는 컨테이너 표준을 정하는 단체예요. 이미지 형식(image-spec), 실행 방법(runtime-spec), 이미지 배포 API(distribution-spec)를 정해요. runc는 Docker가 기증한 OCI 참조 런타임이라, Docker가 아닌 다른 도구도 같은 이미지를 돌릴 수 있어요.
+
+## 면접 질문
+
+<details>
+<summary>Q. 컨테이너와 VM의 차이는 무엇인가요?</summary>
+
+**답변(30초)** 가장 큰 차이는 OS를 따로 갖느냐예요. VM은 하이퍼바이저 위에서 게스트 OS를 커널까지 통째로 부팅하고, 컨테이너는 게스트 OS 없이 호스트 커널 하나를 함께 쓰는 격리된 프로세스예요. 그래서 컨테이너는 1초 안팎으로 뜨고 한 머신에 많이 띄울 수 있어요. 대신 커널을 공유해서 격리는 하드웨어 경계로 나뉘는 VM보다 약해요.
+
+**꼬리질문**
+- Q. ubuntu 이미지로 띄운 컨테이너는 우분투 커널로 도나요? → 아니에요. 이미지엔 커널이 없어서 호스트 커널을 써요. 실험에서도 alpine과 ubuntu 컨테이너의 커널 버전이 똑같았어요.
+- Q. 그럼 VM은 이제 안 쓰나요? → 함께 써요. 클라우드 서버는 보통 VM이고, 그 VM 위에 컨테이너를 여러 개 띄우는 게 흔해요.
+</details>
+
+<details>
+<summary>Q. 컨테이너는 어떻게 격리되나요? namespace와 cgroup의 차이는요?</summary>
+
+**답변(30초)** 리눅스 커널의 namespace와 cgroup으로 격리해요. namespace는 "무엇이 보이나"를 나눠요. PID, 네트워크, 마운트, 호스트명 같은 자원을 감싸서 컨테이너 안에선 자기가 PID 1인 자기만의 세상으로 보이게 해요. cgroup은 "얼마나 쓸 수 있나"를 정해요. 메모리·CPU 한도를 걸고 사용량을 재요. 여기에 이미지로 자기 파일시스템을 주면 컨테이너가 돼요.
+
+**꼬리질문**
+- Q. 메모리 한도를 넘으면요? → 커널 OOM killer가 컨테이너 프로세스를 죽여요. 종료 코드 137, `docker inspect`에 `OOMKilled=true`가 남아요.
+- Q. Docker가 직접 격리를 하나요? → Docker는 이 커널 기능을 쉽게 쓰게 해 주는 도구고, 실제로 namespace·cgroup을 만들며 프로세스를 띄우는 건 OCI 런타임인 runc예요.
+</details>
+
+<details>
+<summary>Q. 컨테이너의 단점이나 보안상 주의점은요?</summary>
+
+**답변(30초)** 커널을 공유한다는 점이 핵심이에요. 커널에 취약점이 있으면 그 위의 모든 컨테이너가 영향을 받아요. 또 Docker 기본 설정에선 USER namespace가 따로 안 생겨서, 컨테이너 안 root가 바깥 root와 같은 사용자 번호예요. 그래서 고객별 코드를 실행하는 것처럼 격리가 아주 중요한 곳에선 VM으로 나누거나, VM 위에 컨테이너를 올리고 권한을 줄이는 방법을 함께 써요.
+
+**꼬리질문**
+- Q. 컨테이너가 VM보다 빨리 뜨는 이유는요? → OS를 부팅하지 않고 프로세스 하나만 시작하기 때문이에요.
+</details>
+
+<details>
+<summary>Q. Mac에서는 리눅스 컨테이너가 어떻게 돌아가나요?</summary>
+
+**답변(30초)** Docker Desktop이 Mac 안에 작은 리눅스 VM을 띄우고, 그 VM 안에서 컨테이너를 돌려요. 리눅스 컨테이너는 리눅스 커널이 꼭 필요한데 macOS 커널은 리눅스가 아니기 때문이에요. 그래서 Mac의 컨테이너에서 커널 버전을 찍으면 Docker Desktop VM의 리눅스 커널이 나와요. 결국 Mac에서도 VM 위의 컨테이너 구조예요.
+
+**꼬리질문**
+- Q. 이게 실무에서 왜 중요하죠? → Apple silicon Mac은 arm64라서, 여기서 만든 이미지가 amd64 서버와 CPU 구조가 안 맞아 서버에서 안 뜰 수 있어요.
+</details>
+
+<details>
+<summary>Q. 컨테이너가 exit 137로 죽었어요. 원인이 뭘까요?</summary>
+
+**답변(30초)** 137은 128 더하기 9, 즉 SIGKILL로 강제 종료됐다는 뜻이에요. 가장 흔한 원인은 메모리 한도를 넘어 커널 OOM killer에게 죽은 경우예요. 다만 `docker kill`로 죽여도 137이 나오니까, `docker inspect`에서 `OOMKilled`가 true인지 먼저 확인해요. OOM이 맞다면 한도가 앱에 비해 작은지, 메모리가 새고 있는지를 봐요.
+
+**꼬리질문**
+- Q. 로그가 안 남는 이유는요? → SIGKILL은 프로세스가 막거나 정리할 틈 없이 바로 죽이는 신호라, 앱이 종료 로그를 남기지 못하는 경우가 많아요.
+</details>
+
+## 서술형 연습
+
+<details>
+<summary>상황: 신입 개발자가 "제 노트북(Mac)에서는 잘 되는데 리눅스 서버에 올리면 안 돼요"라고 합니다. 서버에는 Java와 라이브러리를 직접 설치해 두고 jar를 올려 실행하는 방식입니다.</summary>
+
+**상황 파악**
+"내 컴퓨터에선 되는데"는 코드보다 **실행 환경이 다르다**는 신호예요. 노트북과 서버는 OS(macOS 대 리눅스), 설치된 Java·라이브러리 버전, 환경 설정, CPU 구조가 다 다를 수 있어요. 먼저 서버의 에러 메시지로 "무엇이 없거나 다른지"를 확인해요.
+
+**원인 후보**
+1. 서버에 설치된 Java나 라이브러리 버전이 노트북과 달라요. 사람이 서버마다 손으로 깔다 보니 서버끼리도 달라질 수 있어요.
+2. 환경 변수, 설정 파일, 파일 경로처럼 노트북에만 있는 설정에 기대고 있어요.
+3. 이미 컨테이너를 쓰고 있다면, Apple silicon Mac(arm64)에서 만든 이미지를 amd64 서버에서 돌려 **CPU 구조가 안 맞는** 경우도 있어요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. 서버 설치 절차를 문서·스크립트로 맞추기 | 지금 구조를 그대로 둠 | 서버마다, 시간이 지날수록 다시 어긋나기 쉬움. OS 차이는 못 없앰 |
+| B. 앱과 Java·라이브러리를 **컨테이너 이미지**로 묶어 같은 이미지를 노트북과 서버에서 실행 | 필요한 게 이미지에 다 들어 있어 호스트에 뭐가 깔렸든 똑같이 돎. 서버엔 컨테이너 런타임만 있으면 됨 | Docker 학습·이미지 빌드 과정이 추가됨. 커널은 호스트 것을 쓰니 커널 차이까지 없애진 못함 |
+| C. 개발·운영 모두 같은 VM 이미지 사용 | OS·커널까지 완전히 같게 맞춤 | VM 이미지가 무겁고 부팅이 느려 매번 배포하기엔 부담이 큼 |
+
+B를 택할 땐 **이미지의 CPU 구조를 서버에 맞춰** 빌드해야 해요. Mac에서 만든 arm64 이미지를 그대로 amd64 서버에 올리면 같은 문제가 다시 생겨요.
+
+**내가 고를 방법**
+B를 골라요. "환경 차이"를 사람이 맞추는 대신, 환경 자체를 이미지로 고정해서 어디서나 같은 것을 돌리는 게 근본 해결이에요. 이미지는 **CI**(코드를 올리면 자동으로 빌드·테스트하는 서버)에서 서버와 같은 CPU 구조로 빌드해 레지스트리에 올리고, 서버는 그 이미지를 받아서만 실행하게 해요. 적용 후엔 같은 이미지가 노트북과 서버에서 똑같이 뜨는지 확인해요.
+
+**채점 포인트**: 원인을 "실행 환경 차이"로 진단, OS·런타임·라이브러리·설정 차이, 이미지에 앱과 의존성을 함께 담음, 컨테이너는 호스트 커널을 공유(커널 차이는 남음), Mac의 Docker는 리눅스 VM 위에서 돎, arm64 대 amd64 CPU 구조 불일치, 레지스트리로 같은 이미지 배포.
+</details>
+
+<details>
+<summary>상황: Spring 서버 컨테이너가 배포 후 몇 분마다 재시작됩니다. 앱 로그에는 에러가 없고, 컨테이너 상태를 보면 exit code 137입니다.</summary>
+
+**상황 파악**
+에러 로그 없이 137로 죽는다면, 앱이 스스로 끝난 게 아니라 **밖에서 SIGKILL로 강제 종료**됐을 가능성이 커요. 몇 분마다 반복된다면 시간이 지나며 쌓이는 무언가, 특히 **메모리**를 의심해요. 먼저 `docker inspect`에서 `OOMKilled`가 true인지 확인해요.
+
+**원인 후보**
+1. 컨테이너 메모리 한도(cgroup)보다 JVM이 더 많이 쓰려고 해요. **JVM 힙**(Java 객체가 놓이는 메모리 영역)만이 아니라 스레드·메타데이터 같은 힙 밖 메모리도 한도 안에 들어가요. → [JVM 메모리와 GC](../../java/jvm-gc/)
+2. 메모리 누수로 사용량이 계속 늘다가 한도에 닿아요.
+3. `OOMKilled`가 false라면 OOM이 아니에요. 누군가 `docker kill`했거나, **헬스 체크**(앱이 살아 있는지 주기적으로 묻는 검사)에 실패해서 **오케스트레이터**(쿠버네티스처럼 컨테이너를 대신 관리해 주는 시스템)가 재시작시켰을 수 있어요. → [Probe와 스케일링](../k8s-probes-scaling/)
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. 컨테이너 메모리 한도 올리기 | 설정 한 줄로 바로 멈춤 | 누수라면 죽는 시점만 늦춤. 한 머신에 띄울 수 있는 컨테이너 수가 줄어 비용 증가 |
+| B. JVM 최대 힙을 컨테이너 한도보다 여유 있게 작게(한도의 일정 비율로) 설정 | 힙 밖 메모리 몫을 남겨 OOM kill을 막음. 한도 안에서 JVM이 **GC**(안 쓰는 객체 메모리를 자동으로 치우는 기능)로 스스로 정리함 | 힙이 작아지면 GC가 잦아지고, 정말 모자라면 앱 안에서 OutOfMemoryError가 남 |
+| C. 메모리 사용량을 모니터링하고 **힙 덤프**(그 순간 힙 메모리를 통째로 떠 둔 파일)로 누수 분석 | 근본 원인을 찾아 고침 | 시간이 걸려 당장의 재시작은 못 막음 |
+
+**내가 고를 방법**
+먼저 `OOMKilled`로 OOM이 맞는지 확정해요. 맞다면 당장은 A로 한도를 조금 올려 서비스를 안정시키고, 바로 B로 JVM 힙과 컨테이너 한도를 맞춰요. 그래도 사용량이 시간에 따라 계속 오른다면 누수이므로 C로 원인을 고쳐요. 한도만 계속 올리는 건 문제를 미루는 거라 피해요. 적용 후 메모리 그래프가 한도 아래에서 평평해지는지, 재시작이 멈췄는지 확인해요.
+
+**채점 포인트**: 137 = 128 + 9(SIGKILL), `OOMKilled` 확인으로 OOM 확정, 137이 OOM만 뜻하지 않음, cgroup 메모리 한도와 커널 OOM killer, JVM 힙 + 힙 밖 메모리가 한도 안에 들어가야 함, 한도 상향의 한계, 누수 분석, 적용 후 모니터링.
+</details>
+
+## 필기 포인트
+
+- 컨테이너 = 격리된 **프로세스**. 게스트 OS 없음, **호스트 커널 공유**. VM = 하이퍼바이저 위 게스트 OS(커널 포함).
+- namespace = **보이는 범위**(PID·NET·MNT·UTS·IPC·USER·Cgroup·Time). cgroup = **쓰는 양**(cpu·memory·io·pids 등).
+- UTS namespace = 호스트명. MNT = 마운트 지점. NET = 네트워크 장치·포트.
+- cgroup v1은 자원별 계층, v2는 통합 계층.
+- exit 137 = 128 + 9(SIGKILL). OOM인지는 `OOMKilled`로 확인.
+- `--memory-swap`을 `--memory`와 같게 주면 스왑 없음.
+- OCI 표준: image-spec, runtime-spec, distribution-spec. runc = OCI 참조 런타임.
+- macOS·Windows의 Docker Desktop은 리눅스 VM 안에서 컨테이너를 실행.
+
+## 함께 보기
+
+- [Docker 이미지](../docker-image/) — 이미지에 무엇이 들고, 어떻게 쌓이나
+- [컨테이너 실행·네트워크·볼륨](../docker-runtime/) — 포트, 컨테이너 간 통신, 데이터 보존, Compose
+- [쿠버네티스 구조](../k8s-architecture/) — 컨테이너 여러 개를 여러 서버에서 관리하기
+- [JVM 메모리와 GC](../../java/jvm-gc/) — 컨테이너 메모리 한도와 JVM 힙
+- [프로세스와 스레드](../../java/thread-basics/) — 컨테이너의 정체인 "프로세스"
+
+## 출처
+
+- [What is a container? — Docker Docs](https://docs.docker.com/get-started/docker-concepts/the-basics/what-is-a-container/)
+- [Virtual Machine Manager for Docker Desktop — Docker Docs](https://docs.docker.com/desktop/features/vmm/)
+- [Resource constraints — Docker Docs](https://docs.docker.com/engine/containers/resource_constraints/)
+- [Docker Engine — Docker Docs](https://docs.docker.com/engine/)
+- [What is a registry? — Docker Docs](https://docs.docker.com/get-started/docker-concepts/the-basics/what-is-a-registry/)
+- [namespaces(7) — Linux man-pages](https://man7.org/linux/man-pages/man7/namespaces.7.html)
+- [cgroups(7) — Linux man-pages](https://man7.org/linux/man-pages/man7/cgroups.7.html)
+- [About the OCI — Open Container Initiative](https://opencontainers.org/about/overview/)
+- 직접 실험: Docker Desktop(Mac), `alpine:3.20`·`ubuntu:24.04` 이미지, 1회 실행

@@ -12,6 +12,14 @@ import DataSourceBackOff from '~/components/viz/DataSourceBackOff.astro';
 스프링 부트는 스프링을 대체하는 게 아니라, 스타터·버전 관리·내장 톰캣·자동 설정으로 "설정 노가다"를 대신 해 주는 도구예요. 자동 설정은 클래스패스에 라이브러리가 있고 내가 같은 빈을 만들지 않았을 때만 조건부로 기본 빈을 등록해서, 내 설정이 항상 이겨요.
 :::
 
+:::note[처음이라면 여기까지]
+① 스프링 부트는 스프링을 대신하는 게 아니라, 스프링을 쓸 때 필요한 설정을 대신 해 주는 도구예요.
+
+② 라이브러리를 넣으면 기본 설정이 조건에 따라 자동으로 깔리고, 내가 직접 만든 게 있으면 기본값은 빠져요.
+
+③ 면접에선 질문 1·3번을 먼저 연습하세요.
+:::
+
 ## 쉽게 이해하기
 
 새 집에 이사 간다고 생각해 볼게요. 순수 스프링은 빈 집이에요. 냉장고, 세탁기, 전기 배선을 내가 하나하나 골라 사고 직접 연결해야 해요.
@@ -83,7 +91,7 @@ public class MyApp {
 - `@EnableAutoConfiguration` 안에는 `@Import(AutoConfigurationImportSelector.class)`가 들어 있어요. 이 **셀렉터**(selector, 어떤 설정 클래스를 가져올지 고르는 객체)가 자동 설정 후보를 모아 와요.
 - 공식 문서는 `@SpringBootApplication`이나 `@EnableAutoConfiguration`을 앱에 **하나만**, 주 설정 클래스에 붙이라고 권해요.
 
-### 5. 자동 설정은 어떻게 동작하나
+### 심화: 5. 자동 설정은 어떻게 동작하나
 
 #### ① 후보 목록: imports 파일
 
@@ -163,7 +171,7 @@ class Hikari { ... }
 
 자동 설정 클래스는 public이지만, 공개 API로 보는 건 "제외할 때 쓰는 클래스 이름"뿐이에요. 안쪽 중첩 클래스나 빈 메서드를 직접 가져다 쓰는 건 권하지 않아요.
 
-### 6. 외부 설정 우선순위
+### 심화: 6. 외부 설정 우선순위
 
 같은 설정 키(예: `server.port`)가 여러 곳에 있으면 **우선순위가 높은 쪽이 덮어써요**. 전체 목록은 15단계지만 면접에서는 이 흐름만 기억하면 돼요.
 
@@ -204,7 +212,7 @@ class Hikari { ... }
 - 여러 개를 켜면 **뒤에 쓴 게 이겨요**. `prod,live`면 `application-live`가 `application-prod`를 덮을 수 있어요.
 - `spring.profiles.active` 같은 프로파일 지정 키는 `application-prod.yml` 같은 프로파일 전용 파일 안에는 쓸 수 없어요.
 
-### 8. Actuator: 운영용 창구
+### 심화: 8. Actuator: 운영용 창구
 
 **Actuator**는 앱 상태를 HTTP나 JMX로 보여 주는 모듈이에요. 기본으로는 `/actuator/health` **하나만** 웹에 열려 있어요.
 

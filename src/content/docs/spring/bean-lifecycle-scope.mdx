@@ -12,6 +12,16 @@ import PrototypeInSingleton from '~/components/viz/PrototypeInSingleton.astro';
 스프링 빈은 **객체 생성 → 의존성 주입 → 초기화 콜백 → 사용 → 소멸 콜백** 순서로 살고, 초기화 직후 `BeanPostProcessor`가 AOP 프록시를 씌워요. 스코프는 빈을 몇 개, 얼마 동안 유지할지 정하는데, 기본인 싱글톤은 컨테이너에 하나만 두고 prototype은 요청할 때마다 새로 만든 뒤 소멸은 책임지지 않아요.
 :::
 
+:::note[처음이라면 여기까지]
+① 스프링이 관리하는 객체(빈)는 "만들기 → 필요한 것 넣어 주기 → 준비 작업 → 사용 → 정리" 순서로 살아요.
+
+② 준비 작업은 필요한 게 다 들어온 뒤에 실행돼요.
+
+③ 기본은 하나만 만들어 모두가 같이 쓰고(싱글톤), 부를 때마다 새로 만드는 방식(prototype)은 정리를 스프링이 챙겨 주지 않아요.
+
+④ 면접에선 질문 1·2번을 먼저 연습하세요.
+:::
+
 ## 쉽게 이해하기
 
 새 직원이 입사하는 과정을 떠올려 보세요. 먼저 사람을 뽑고(객체 생성), 노트북과 사원증을 지급하고(의존성 주입), 장비가 다 갖춰진 다음에 첫날 교육을 받아요(초기화). 그 뒤로 일을 하다가(사용) 퇴사할 때 장비를 반납해요(소멸).
@@ -79,7 +89,7 @@ public class PriceCache {
 
 **종료 훅**: 웹이 아닌 앱에서 순수 스프링 컨테이너를 쓰면 `ctx.registerShutdownHook()`을 불러야 JVM이 꺼질 때 소멸 콜백이 돌아요. 웹 기반 컨텍스트와 Spring Boot는 이미 처리돼 있어요.
 
-### 3. BeanPostProcessor: 프록시가 만들어지는 곳
+### 심화: 3. BeanPostProcessor: 프록시가 만들어지는 곳
 
 **BeanPostProcessor**(빈 후처리기)는 컨테이너가 만든 빈을 초기화 **전**과 **후**에 가로채서 손보거나, 아예 다른 객체로 바꿔 돌려줄 수 있는 확장 지점이에요.
 
@@ -133,7 +143,7 @@ prototype 빈은 요청마다 새로 만들어서 초기화 콜백까지는 불�
 
 그래서 prototype 빈이 커넥션이나 파일 같은 비싼 자원을 들고 있다면, 가져다 쓴 코드가 직접 정리해야 해요.
 
-### 6. 싱글톤에 prototype이나 request 빈을 주입하면
+### 심화: 6. 싱글톤에 prototype이나 request 빈을 주입하면
 
 의존성은 빈을 만들 때 **딱 한 번** 넣어요. 싱글톤 A에 prototype B를 주입하면 A가 만들어질 때 B도 한 번만 만들어지고, A는 계속 같은 B를 써요. prototype을 쓴 의미가 없어져요.
 
@@ -180,7 +190,7 @@ prototype에 스코프 프록시를 걸면 **메서드를 부를 때마다** 새
 
 **비추천**: `ApplicationContextAware`로 컨텍스트를 받아 `getBean()`을 직접 부르는 방법도 되긴 하지만, 비즈니스 코드가 스프링에 묶여요.
 
-### 7. (참고) 컨테이너 시작·정지 신호: SmartLifecycle
+### 심화: 7. 컨테이너 시작·정지 신호: SmartLifecycle
 
 빈 하나의 초기화·소멸과 별개로, `Lifecycle`·`SmartLifecycle`을 구현하면 컨테이너 전체의 시작·정지 신호를 받아요. phase 값이 낮은 것부터 시작하고, 정지는 역순이에요. 단계별 정지 대기 시간 기본값은 30초예요. 메시지 리스너를 켜고 끄는 데 써요.
 
@@ -197,26 +207,6 @@ prototype에 스코프 프록시를 걸면 **메서드를 부를 때마다** 새
 </details>
 
 <details>
-<summary>Q. 초기화 콜백 방법 3가지와 실행 순서, 무엇을 권장하나요?</summary>
-
-**답변(30초)** `@PostConstruct`, `InitializingBean`의 `afterPropertiesSet()`, `@Bean`의 `initMethod` 지정 3가지이고 이 순서로 실행돼요. 소멸도 `@PreDestroy`, `DisposableBean.destroy()`, `destroyMethod` 순이에요. 스프링 문서는 애너테이션 방식을 권장하고, 인터페이스 방식은 코드를 스프링에 묶어서 비권장해요. 코드를 고칠 수 없는 외부 라이브러리 객체에는 `initMethod`·`destroyMethod`를 써요.
-
-**꼬리질문**
-- Q. `@PostConstruct`는 누가 처리하나요? → 자바 표준(JSR-250, `jakarta.annotation`) 애너테이션이고, 스프링에서는 `CommonAnnotationBeanPostProcessor`가 찾아서 불러요.
-- Q. `destroyMethod`를 안 적으면요? → `@Bean`은 public `close`·`shutdown` 메서드를 자동으로 찾아 종료 때 불러요.
-</details>
-
-<details>
-<summary>Q. BeanPostProcessor란 무엇이고, AOP 프록시는 언제 만들어지나요?</summary>
-
-**답변(30초)** 컨테이너가 만든 빈을 초기화 전후에 가로채서 가공하거나 다른 객체로 바꿔 돌려줄 수 있는 확장 지점이에요. 스프링 AOP의 자동 프록시 생성이 이 후처리기로 구현돼 있어서, 초기화가 끝난 뒤 `postProcessAfterInitialization`에서 원본을 감싼 프록시를 돌려줘요. 컨테이너에는 프록시가 등록되고 다른 빈에도 프록시가 주입돼요. 그래서 `@PostConstruct`는 프록시 적용 전 원본에서 실행돼요.
-
-**꼬리질문**
-- Q. `@PostConstruct`에서 `@Transactional` 메서드를 부르면요? → 원본 객체에서 부르는 거라 트랜잭션이 안 걸려요.
-- Q. BeanFactoryPostProcessor와 차이는? → 빈 객체가 아니라 빈 설정 정보를, 빈을 만들기 전에 고쳐요. `${...}` 값 치환이 예예요.
-</details>
-
-<details>
 <summary>Q. 빈 스코프 종류를 말해 보세요.</summary>
 
 **답변(30초)** 기본인 singleton은 컨테이너당 하나, prototype은 요청할 때마다 새로 만들어요. 웹 환경에서는 HTTP 요청 하나 동안의 request, 세션 동안의 session, `ServletContext` 동안의 application, 웹소켓 세션 동안의 websocket이 있어요. 대부분 싱글톤을 쓰고, 그래서 빈 필드에 상태를 두지 않는 무상태 설계가 중요해요.
@@ -227,12 +217,32 @@ prototype에 스코프 프록시를 걸면 **메서드를 부를 때마다** 새
 </details>
 
 <details>
+<summary>Q. 초기화 콜백 방법 3가지와 실행 순서, 무엇을 권장하나요?</summary>
+
+**답변(30초)** `@PostConstruct`, `InitializingBean`의 `afterPropertiesSet()`, `@Bean`의 `initMethod` 지정 3가지이고 이 순서로 실행돼요. 소멸도 `@PreDestroy`, `DisposableBean.destroy()`, `destroyMethod` 순이에요. 스프링 문서는 애너테이션 방식을 권장하고, 인터페이스 방식은 코드를 스프링에 묶어서 비권장해요. 코드를 고칠 수 없는 외부 라이브러리 객체에는 `initMethod`·`destroyMethod`를 써요.
+
+**꼬리질문**
+- Q. `@PostConstruct`는 누가 처리하나요? → 자바 표준(JSR-250, `jakarta.annotation`) 애너테이션이고, 스프링에서는 `CommonAnnotationBeanPostProcessor`가 찾아서 불러요.
+- Q. `destroyMethod`를 안 적으면요? → `@Bean`은 public `close`·`shutdown` 메서드를 자동으로 찾아 종료 때 불러요.
+</details>
+
+<details>
 <summary>Q. prototype 빈의 생명주기는 싱글톤과 어떻게 다른가요?</summary>
 
 **답변(30초)** prototype은 요청할 때마다 새로 만들어 주입과 초기화 콜백까지만 해 주고, 그 뒤로는 스프링이 관리하지 않아요. 그래서 소멸 콜백인 `@PreDestroy`가 불리지 않아요. 자원을 들고 있다면 쓰는 쪽 코드가 직접 정리해야 해요. 싱글톤은 컨테이너가 보관하다가 종료 때 소멸 콜백까지 불러 줘요.
 
 **꼬리질문**
 - Q. prototype 빈을 정리하려면? → 사용하는 쪽에서 직접 `close`하거나, 문서가 드는 방법처럼 정리할 빈 참조를 모아 두는 커스텀 BeanPostProcessor를 둬요.
+</details>
+
+<details>
+<summary>Q. BeanPostProcessor란 무엇이고, AOP 프록시는 언제 만들어지나요?</summary>
+
+**답변(30초)** 컨테이너가 만든 빈을 초기화 전후에 가로채서 가공하거나 다른 객체로 바꿔 돌려줄 수 있는 확장 지점이에요. 스프링 AOP의 자동 프록시 생성이 이 후처리기로 구현돼 있어서, 초기화가 끝난 뒤 `postProcessAfterInitialization`에서 원본을 감싼 프록시를 돌려줘요. 컨테이너에는 프록시가 등록되고 다른 빈에도 프록시가 주입돼요. 그래서 `@PostConstruct`는 프록시 적용 전 원본에서 실행돼요.
+
+**꼬리질문**
+- Q. `@PostConstruct`에서 `@Transactional` 메서드를 부르면요? → 원본 객체에서 부르는 거라 트랜잭션이 안 걸려요.
+- Q. BeanFactoryPostProcessor와 차이는? → 빈 객체가 아니라 빈 설정 정보를, 빈을 만들기 전에 고쳐요. `${...}` 값 치환이 예예요.
 </details>
 
 <details>

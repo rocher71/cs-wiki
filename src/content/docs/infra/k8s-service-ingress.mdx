@@ -1,0 +1,372 @@
+---
+title: Service와 Ingress
+description: "Service는 계속 바뀌는 Pod들 앞에 고정된 이름과 가상 IP를 붙여 주는 대표 전화번호이고, Ingress는 외부 HTTP 요청을 도메인·경로에 따라 알맞은 Service로 보내 주는 안내 데스크예요."
+sidebar: { order: 6 }
+tags: [면접빈출, 서술형]
+---
+import { Aside } from '@astrojs/starlight/components';
+import ServiceStableEndpoint from '~/components/viz/ServiceStableEndpoint.astro';
+import IngressRequestPath from '~/components/viz/IngressRequestPath.astro';
+
+:::tip[한 줄 요약]
+**Service**는 수시로 죽고 새로 뜨며 IP가 바뀌는 Pod들 앞에 **고정된 이름과 가상 IP**를 붙여 주는 쿠버네티스 리소스예요. **Ingress**는 클러스터 밖에서 들어오는 **HTTP(S) 요청**을 도메인과 경로에 따라 알맞은 Service로 나눠 보내는 규칙이에요.
+:::
+
+<Aside type="note" title="이 페이지의 기준">
+쿠버네티스 공식 문서 v1.37 기준이에요(2026-11 조회). YAML 예시는 실제 클러스터 없이 `kubectl`의 `--dry-run=client`(서버에 보내지 않고 만들어질 YAML만 출력하는 옵션)로 모양을 확인했어요.
+</Aside>
+
+## 쉽게 이해하기
+
+큰 회사의 **고객센터**를 떠올려 봐요.
+
+상담원(**Pod**)은 교대 근무를 해요. 누가 퇴근하고 새 사람이 오면 자리 내선번호(**Pod IP**)도 바뀌어요. 고객에게 상담원 내선번호를 직접 알려 주면, 그 사람이 퇴근하는 순간 전화가 끊겨요.
+
+그래서 회사는 **대표 전화번호**(**Service**)를 하나 둬요. 고객은 항상 대표번호로만 걸고, 교환기가 지금 자리에 있는 상담원 중 한 명에게 연결해 줘요. 상담원이 바뀌어도 대표번호는 그대로예요.
+
+그런데 회사에 부서가 여러 개라면요? 건물 1층 **안내 데스크**(**Ingress**)가 방문객에게 "어느 회사, 무슨 용건이세요?"를 묻고, "주문 문의는 주문팀 대표번호로, 일반 안내는 웹팀 대표번호로" 보내 줘요. 정문 하나로 여러 부서를 받을 수 있어요.
+
+단, 실제로는 안내 데스크가 규칙표만 있다고 일하지 않아요. 규칙표(Ingress 리소스)를 읽고 실제로 손님을 안내할 **직원(Ingress Controller)**이 따로 있어야 해요. 그리고 이 안내 데스크는 **HTTP 손님만** 받아요.
+
+## 그림으로 보기
+
+<ServiceStableEndpoint />
+
+<IngressRequestPath />
+
+## 제대로 알기
+
+### 1. 왜 Service가 필요한가
+
+**Pod**(쿠버네티스가 컨테이너를 띄우는 최소 단위)는 **쓰고 버리는 존재**예요. 죽으면 고쳐 쓰지 않고 새 Pod를 만들고, 새 Pod는 새 IP를 받아요. **Deployment**(Pod 여러 개를 원하는 개수로 유지하고 버전을 바꿔 주는 리소스) 뒤의 Pod 묶음은 재시작, **스케일**(개수 늘리기·줄이기), **롤링 업데이트**(Pod를 하나씩 새 버전으로 바꾸는 배포)마다 바뀌어요. → [Pod와 Deployment](../k8s-pod-deployment/)
+
+다른 앱이 Pod IP를 직접 들고 있으면 이 변화 때마다 깨져요. 그래서 **안 바뀌는 접속 지점**이 필요해요.
+
+**Service**는 공식 문서 표현으로 "논리적인 엔드포인트(보통 Pod) 묶음과, 그 묶음에 접근하는 정책"을 정의하는 추상화예요. 쉽게 말해 "이 조건에 맞는 Pod들에게, 이 포트로 보내 줘"라는 약속이에요.
+
+### 2. Service는 Pod를 라벨로 "찾기만" 한다
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment
+spec:
+  type: ClusterIP        # 생략해도 기본값이 ClusterIP
+  selector:
+    app: payment         # 라벨 app=payment 인 Pod를 대상으로
+  ports:
+    - port: 80           # Service가 받는 포트
+      targetPort: 8080   # 실제 Pod 컨테이너 포트
+      protocol: TCP
+```
+
+- **selector**(셀렉터, 라벨 조건): Pod에 붙은 **라벨**(label, `app: payment` 같은 이름표)이 맞는 Pod를 고른다는 뜻이에요.
+- 쿠버네티스 컨트롤러가 라벨이 맞는 Pod를 계속 찾아서 **EndpointSlice**(그 Service 뒤에 있는 실제 Pod IP:포트 목록)를 갱신해요.
+- `port`는 Service가 받는 포트, `targetPort`는 Pod가 실제로 듣는 포트예요. `targetPort`를 생략하면 `port`와 같은 값이 돼요. 포트 번호 대신 컨테이너 포트의 이름을 써도 돼요.
+
+여기서 중요한 오해 하나. **Service는 Pod를 띄우지 않아요.** 라벨로 찾기만 해요. selector가 Pod 라벨과 한 글자라도 다르면 EndpointSlice가 비고, Service는 있는데 요청이 갈 곳이 없어요. 아래 서술형에서 다시 봐요.
+
+<Aside type="tip" title="selector 없는 Service">
+selector를 비워 두면 EndpointSlice가 자동으로 안 생겨요. 대신 사람이 EndpointSlice를 직접 만들어(라벨 `kubernetes.io/service-name: 서비스이름`) 클러스터 밖 DB 같은 주소를 가리키게 할 수 있어요. 단 루프백(127.0.0.1 같은 자기 자신 주소), 링크로컬, 다른 Service의 ClusterIP는 넣을 수 없어요.
+</Aside>
+
+### 3. Service 타입 비교
+
+| 타입 | 어디서 닿나 | 하는 일 | 주로 쓰는 곳 |
+|---|---|---|---|
+| **ClusterIP** (기본값) | 클러스터 안에서만 | 클러스터 내부용 가상 IP 하나를 받음 | 서비스끼리 내부 호출 |
+| **NodePort** | 밖에서 `노드IP:포트` | 모든 노드의 같은 포트(기본 범위 30000-32767)를 열어 Service로 보냄 | 테스트, 직접 LB를 앞에 둘 때 |
+| **LoadBalancer** | 밖에서 LB IP | 클라우드의 외부 로드밸런서를 만들어 붙임 | 클라우드에서 서비스 외부 공개 |
+| **ExternalName** | 클러스터 안에서 | 지정한 외부 도메인의 DNS **CNAME**(별칭)만 돌려줌. 프록시 없음 | 외부 API·DB를 내부 이름으로 부르기 |
+| **Headless** (`clusterIP: None`) | 클러스터 안에서 | ClusterIP 없음. DNS가 **Pod IP들을 직접** 돌려줌 | StatefulSet처럼 Pod 하나하나를 지정할 때 |
+
+포함 관계로 기억하면 쉬워요. **LoadBalancer ⊃ NodePort ⊃ ClusterIP**예요.
+
+- LoadBalancer를 만들면 보통 NodePort부터 할당하고(`spec.allocateLoadBalancerNodePorts` 기본값 true), 그 위에 클라우드 LB를 얹어요. 흐름은 `외부 LB → 각 노드의 NodePort → ClusterIP → Pod`예요.
+- 쿠버네티스 자체에는 로드밸런서 부품이 없어요. LoadBalancer 타입은 클라우드 연동이나 별도 구현이 있어야 실제로 LB가 생겨요.
+- NodePort 범위 30000-32767은 **기본값**이고 API 서버 옵션(`--service-node-port-range`)으로 바꿀 수 있어요.
+
+NodePort는 이렇게 만들어요. 구조는 ClusterIP와 같고 `type`만 달라요.
+
+```yaml
+spec:
+  type: NodePort
+  selector:
+    app: web
+  ports:
+    - port: 80
+      targetPort: 8080
+      # nodePort를 안 적으면 범위 안에서 서버가 골라 줌
+```
+
+### 4. 이름으로 부르기: 클러스터 DNS
+
+Service를 만들면 클러스터 DNS에 이름이 생겨요.
+
+- 형식: `서비스.네임스페이스.svc.cluster.local` (예: `payment.shop.svc.cluster.local`). `cluster.local`은 기본 클러스터 도메인 예시예요.
+- **kubelet**(각 노드에서 Pod를 실제로 띄우는 에이전트)이 Pod의 `/etc/resolv.conf`에 검색 목록(`search`)을 넣어 줘요. 그래서 **같은 네임스페이스**면 `payment`만, **다른 네임스페이스**면 `payment.shop`처럼 줄여 써도 돼요.
+- `payment`만 쓰면 **자기 네임스페이스에서만** 찾아요. 다른 네임스페이스 Service를 이렇게 부르면 못 찾아요.
+- 일반 Service 이름은 ClusterIP로, Headless Service 이름은 Ready 상태인 Pod IP 전체로 풀려요.
+- Pod가 **Ready**(요청을 받을 준비가 됐다는 상태)여야 DNS 레코드에 올라가요. → [Probe와 스케일링](../k8s-probes-scaling/)
+
+DNS 자체가 낯설다면 → [DNS](../../web/dns/)
+
+### 5. ClusterIP로 보낸 요청이 Pod에 닿는 방법: kube-proxy
+
+ClusterIP는 어떤 장비에도 실제로 붙어 있지 않은 **가상 IP**예요. 이걸 진짜 Pod로 이어 주는 게 **kube-proxy**예요. → [쿠버네티스 구조](../k8s-architecture/)
+
+1. kube-proxy는 노드마다 하나씩 돌면서 API 서버의 Service·EndpointSlice 변화를 지켜봐요.
+2. 노드에 "ClusterIP:포트로 가는 패킷은 이 Pod들 중 하나로 보내라"는 **커널 규칙**을 깔아요.
+3. 패킷은 kube-proxy 프로세스를 거치지 않아요. 커널이 규칙대로 **목적지 주소를 바꿔서(DNAT)** Pod로 보내요. iptables 모드에서는 Pod를 **무작위로** 골라요.
+
+| 모드 | 상태(v1.37) |
+|---|---|
+| `iptables` | 리눅스 **기본값** |
+| `nftables` | 앞으로 기본값이 될 예정. 리눅스 커널 5.13 이상 필요 |
+| `ipvs` | v1.35부터 **deprecated**(지원 중단 예고). v1.40부터 기본 비활성, v1.43에서 제거 예정 |
+
+기본값이 바뀔 예정이라 공식 문서는 모드를 명시적으로 설정하라고 권해요.
+
+왜 DNS로 Pod IP를 바로 돌려주지 않고 굳이 가상 IP를 쓸까요? DNS 응답을 TTL(캐시 유효 시간)과 상관없이 오래 들고 있는 프로그램이 있고, TTL을 짧게 하면 DNS 서버 부하가 커지기 때문이에요. 가상 IP는 안 바뀌니 캐시해도 안전해요.
+
+<Aside type="tip" title="세션 고정이 필요하면">
+`spec.sessionAffinity: ClientIP`로 같은 클라이언트 IP를 같은 Pod로 보낼 수 있어요(기본값 None, 기본 유지 시간 10800초 = 3시간). 하지만 로그인 세션을 Pod 메모리에 두는 구조를 고치는 근본 해결은 아니에요. 세션은 Redis 같은 외부 저장소에 두는 게 보통이에요.
+</Aside>
+
+### 6. Ingress: 외부 HTTP 요청의 안내 데스크
+
+서비스가 10개라면 LoadBalancer Service를 10개 만들어야 할까요? 그러면 클라우드 LB도 10개, 비용도 10배예요. **Ingress**는 외부 HTTP(S) 요청을 **하나의 입구**에서 받아 도메인(host)과 경로(path)에 따라 여러 Service로 나눠 줘요.
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: shop
+spec:
+  ingressClassName: nginx        # 이 Ingress를 처리할 컨트롤러 종류
+  tls:
+    - hosts: [shop.example.com]
+      secretName: shop-tls       # tls.crt, tls.key 가 든 Secret
+  rules:
+    - host: shop.example.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service: { name: api-svc, port: { number: 80 } }
+          - path: /
+            pathType: Prefix
+            backend:
+              service: { name: web-svc, port: { number: 80 } }
+```
+
+- **host와 path가 둘 다 맞아야** 그 Service로 보내요. host를 생략하면 모든 도메인에 적용돼요.
+- 같은 도메인에서 경로별로 나누는 걸 **fanout**, 같은 IP에서 도메인(Host 헤더)별로 나누는 걸 **이름 기반 가상호스팅**이라고 해요. 어떤 규칙에도 안 맞으면 `defaultBackend`로 가요.
+- 여러 path가 맞으면 **가장 긴 경로**가 이겨요. 위 예시에서 `/api/orders`는 `/`에도 맞지만 더 긴 `/api`로 가요.
+
+`pathType`은 꼭 적어야 해요.
+
+| pathType | 규칙 | 예 |
+|---|---|---|
+| `Exact` | 정확히 같아야 함(대소문자 구분) | `/foo`는 `/foo`만 |
+| `Prefix` | `/`로 나눈 **조각 단위** 접두어 | `/foo/bar`는 `/foo/bar/baz` 매치, `/foo/barbaz`는 불일치 |
+| `ImplementationSpecific` | 컨트롤러 마음대로 | 컨트롤러 문서 확인 |
+
+길이가 같으면 Exact가 Prefix보다 우선이에요. 호스트 와일드카드 `*.foo.com`은 **한 단계만** 매치해요(`bar.foo.com` O, `baz.bar.foo.com`·`foo.com` X).
+
+### 7. Ingress에서 꼭 알아야 할 제약
+
+- **Ingress Controller가 없으면 아무 일도 안 일어나요.** Ingress는 규칙표일 뿐이고, 그 규칙을 읽어 실제로 트래픽을 받는 프로그램(Ingress Controller)을 따로 설치해야 해요. `ingressClassName`으로 어느 컨트롤러가 처리할지 정하고, 생략하면 기본 IngressClass가 있어야 해요. 컨트롤러마다 동작이 조금씩 달라요.
+- Ingress Controller 자신도 보통 **LoadBalancer나 NodePort Service**로 밖에 노출돼요. Ingress는 Service 타입이 아니라 별도 리소스(`networking.k8s.io`)이고, 결국 Service를 목적지로 가리켜요.
+- **HTTP(S)만** 다뤄요. MySQL 3306 같은 임의의 TCP 포트는 Ingress로 열 수 없고, NodePort나 LoadBalancer Service를 써야 해요.
+- **TLS는 Ingress에서 끝나요.** HTTPS 인증서는 Secret에 넣어 참조하고, TLS 포트는 443 하나만 지원해요. 그 뒤 Service·Pod까지는 **평문** HTTP예요. 여러 도메인은 **SNI**(TLS 연결 시 클라이언트가 원하는 도메인을 먼저 알려 주는 기능)로 같은 443에서 구분해요(컨트롤러가 지원할 때). → [HTTPS와 TLS](../../web/https-tls/)
+
+LoadBalancer Service와 Ingress의 차이는 결국 **L4 대 L7**이에요. LoadBalancer Service는 IP·포트만 보고 넘기는 L4 입구고, Ingress는 HTTP의 도메인·경로까지 읽고 나누는 L7 입구예요. → [로드밸런서와 프록시](../../web/load-balancer-proxy/)
+
+### 8. 지금의 상태: Ingress는 frozen, Gateway API 권장
+
+| 대상 | 상태 | 뜻 |
+|---|---|---|
+| **Ingress API** | **frozen**(기능 동결) | v1.19부터 stable. 안정성은 보장되고 **제거 계획은 없지만**, 더는 새 기능이 추가되지 않아요 |
+| **Gateway API** | 쿠버네티스 프로젝트가 **권장** | CRD로 추가하는 애드온 API 묶음 |
+| **ingress-nginx 컨트롤러** | **은퇴**(2025-11 발표) | best-effort 유지보수는 2026년 3월까지. 이후 릴리스·버그 수정·보안 패치 없음 |
+
+자주 틀리는 부분이에요. **"Ingress는 deprecated"는 틀린 말이에요.** Ingress API는 frozen이지 deprecated가 아니에요. 은퇴한 건 Ingress를 구현한 컨트롤러 중 하나인 **ingress-nginx**예요. (이 페이지에서 실제로 deprecated인 건 kube-proxy의 ipvs 모드예요.)
+
+**Gateway API**는 **CRD**(Custom Resource Definition, 쿠버네티스에 새 리소스 종류를 추가하는 방법)로 설치하는 API 묶음이에요. 주요 리소스는 이래요.
+
+- **GatewayClass**: 어떤 컨트롤러가 처리하나(종류)
+- **Gateway**: 로드밸런서 같은 트래픽 입구 인스턴스
+- **HTTPRoute**, **GRPCRoute**: 경로별 라우팅 규칙
+
+역할을 **인프라 제공자 / 클러스터 운영자 / 앱 개발자**로 나눠 각자 자기 리소스만 다루도록 설계됐어요. Ingress 하나에 모든 걸 몰아 쓰던 것과 다른 점이에요.
+
+## 면접 질문
+
+<details>
+<summary>Q. Service는 왜 필요한가요? Pod IP로 직접 통신하면 안 되나요?</summary>
+
+**답변(30초)** Pod는 재시작·스케일·롤링 업데이트 때마다 새로 만들어지고 IP가 바뀌기 때문이에요. Pod IP를 직접 들고 있으면 그때마다 연결이 깨져요. Service는 라벨 셀렉터로 대상 Pod 묶음을 고르고, 안 바뀌는 이름과 가상 IP를 줘요. 뒤의 Pod가 바뀌면 EndpointSlice가 갱신되니, 호출하는 쪽은 Service 이름만 알면 돼요.
+
+**꼬리질문**
+- Q. Service가 Pod를 만들어 주나요? → 아니에요. 라벨로 찾기만 해요. Pod는 Deployment 같은 리소스가 만들어요.
+- Q. 다른 네임스페이스 Service는 어떻게 부르나요? → `서비스.네임스페이스`나 전체 이름 `서비스.네임스페이스.svc.cluster.local`로 불러요. 이름만 쓰면 자기 네임스페이스에서만 찾아요.
+</details>
+
+<details>
+<summary>Q. ClusterIP, NodePort, LoadBalancer의 차이는요?</summary>
+
+**답변(30초)** 어디서 접근할 수 있느냐가 달라요. ClusterIP는 기본값이고 클러스터 안에서만 닿는 가상 IP예요. NodePort는 모든 노드의 같은 포트(기본 30000-32767)를 열어 밖에서 `노드IP:포트`로 들어오게 해요. LoadBalancer는 클라우드 로드밸런서를 만들어 붙여요. 보통 LoadBalancer가 NodePort를, NodePort가 ClusterIP를 포함하는 관계예요.
+
+**꼬리질문**
+- Q. 온프레미스에서 LoadBalancer 타입을 만들면요? → 쿠버네티스 자체엔 LB 부품이 없어서, 클라우드 연동이나 별도 구현이 없으면 외부 LB가 생기지 않아요.
+- Q. Headless Service는요? → `clusterIP: None`으로 가상 IP와 프록시 없이, DNS가 Pod IP들을 직접 돌려줘요. StatefulSet처럼 Pod를 하나하나 지정할 때 써요.
+</details>
+
+<details>
+<summary>Q. Service로 보낸 요청이 실제 Pod에 어떻게 도착하나요?</summary>
+
+**답변(30초)** 노드마다 도는 kube-proxy가 Service와 EndpointSlice를 지켜보다가 노드에 iptables나 nftables 규칙을 깔아요. 패킷이 ClusterIP로 나가면 커널이 그 규칙에 따라 목적지를 Pod IP 중 하나로 바꿔(DNAT) 보내요. kube-proxy가 패킷을 직접 중계하는 게 아니라 규칙만 설정하는 거예요. 기본 모드는 iptables이고 Pod는 무작위로 골라요.
+
+**꼬리질문**
+- Q. 왜 DNS 라운드로빈 대신 가상 IP를 쓰나요? → TTL을 무시하고 결과를 오래 캐시하는 프로그램이 있고, TTL을 낮추면 DNS 부하가 커지기 때문이에요.
+- Q. ipvs 모드는요? → v1.35부터 deprecated라 새로 고를 이유가 없어요. 앞으로 기본값은 nftables로 바뀔 예정이에요.
+</details>
+
+<details>
+<summary>Q. Ingress와 LoadBalancer Service는 어떻게 다른가요?</summary>
+
+**답변(30초)** LoadBalancer Service는 IP·포트 단위로 Service 하나를 밖에 여는 L4 입구예요. Ingress는 HTTP의 도메인과 경로를 보고 여러 Service로 나눠 주는 L7 규칙이에요. 그래서 서비스가 많을 때 LB를 여러 개 만드는 대신 Ingress 하나로 묶어 비용과 관리를 줄여요. 다만 Ingress는 HTTP(S)만 다루고, 동작하려면 Ingress Controller가 꼭 설치돼 있어야 해요.
+
+**꼬리질문**
+- Q. HTTPS면 Pod까지 암호화되나요? → 아니에요. TLS는 Ingress(443)에서 끝나고 Service·Pod까지는 평문이에요.
+- Q. Ingress로 DB 포트를 열 수 있나요? → 없어요. TCP는 NodePort나 LoadBalancer Service를 써요.
+</details>
+
+<details>
+<summary>Q. Ingress는 deprecated인가요? Gateway API는 뭔가요?</summary>
+
+**답변(30초)** deprecated가 아니라 frozen이에요. 제거 계획은 없지만 기능 추가는 멈췄고, 쿠버네티스 프로젝트는 Gateway API를 권장해요. Gateway API는 CRD로 설치하는 API 묶음이고, GatewayClass·Gateway·HTTPRoute 같은 리소스로 인프라 제공자·클러스터 운영자·앱 개발자의 역할을 나눠요. 별개로 커뮤니티 컨트롤러인 ingress-nginx는 은퇴해서 2026년 3월 이후 보안 패치가 없어요.
+
+**꼬리질문**
+- Q. ingress-nginx를 쓰고 있다면요? → 보안 패치가 끊긴 컴포넌트가 외부 트래픽 입구에 있는 셈이라, 다른 컨트롤러나 Gateway API로 옮길 계획을 세워야 해요.
+</details>
+
+## 서술형 연습
+
+<details>
+<summary>상황: 주문 서비스가 결제 Pod의 IP를 설정 파일에 적어 두고 호출합니다. 결제 Pod가 재시작될 때마다 주문 서비스에서 연결 오류가 쏟아집니다.</summary>
+
+**상황 파악**
+재시작 직후에만 오류가 난다면 코드보다 **주소**가 문제일 가능성이 커요. Pod는 재시작되면 새 Pod로 만들어지고 IP가 바뀌어요. 주문 서비스는 이미 사라진 옛 IP로 계속 요청하고 있어요.
+
+**원인 후보**
+1. Pod IP를 설정에 하드코딩해서, 새 Pod의 IP를 모름.
+2. 결제 Pod가 여러 개인데 그중 하나의 IP만 알고 있어 부하도 한 곳에 몰림.
+3. (Service를 쓰더라도) 새 Pod가 아직 준비 안 됐는데 트래픽을 받는 경우. Ready 여부를 확인해야 해요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. 재시작 때마다 설정의 IP를 사람이 고치기 | 당장 구조 변경 없음 | 재시작·스케일마다 반복, 수동 실수, 근본 해결 아님 |
+| B. 결제 Pod 앞에 **ClusterIP Service**를 두고 `payment` 이름으로 호출 | 이름·가상 IP가 고정, Pod가 바뀌면 EndpointSlice가 자동 갱신, 여러 Pod로 자동 분산 | Service의 selector와 Pod 라벨을 정확히 맞춰야 함. Service라는 리소스 하나를 더 관리 |
+| C. **Headless Service**로 DNS에서 Pod IP 목록을 받아 앱이 직접 고르기 | 클라이언트가 Pod를 골라 붙을 수 있음 | 앱이 DNS 캐시·재조회·분산을 직접 신경 써야 함. 일반 API 호출엔 과함 |
+
+**내가 고를 방법**
+B를 골라요. 상태 없는 결제 API는 어느 Pod가 받아도 되니, 고정된 Service 이름 하나로 부르는 게 가장 단순해요. 설정 파일의 IP를 `http://payment`(다른 네임스페이스면 `payment.네임스페이스`)로 바꾸고, readiness probe를 둬서 준비된 Pod만 받게 해요. 적용 후 결제 Pod를 일부러 재시작해 오류가 안 나는지 확인해요.
+
+**채점 포인트**: Pod는 재시작 시 IP가 바뀜, Pod IP 하드코딩 금지, Service = 고정 이름 + 가상 IP, selector·라벨, EndpointSlice 자동 갱신, 클러스터 DNS 이름(네임스페이스 포함 형식), Ready인 Pod만 트래픽, 적용 후 검증.
+</details>
+
+<details>
+<summary>상황: 같은 도메인 shop.example.com 에서 /api 로 오는 요청은 API 서버로, 나머지(/web 포함)는 웹 프런트 서버로 보내고 싶습니다. 지금은 둘 다 LoadBalancer Service로 따로 열려 있어 도메인도 둘입니다.</summary>
+
+**상황 파악**
+요구는 "**하나의 도메인**에서 **경로에 따라** 다른 서비스로 보내기"예요. 이건 HTTP 경로를 읽어야 하는 일이라 IP·포트만 보는 L4 로드밸런서(LoadBalancer Service)로는 할 수 없어요. L7에서 경로를 보고 나눠 주는 입구가 필요해요.
+
+**원인 후보(지금 구조의 문제)**
+1. LoadBalancer Service는 Service 하나당 입구 하나라 도메인·LB가 서비스 수만큼 늘어나요.
+2. 서비스마다 TLS 인증서를 따로 관리해야 해요.
+3. 경로 기반 분기 기능 자체가 없어요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. **Ingress** 하나에 `host: shop.example.com`, `/api`(Prefix) → `api-svc`, `/`(Prefix) → `web-svc` 규칙 | 입구·LB 하나로 통합, 가장 긴 경로가 우선이라 `/api/...`는 API로, 나머지는 웹으로. TLS도 Ingress 한 곳에서 종료 | Ingress Controller를 설치·운영해야 함. Ingress API는 frozen이라 새 기능은 안 들어옴. 컨트롤러별 동작 차이 |
+| B. **Gateway API**(Gateway + HTTPRoute)로 같은 경로 규칙 | 쿠버네티스가 권장하는 방향, 운영자(Gateway)와 개발자(Route) 역할 분리 | CRD와 지원 컨트롤러를 따로 설치해야 하고 팀이 새로 배워야 함 |
+| C. 웹 서버(nginx 등)를 직접 하나 띄워 리버스 프록시로 분기 | 익숙한 설정 | 프록시 설정·배포·확장을 직접 관리, 쿠버네티스 리소스로 선언이 안 됨 |
+
+경로 규칙을 쓸 때 주의할 점이 있어요. `Prefix`는 `/` 조각 단위라 `/api`는 `/api/orders`엔 맞지만 `/apiv2`엔 안 맞아요. `/api`를 `Exact`로 쓰면 `/api/orders`가 웹으로 새요.
+
+**내가 고를 방법**
+이미 Ingress Controller를 쓰는 클러스터라면 A로 빠르게 통합해요. 새로 구성하는 거라면 B(Gateway API)를 골라요. Ingress는 기능이 동결됐고 대표 컨트롤러였던 ingress-nginx도 은퇴했으니, 새로 깔 바에는 권장 방향으로 가는 게 장기적으로 이득이에요. 어느 쪽이든 기존 두 LoadBalancer Service는 ClusterIP로 바꿔 외부 입구를 하나로 줄이고, `/api/orders`·`/`·`/web` 요청이 각각 맞는 서비스로 가는지 확인해요.
+
+**채점 포인트**: 경로 분기는 L7 기능(L4 LB로 불가), Ingress 규칙 = host + path + backend Service, pathType(Prefix 조각 단위·Exact), 가장 긴 경로 우선, Ingress Controller 필요, TLS 종료 지점, 기존 Service는 ClusterIP로, Ingress frozen·Gateway API 권장, 적용 후 경로별 검증.
+</details>
+
+<details>
+<summary>상황: Deployment로 Pod 3개가 Running 상태이고 Service도 만들었는데, Service로 보낸 요청이 전부 실패합니다. Pod IP로 직접 보내면 응답이 옵니다.</summary>
+
+**상황 파악**
+Pod에 직접 보내면 된다는 건 **앱은 살아 있다**는 뜻이에요. 문제는 Service와 Pod 사이 연결이에요. Service는 selector로 Pod를 찾아 EndpointSlice에 담고, 그 목록으로 트래픽을 보내요. 그래서 먼저 **EndpointSlice에 Pod IP가 들어 있는지**를 봐요.
+
+```bash
+kubectl get endpointslices -l kubernetes.io/service-name=payment
+kubectl get pods --show-labels           # Pod에 실제로 붙은 라벨 확인
+kubectl get service payment -o yaml      # selector, port, targetPort 확인
+```
+
+**원인 후보**
+1. **selector와 Pod 라벨 불일치**: Service는 `app: payment`, Pod는 `app: payments`처럼 한 글자라도 다르면 EndpointSlice가 비어요. 가장 흔한 원인이에요.
+2. **targetPort 불일치**: EndpointSlice는 차 있는데 `targetPort`가 앱이 실제로 듣는 포트와 달라요.
+3. **Pod가 Ready가 아님**: Running이어도 readiness probe를 통과 못 하면 트래픽 대상에서 빠져요.
+4. **네임스페이스 착오**: 다른 네임스페이스의 Service를 이름만으로 불러 못 찾는 경우.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. Service의 selector를 Pod 라벨에 맞게 고치기 | Service만 다시 적용하면 바로 반영, Pod 재시작 없음 | 다른 Pod까지 실수로 잡히지 않게 selector를 정확히 써야 함 |
+| B. Deployment의 Pod 템플릿 라벨을 Service에 맞게 고치기 | 라벨 체계를 정리할 기회 | 템플릿이 바뀌어 Pod가 새로 배포됨. Deployment 자신의 selector와도 맞춰야 함 |
+| C. targetPort를 앱 포트(또는 컨테이너 포트 이름)에 맞추기 | 포트 이름을 쓰면 앱 포트가 바뀌어도 Service는 그대로 | 원인이 포트일 때만 해당 |
+
+**내가 고를 방법**
+EndpointSlice가 비어 있으면 1번 원인이라 확정하고, 보통 A로 Service selector를 고쳐요. Pod를 다시 띄울 필요가 없어 가장 빠르고 안전해요. 라벨 이름 규칙이 팀에서 어긋나 있었다면 B로 정리해요. EndpointSlice가 차 있는데도 실패하면 C와 Ready 상태를 봐요. 고친 뒤 EndpointSlice에 Pod IP 3개가 올라왔는지, Service 이름으로 호출이 되는지 확인해요. 재발을 막으려면 배포 YAML을 리뷰할 때 selector와 라벨을 함께 보는 체크 항목을 둬요.
+
+**채점 포인트**: Pod 직접 호출 성공 = 앱 정상, Service는 selector로 Pod를 찾기만 함, EndpointSlice 비어 있음 확인(`kubernetes.io/service-name` 라벨), 라벨 불일치가 1순위, targetPort, Ready 상태, 네임스페이스, 수정 후 EndpointSlice 재확인.
+</details>
+
+## 필기 포인트
+
+- Service 기본 타입 = **ClusterIP**. NodePort 기본 범위 **30000-32767**.
+- 포함 관계: **LoadBalancer ⊃ NodePort ⊃ ClusterIP**.
+- **ExternalName** = DNS CNAME만 반환, 프록시 없음, kube-proxy가 처리 안 함.
+- **Headless** = `clusterIP: None`. DNS가 Pod IP들을 직접 반환.
+- DNS 이름: `서비스.네임스페이스.svc.cluster.local`.
+- kube-proxy 기본 모드 = **iptables**(v1.37). nftables는 커널 5.13+. ipvs는 v1.35부터 deprecated.
+- `sessionAffinity: ClientIP`, 기본 유지 10800초.
+- Ingress = **HTTP(S)만**, **Ingress Controller 필수**, TLS는 **443**에서 종료(뒤는 평문).
+- pathType: Exact / Prefix(`/` 조각 단위) / ImplementationSpecific. 가장 긴 경로 우선, 같으면 Exact 우선.
+- Ingress API = **frozen**(deprecated 아님). 권장 = **Gateway API**. ingress-nginx 컨트롤러 은퇴(유지보수 2026년 3월까지).
+
+## 함께 보기
+
+- [로드밸런서와 프록시](../../web/load-balancer-proxy/) — L4와 L7의 차이, 리버스 프록시
+- [DNS](../../web/dns/) — 이름이 IP로 바뀌는 과정, CNAME
+- [쿠버네티스 구조](../k8s-architecture/) — kube-proxy·kubelet이 사는 곳
+- [Pod와 Deployment](../k8s-pod-deployment/) — Service가 가리키는 Pod를 누가 만드나
+- [Probe와 스케일링](../k8s-probes-scaling/) — Ready가 아니면 트래픽에서 빠지는 이유
+
+## 출처
+
+- [Service — Kubernetes Docs](https://kubernetes.io/docs/concepts/services-networking/service/)
+- [DNS for Services and Pods — Kubernetes Docs](https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/)
+- [Virtual IPs and Service Proxies — Kubernetes Docs](https://kubernetes.io/docs/reference/networking/virtual-ips/)
+- [Ingress — Kubernetes Docs](https://kubernetes.io/docs/concepts/services-networking/ingress/)
+- [Gateway API — Kubernetes Docs](https://kubernetes.io/docs/concepts/services-networking/gateway/)
+- [Ingress NGINX Retirement — Kubernetes Blog (2025-11-11)](https://kubernetes.io/blog/2025/11/11/ingress-nginx-retirement/)
+- 직접 확인: `kubectl create service/ingress --dry-run=client -o yaml`로 생성될 YAML 모양 확인(클러스터 접속 없음)

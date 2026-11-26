@@ -1,0 +1,85 @@
+---
+// order Pod는 이름(payment)과 ClusterIP만 알고, 노드 커널 규칙이 EndpointSlice의 Pod IP 중 하나로 목적지를 바꾼다. Pod가 바뀌어도 이름·ClusterIP는 그대로.
+import Stepper from '../Stepper.astro';
+const PX = [14, 118, 222], PW = 84, PY = 236, PH = 54;
+const notes = [
+  ['이름 payment → ClusterIP', 'DNS가 가상 IP 하나를 알려 줘요'],
+  ['ClusterIP:80으로 보냈더니', '노드의 커널 규칙에 걸려요'],
+  ['목적지를 Pod IP:8080으로 바꿔요', 'EndpointSlice 목록 중 하나를 골라요'],
+  ['Pod 2 종료, 새 Pod는 IP-d', 'EndpointSlice와 규칙이 자동 갱신'],
+  ['order 쪽은 바뀐 게 없어요', '같은 이름·같은 ClusterIP, 새 Pod로 연결'],
+];
+const steps = [
+  { caption: "order Pod가 'payment'라는 Service 이름으로 호출해요. 클러스터 DNS가 그 이름에 붙은 ClusterIP(어느 장비에도 없는 가상 IP)를 돌려줘요.", show: ['q', 'ans', 'p2old', 'eA', 'n0'] },
+  { caption: '패킷이 ClusterIP:80으로 나가요. 노드에는 kube-proxy가 미리 깔아 둔 커널 규칙(iptables/nftables)이 있어서 패킷이 여기에 걸려요.', show: ['q', 'ans', 'pkt', 'rule', 'hlNode', 'p2old', 'eA', 'n1'] },
+  { caption: '규칙은 EndpointSlice에 적힌 Pod IP 3개 중 하나를 골라 목적지를 Pod IP:8080으로 바꿔(DNAT) 보내요. kube-proxy가 직접 중계하는 게 아니에요.', show: ['pkt', 'rule', 'dnat', 'hlP1', 'p2old', 'eA', 'hlEs', 'n2'] },
+  { caption: 'Pod 2가 죽고 새 Pod가 새 IP(IP-d)로 떠요. 컨트롤 플레인이 EndpointSlice를 고치고, kube-proxy가 노드 규칙도 새 목록으로 갱신해요.', show: ['rule', 'p2new', 'eB', 'hlEs', 'hlNode', 'n3'] },
+  { caption: "order는 여전히 'payment'와 같은 ClusterIP만 써요. 갱신된 규칙 덕분에 요청은 새 Pod(IP-d)에도 갈 수 있어요.", show: ['q', 'ans', 'pkt', 'rule', 'dnat2', 'hlP2', 'p2new', 'eB', 'n4'] },
+];
+---
+<Stepper title="Service: 이름은 그대로, Pod만 바뀐다" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 446" role="img" aria-label="order Pod가 payment 이름으로 ClusterIP를 받아 요청하면, 노드의 커널 규칙이 EndpointSlice의 Pod IP 중 하나로 목적지를 바꾼다. Pod가 교체되면 EndpointSlice와 규칙만 갱신되고 order는 같은 이름과 ClusterIP를 계속 쓴다">
+    <defs><marker id="sse-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" style="fill:var(--sl-color-gray-3)" /></marker></defs>
+
+    <!-- order / DNS -->
+    <rect class="box" x="10" y="28" width="130" height="52" rx="8" />
+    <text x="75" y="54" style="font-weight:700">order Pod</text>
+    <rect class="box" x="180" y="28" width="130" height="52" rx="8" />
+    <text x="245" y="44" style="font-weight:700">클러스터 DNS</text>
+    <g data-id="q">
+      <text class="sub" x="160" y="12">'payment' 조회</text>
+      <line class="line" x1="140" y1="40" x2="178" y2="40" marker-end="url(#sse-arr)" />
+    </g>
+    <g data-id="ans">
+      <line class="line" x1="180" y1="68" x2="142" y2="68" marker-end="url(#sse-arr)" />
+      <text class="hi" x="245" y="66" style="font-size:14px">ClusterIP 응답</text>
+    </g>
+
+    <!-- 패킷 -->
+    <g data-id="pkt">
+      <line class="line" x1="75" y1="80" x2="75" y2="126" marker-end="url(#sse-arr)" />
+      <text class="l mono" x="86" y="104">목적지 ClusterIP:80</text>
+    </g>
+
+    <!-- 노드 규칙 -->
+    <rect class="box" x="10" y="128" width="300" height="64" rx="8" />
+    <text x="160" y="146" style="font-weight:700">노드 커널 규칙 (kube-proxy가 설정)</text>
+    <text data-id="rule" class="mono" x="160" y="172">ClusterIP:80 → Pod IP:8080</text>
+    <rect data-id="hlNode" class="hl" x="7" y="125" width="306" height="70" rx="10" />
+
+    <line data-id="dnat" class="line" x1="90" y1="192" x2="58" y2="233" marker-end="url(#sse-arr)" />
+    <line data-id="dnat2" class="line" x1="160" y1="192" x2="160" y2="233" marker-end="url(#sse-arr)" />
+
+    <!-- Pod들 -->
+    {PX.map((x) => <rect class="box" x={x} y={PY} width={PW} height={PH} rx="6" />)}
+    <text x={PX[0] + PW / 2} y="254">Pod 1</text>
+    <text class="mono" x={PX[0] + PW / 2} y="275">IP-a</text>
+    <g data-id="p2old" class="hide">
+      <text x={PX[1] + PW / 2} y="254">Pod 2</text>
+      <text class="mono" x={PX[1] + PW / 2} y="275">IP-b</text>
+    </g>
+    <g data-id="p2new" class="hide">
+      <text class="hi" x={PX[1] + PW / 2} y="254">새 Pod</text>
+      <text class="mono hi" x={PX[1] + PW / 2} y="275">IP-d</text>
+    </g>
+    <text x={PX[2] + PW / 2} y="254">Pod 3</text>
+    <text class="mono" x={PX[2] + PW / 2} y="275">IP-c</text>
+    <rect data-id="hlP1" class="hl" x={PX[0] - 3} y={PY - 3} width={PW + 6} height={PH + 6} rx="8" />
+    <rect data-id="hlP2" class="hl" x={PX[1] - 3} y={PY - 3} width={PW + 6} height={PH + 6} rx="8" />
+
+    <!-- EndpointSlice -->
+    <line class="line" x1="160" y1="314" x2="160" y2="294" style="stroke-dasharray:4 3" />
+    <rect class="frame" x="10" y="314" width="300" height="54" rx="8" />
+    <text x="160" y="331" style="font-weight:700">EndpointSlice (Pod IP 목록)</text>
+    <text data-id="eA" class="mono hide" x="160" y="354">IP-a · IP-b · IP-c</text>
+    <text data-id="eB" class="mono hide" x="160" y="354">IP-a · <tspan class="hi">IP-d</tspan> · IP-c</text>
+    <rect data-id="hlEs" class="hl" x="7" y="311" width="306" height="60" rx="10" />
+
+    {notes.map(([a, b], i) => (
+      <g data-id={`n${i}`} class="hide">
+        <text class="l hi" x="4" y="404" style="font-size:15px">{a}</text>
+        <text class="l" x="4" y="428" style="font-size:14px">{b}</text>
+      </g>
+    ))}
+  </svg>
+</Stepper>

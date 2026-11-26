@@ -12,6 +12,16 @@ import UnidirectionalOneToManyUpdate from '~/components/viz/UnidirectionalOneToM
 테이블은 외래키 하나로 양쪽을 다 찾아가지만, 객체는 참조가 있는 쪽에서만 갈 수 있어서 "양방향"은 사실 단방향 참조 두 개예요. 그중 **외래키를 실제로 바꾸는 쪽이 연관관계 주인**이고, 일대다에서는 외래키를 가진 **다(N) 쪽, `@ManyToOne`이 주인**이에요. 반대쪽은 `mappedBy`를 달고, DB에는 반영되지 않아요.
 :::
 
+:::note[처음이라면 여기까지]
+① DB 표는 한 칸(외래키)으로 양쪽을 다 찾지만, 자바 객체는 참조를 가진 쪽에서만 상대를 찾아갈 수 있어요.
+
+② 둘 중 DB 값을 실제로 바꾸는 쪽(연관관계 주인)은 '다(N)' 쪽이에요.
+
+③ 반대쪽(mappedBy)만 고치면 경고 없이 DB에 안 들어가요.
+
+④ 면접에선 질문 1·2번을 먼저 연습하세요.
+:::
+
 ## 쉽게 이해하기
 
 회사 인사 서류를 떠올려 봐요. 직원 카드마다 "소속 팀" 칸이 하나 있어요. 팀이 누구누구인지 알고 싶으면 카드 더미에서 "소속 팀 = 개발팀"인 카드를 찾으면 돼요. 서류(DB)에는 이 칸 하나만 있으면 양쪽을 다 알 수 있어요.
@@ -105,7 +115,7 @@ public void removeMember(Member m) {
 흔한 설계 조언은 **단방향 `@ManyToOne`으로 시작하고**, 반대 방향으로 조회할 일이 생기면 그때 `mappedBy` 컬렉션을 추가하는 거예요. 양방향은 편하지만 양쪽을 맞추는 비용이 따라와요.
 </Aside>
 
-### 4. 단방향 @OneToMany는 왜 비효율적일까
+### 심화: 4. 단방향 @OneToMany는 왜 비효율적일까
 
 부모에만 컬렉션이 있고 자식은 부모를 모르는 구조예요. 외래키는 여전히 **자식(N) 테이블**에 있어야 하는데, 자식 엔티티에 그 값을 담을 필드가 없어요. 그래서 두 가지 일이 생겨요.
 
@@ -169,7 +179,7 @@ JPA 스펙은 `cascade = REMOVE`를 `@OneToOne`, `@OneToMany`에만 쓰라고 �
 | Member ⇄ Product (`@ManyToMany`) | Member 1 : N **Order** N : 1 Product |
 | 링크 테이블에 member_id, product_id만 | Order가 member_id, product_id + 수량, 주문일을 가짐 |
 
-### 7. 엔티티의 equals/hashCode
+### 심화: 7. 엔티티의 equals/hashCode
 
 일반 규약은 [equals와 hashCode](../../java/equals-hashcode/)에서 다뤄요. 엔티티에는 특별한 함정이 있어요.
 

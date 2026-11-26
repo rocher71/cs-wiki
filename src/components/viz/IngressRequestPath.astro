@@ -1,0 +1,89 @@
+---
+// 외부 HTTPS 요청이 LB → Ingress Controller(TLS 종료, host+경로 매칭) → Service → Pod로 가는 길. 경로가 다르면 다른 Service, 안 맞으면 defaultBackend.
+import Stepper from '../Stepper.astro';
+const BX = [14, 118, 222], BW = 84, BY = 312, BH = 52;
+const notes = [
+  ['DNS: 도메인 → 로드밸런서 IP', '클러스터 안 주소는 몰라도 돼요'],
+  ['LB → 노드 → Controller Pod', '규칙을 실제로 실행하는 쪽'],
+  ['TLS를 풀고 Host·경로를 읽어요', '/api/orders는 /api(Prefix) 규칙에 맞음'],
+  ['api-svc로 평문 HTTP 전달', 'Service가 Pod 하나로 이어 줘요'],
+  ['/ 는 web-svc로', '어떤 규칙에도 안 맞으면 defaultBackend'],
+];
+const steps = [
+  { caption: '사용자가 https://shop.example.com/api/orders 를 요청해요. DNS는 이 도메인에 연결된 클라우드 로드밸런서의 IP를 알려 줘요.', show: ['req1', 'q', 'ans', 'n0'] },
+  { caption: '요청은 클라우드 로드밸런서 → 노드 → Ingress Controller Pod로 들어와요. Ingress 리소스는 규칙표일 뿐이고, 실제로 받는 건 Controller예요.', show: ['req1', 'toLb', 'toCtl', 'hlCtl', 'n1'] },
+  { caption: 'Controller가 443에서 TLS를 끝내요(Secret에 든 인증서 사용). 그다음 Host(shop.example.com)와 경로를 규칙과 비교해, /api(Prefix) 규칙에 맞는다고 판단해요.', show: ['req1', 'tls', 'm1', 'hlCtl', 'n2'] },
+  { caption: '맞은 규칙의 백엔드인 api-svc(ClusterIP Service)로 보내요. 여기부터는 암호화 없는 평문 HTTP예요. Service가 api Pod 중 하나로 이어 줘요.', show: ['req1', 'tls', 'm1', 'toApi', 'hlApi', 'toApiPod', 'n3'] },
+  { caption: '같은 도메인의 / 요청은 / 규칙에 맞아 web-svc로 가요. 어떤 규칙에도 맞지 않는 요청은 defaultBackend로 가요.', show: ['req2', 'tls', 'm2', 'toWeb', 'toWebPod', 'toDef', 'hlWeb', 'hlDef', 'n4'] },
+];
+---
+<Stepper title="Ingress: 요청 하나가 Pod에 닿기까지" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 494" role="img" aria-label="https://shop.example.com/api/orders 요청이 DNS로 로드밸런서 IP를 얻고, 로드밸런서와 노드를 거쳐 Ingress Controller에 도착한다. Controller는 443에서 TLS를 종료하고 Host와 /api 경로 규칙으로 api-svc를 골라 평문 HTTP로 Pod에 전달한다. / 요청은 web-svc, 어떤 규칙에도 안 맞으면 defaultBackend로 간다">
+    <defs><marker id="irp-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" style="fill:var(--sl-color-gray-3)" /></marker></defs>
+
+    <text data-id="req1" class="l mono hide" x="4" y="12">https://shop.example.com<tspan class="hi">/api/orders</tspan></text>
+    <text data-id="req2" class="l mono hide" x="4" y="12">https://shop.example.com<tspan class="hi">/</tspan></text>
+
+    <!-- 사용자 / DNS -->
+    <rect class="box" x="10" y="28" width="130" height="52" rx="8" />
+    <text x="75" y="54" style="font-weight:700">사용자</text>
+    <rect class="box" x="180" y="28" width="130" height="52" rx="8" />
+    <text x="245" y="44" style="font-weight:700">DNS</text>
+    <line data-id="q" class="line" x1="140" y1="40" x2="178" y2="40" marker-end="url(#irp-arr)" />
+    <g data-id="ans">
+      <line class="line" x1="180" y1="68" x2="142" y2="68" marker-end="url(#irp-arr)" />
+      <text class="hi" x="245" y="66" style="font-size:14px">LB IP 응답</text>
+    </g>
+
+    <!-- LB -->
+    <line data-id="toLb" class="line" x1="75" y1="80" x2="75" y2="102" marker-end="url(#irp-arr)" />
+    <rect class="box" x="10" y="104" width="300" height="40" rx="8" />
+    <text x="160" y="124">클라우드 로드밸런서</text>
+
+    <!-- 클러스터 -->
+    <rect class="frame" x="4" y="160" width="312" height="274" rx="10" />
+    <text class="l sub" x="12" y="176">클러스터</text>
+    <g data-id="toCtl">
+      <line class="line" x1="160" y1="144" x2="160" y2="186" marker-end="url(#irp-arr)" />
+      <text class="l sub" x="170" y="152">노드를 거쳐</text>
+    </g>
+    <rect class="box" x="20" y="188" width="280" height="92" rx="8" />
+    <text x="160" y="206" style="font-weight:700">Ingress Controller Pod</text>
+    <text data-id="tls" x="160" y="232" style="font-size:14px">443에서 TLS 종료 (Secret 인증서)</text>
+    <text data-id="m1" class="mono hide" x="160" y="258">shop.example.com + /api</text>
+    <text data-id="m2" class="mono hide" x="160" y="258">/ → web · 그 외 → default</text>
+    <rect data-id="hlCtl" class="hl" x="17" y="185" width="286" height="98" rx="10" />
+
+    <line data-id="toApi" class="line" x1="90" y1="280" x2="58" y2="309" marker-end="url(#irp-arr)" />
+    <line data-id="toWeb" class="line" x1="160" y1="280" x2="160" y2="309" marker-end="url(#irp-arr)" />
+    <line data-id="toDef" class="line" x1="230" y1="280" x2="262" y2="309" marker-end="url(#irp-arr)" />
+
+    <!-- 백엔드 -->
+    {[['api-svc', 'Service'], ['web-svc', 'Service'], ['default', 'Backend']].map(([a, b], i) => (
+      <g>
+        <rect class="box" x={BX[i]} y={BY} width={BW} height={BH} rx="6" />
+        <text class={i < 2 ? 'mono' : ''} x={BX[i] + BW / 2} y={BY + 17}>{a}</text>
+        <text class="sub" x={BX[i] + BW / 2} y={BY + 37}>{b}</text>
+      </g>
+    ))}
+    <rect data-id="hlApi" class="hl" x={BX[0] - 3} y={BY - 3} width={BW + 6} height={BH + 6} rx="8" />
+    <rect data-id="hlWeb" class="hl" x={BX[1] - 3} y={BY - 3} width={BW + 6} height={BH + 6} rx="8" />
+    <rect data-id="hlDef" class="hl" x={BX[2] - 3} y={BY - 3} width={BW + 6} height={BH + 6} rx="8" />
+
+    <line data-id="toApiPod" class="line" x1="56" y1="364" x2="56" y2="382" marker-end="url(#irp-arr)" />
+    <line data-id="toWebPod" class="line" x1="160" y1="364" x2="160" y2="382" marker-end="url(#irp-arr)" />
+    {[0, 1].map((i) => (
+      <g>
+        <rect class="box" x={BX[i]} y="384" width={BW} height="36" rx="6" />
+        <text x={BX[i] + BW / 2} y="402">{i ? 'web' : 'api'} Pod</text>
+      </g>
+    ))}
+
+    {notes.map(([a, b], i) => (
+      <g data-id={`n${i}`} class="hide">
+        <text class="l hi" x="4" y="456" style="font-size:15px">{a}</text>
+        <text class="l" x="4" y="480" style="font-size:14px">{b}</text>
+      </g>
+    ))}
+  </svg>
+</Stepper>

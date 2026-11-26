@@ -11,6 +11,14 @@ import JavaLtsTimeline from '~/components/viz/JavaLtsTimeline.astro';
 자바 LTS는 8, 11, 17, 21, 25이고 다음은 29(2027년 9월)예요. 8은 람다·스트림, 11~17 사이에는 var·switch 식·text block·record·sealed, 21에는 가상 스레드와 switch 패턴 매칭이 들어왔어요.
 :::
 
+:::note[처음이라면 여기까지]
+① 자바는 6개월마다 새 버전이 나오고, 회사는 오래 지원받는 LTS(8·11·17·21·25)를 주로 써요.
+
+② 8은 람다·스트림, 17까지는 record 같은 짧은 문법, 21은 가상 스레드가 핵심이에요.
+
+③ 면접에선 질문 1·2번 먼저 연습하세요.
+:::
+
 ## 쉽게 이해하기
 
 자바 버전은 **스마트폰 OS 업데이트**와 비슷해요. 6개월마다 새 버전이 나오지만, 회사는 매번 따라가지 않고 오래 보안 패치를 받을 수 있는 버전에 머물러요. 이렇게 오래 지원받는 버전이 **LTS**(Long-Term Support, 장기 지원 버전)예요.
@@ -301,7 +309,7 @@ try (var ex = Executors.newVirtualThreadPerTaskExecutor()) {
 
 **Sequenced Collections**(21)로 `list.getLast()`, `list.reversed()`처럼 순서 있는 컬렉션의 앞뒤를 바로 꺼내요. [컬렉션 프레임워크](../collections/)에서 이어서 봐요.
 
-### 7. Java 25: 진입 장벽 낮추기
+### 심화: 7. Java 25: 진입 장벽 낮추기
 
 **instance main**(compact source file)은 클래스 선언 없이 `main`만으로 프로그램을 써요. 내부적으로는 이름 없는 클래스로 컴파일돼요.
 
@@ -385,17 +393,6 @@ ScopedValue.where(CURRENT, user)
 ## 면접 질문
 
 <details>
-<summary>Q. 자바 8과 17(또는 21)의 차이를 말해 보세요.</summary>
-
-**답변(30초)** 8은 람다·스트림·Optional로 함수형 스타일을 들여온 버전이에요. 17까지 오면서 var, switch 식, text block, record, instanceof 패턴, sealed가 들어와서 데이터 클래스와 분기 코드가 훨씬 짧고 안전해졌어요. 21에서는 switch 패턴 매칭이 정식이 돼서 sealed와 record를 빠짐없이 분기할 수 있고, 가상 스레드로 I/O가 많은 서버의 처리량을 늘릴 수 있어요.
-
-**꼬리질문**
-- Q. var는 몇 버전 기능이에요? → 10이에요. 11은 람다 파라미터에 var를 쓰게 한 거예요.
-- Q. switch 패턴은 17 기능 아닌가요? → 17에선 프리뷰였고 정식은 21이에요.
-- Q. var를 쓰면 동적 타입인가요? → 아니요. 컴파일 때 타입이 정해지고 바뀌지 않아요.
-</details>
-
-<details>
 <summary>Q. 왜 자바 버전을 올려야 하나요?</summary>
 
 **답변(30초)** 가장 현실적인 이유는 Spring Boot 3가 Java 17 이상을 요구해서예요. 8과 11은 Oracle의 Premier 지원이 이미 끝났고, 17도 2026년 9월에 끝났어요. 문법 개선으로 코드가 짧아지고 컴파일러가 실수를 더 잡아 주며, 21 이상이면 가상 스레드로 블로킹 I/O가 많은 서버의 처리량도 늘릴 수 있어요.
@@ -404,6 +401,17 @@ ScopedValue.where(CURRENT, user)
 - Q. 지금 새 프로젝트면 몇 버전을 고르겠어요? → 최신 LTS인 25요. 27은 non-LTS라 다음 버전이 나오면 지원이 끝나요.
 - Q. LTS가 뭐예요? → 벤더가 오래 패치를 내주는 버전이에요. 17 이후 2년마다 나오고 다음은 29예요.
 - Q. 프리뷰 기능은 운영에 써도 되나요? → `--enable-preview`가 필요하고 다음 버전에 바뀔 수 있어서 보통 안 써요.
+</details>
+
+<details>
+<summary>Q. 자바 8과 17(또는 21)의 차이를 말해 보세요.</summary>
+
+**답변(30초)** 8은 람다·스트림·Optional로 함수형 스타일을 들여온 버전이에요. 17까지 오면서 var, switch 식, text block, record, instanceof 패턴, sealed가 들어와서 데이터 클래스와 분기 코드가 훨씬 짧고 안전해졌어요. 21에서는 switch 패턴 매칭이 정식이 돼서 sealed와 record를 빠짐없이 분기할 수 있고, 가상 스레드로 I/O가 많은 서버의 처리량을 늘릴 수 있어요.
+
+**꼬리질문**
+- Q. var는 몇 버전 기능이에요? → 10이에요. 11은 람다 파라미터에 var를 쓰게 한 거예요.
+- Q. switch 패턴은 17 기능 아닌가요? → 17에선 프리뷰였고 정식은 21이에요.
+- Q. var를 쓰면 동적 타입인가요? → 아니요. 컴파일 때 타입이 정해지고 바뀌지 않아요.
 </details>
 
 <details>

@@ -12,6 +12,16 @@ import FormLoginAuthFlow from '~/components/viz/FormLoginAuthFlow.astro';
 스프링 시큐리티는 DispatcherServlet **앞**의 서블릿 필터 체인에서 동작해요. `DelegatingFilterProxy`가 톰캣과 스프링을 잇고, `FilterChainProxy`가 고른 보안 필터들이 순서대로 인증("누구냐")과 인가("해도 되냐")를 처리하며, 현재 사용자는 스레드마다 따로 있는 `SecurityContextHolder`에 담겨요.
 :::
 
+:::note[처음이라면 여기까지]
+① 보안 검사는 컨트롤러에 닿기 전, 입구에 줄지어 선 필터들에서 해요.
+
+② 인증은 "누구냐", 인가는 "이걸 해도 되냐"를 확인하는 거예요.
+
+③ 로그인한 사용자 정보는 요청을 처리하는 스레드마다 따로 보관하고, 요청이 끝나면 비워요.
+
+④ 면접에선 질문 1·2번을 먼저 연습하세요.
+:::
+
 ## 쉽게 이해하기
 
 회사 건물을 떠올려 보세요. 사무실(컨트롤러)에 가려면 1층 보안 게이트를 먼저 지나야 해요. 건물 관리 회사(톰캣)는 보안 업체 직원들을 직접 고용하지 않아서, 게이트 앞에 **연락 창구** 하나만 세워 두고 실제 검사는 보안 업체(스프링)에 넘겨요(**DelegatingFilterProxy**).
@@ -43,7 +53,7 @@ import FormLoginAuthFlow from '~/components/viz/FormLoginAuthFlow.astro';
 
 메서드 단위 권한 검사(`@PreAuthorize`)는 예외예요. 이건 필터가 아니라 [AOP](../aop/) 프록시로 동작한다고 알려져 있어요.
 
-### 3. DelegatingFilterProxy와 FilterChainProxy
+### 심화: 3. DelegatingFilterProxy와 FilterChainProxy
 
 둘 다 이름에 Proxy가 있어서 헷갈려요. 역할이 완전히 달라요.
 
@@ -61,13 +71,13 @@ import FormLoginAuthFlow from '~/components/viz/FormLoginAuthFlow.astro';
 - 요청이 끝나면 `SecurityContext`를 **비워요**. 메모리 누수와 스레드 재사용 사고를 막아요.
 - `HttpFirewall`을 적용해 일부 공격 요청을 막아요.
 
-### 4. SecurityFilterChain은 여러 개, 실행은 하나
+### 심화: 4. SecurityFilterChain은 여러 개, 실행은 하나
 
 톰캣 필터는 URL로만 매칭하지만, `FilterChainProxy`는 `RequestMatcher`로 헤더·HTTP 메서드 등 요청의 무엇이든 보고 체인을 골라요. 체인은 여러 개 둘 수 있고, **처음 맞는 체인 하나만** 실행돼요.
 
 그래서 "`/api/**`는 토큰 인증, 나머지는 폼 로그인"처럼 나눌 수 있어요. 범위가 좁은 체인을 앞 순번에 둬야 해요(보통 `@Order`로 정한다고 알려져 있어요). 넓은 체인이 먼저 매칭되면 좁은 체인은 영영 안 불려요.
 
-### 5. 기본 필터 순서
+### 심화: 5. 기본 필터 순서
 
 공식 문서의 디버그 로그 예시에 나온 기본 순서예요. 설정에 따라 넣고 빼지기 때문에 외울 필요는 없고, **큰 흐름**만 기억하면 돼요.
 
@@ -115,7 +125,7 @@ ThreadLocal이 안전한 건 `FilterChainProxy`가 요청 끝에 **항상 비워
 ThreadLocal은 **다른 스레드로 넘어가지 않아요**. `@Async`나 직접 만든 스레드 풀에서 `getAuthentication()`을 부르면 `null`이 나오는 게 보통이에요. 흔한 해결책은 `DelegatingSecurityContextExecutor` 같은 래퍼로 컨텍스트를 옮겨 주거나, 필요한 사용자 ID만 메서드 인자로 넘기는 거예요. INHERITABLE 모드는 풀이 스레드를 재사용하면 엉뚱한 사용자가 남을 수 있어 위험하다고 알려져 있어요.
 </Aside>
 
-### 7. 로그인은 누가 처리하나: 인증 아키텍처
+### 심화: 7. 로그인은 누가 처리하나: 인증 아키텍처
 
 인증에는 부품 네 가지가 등장해요. 각자 하나씩만 맡아요.
 
@@ -243,6 +253,15 @@ bcrypt는 솔트를 해시 문자열 안에 같이 넣어요. 그래서 같은 �
 ## 면접 질문
 
 <details>
+<summary>Q. 인증과 인가의 차이, 시큐리티에서는 각각 어디서 처리되나요?</summary>
+
+**답변(30초)** 인증은 "너 누구니"를 확인하는 거고, 인가는 "이거 해도 되니"를 판단하는 거예요. 인증은 `UsernamePasswordAuthenticationFilter`나 `BearerTokenAuthenticationFilter` 같은 인증 필터가 `AuthenticationManager`에 맡겨 처리하고, 결과를 `SecurityContextHolder`에 담아요. 인가는 필터 체인 맨 끝의 `AuthorizationFilter`가 `AuthorizationManager`에 위임해 결정해요. 인증이 먼저 돼야 인가가 의미가 있어서 순서도 그래요.
+
+**꼬리질문**
+- Q. 401과 403은 각각 언제 나나요? → 누군지 모르면 `AuthenticationEntryPoint`가 로그인을 요구하고 흔히 401이에요. 누군지는 아는데 권한이 없으면 `AccessDeniedHandler`가 처리하고 흔히 403이에요. 둘 다 `ExceptionTranslationFilter`가 갈라 줘요.
+</details>
+
+<details>
 <summary>Q. 스프링 시큐리티의 동작 구조를 설명해 주세요.</summary>
 
 **답변(30초)** 스프링 시큐리티는 DispatcherServlet 앞의 서블릿 필터 체인에서 동작해요. 톰캣에 등록된 `DelegatingFilterProxy`가 스프링 빈인 `FilterChainProxy`에 일을 넘기고, `FilterChainProxy`는 요청에 맞는 `SecurityFilterChain` 하나를 골라 실행해요. 체인 안에서는 컨텍스트 로드, CSRF 검사, 인증, 익명 처리, 예외 번역, 인가 순으로 필터가 돌고, 맨 끝 `AuthorizationFilter`를 통과해야 컨트롤러에 닿아요. 요청이 끝나면 `FilterChainProxy`가 SecurityContext를 비워요.
@@ -253,21 +272,13 @@ bcrypt는 솔트를 해시 문자열 안에 같이 넣어요. 그래서 같은 �
 </details>
 
 <details>
-<summary>Q. DelegatingFilterProxy는 왜 필요한가요?</summary>
+<summary>Q. 비밀번호는 어떻게 저장하나요? SHA-256 대신 BCrypt를 쓰는 이유는?</summary>
 
-**답변(30초)** 톰캣은 스프링 빈을 모르기 때문이에요. `DelegatingFilterProxy`는 톰캣에 평범한 서블릿 필터로 등록되고, 실제 일은 스프링 컨텍스트 안의 필터 빈에 위임해요. 또 톰캣은 시작할 때 필터를 먼저 등록해야 하는데 스프링 빈은 더 늦게 만들어져서, 위임 대상 빈을 나중에 찾는 지연 조회를 해요. 컨테이너 세계와 스프링 세계를 잇는 다리예요.
-
-**꼬리질문**
-- Q. FilterChainProxy와 뭐가 다른가요? → `DelegatingFilterProxy`는 스프링 프레임워크가 주는 다리이고, `FilterChainProxy`는 시큐리티가 주는 보안 필터 묶음의 관리자예요. 다리 뒤에 관리자가 있어요.
-</details>
-
-<details>
-<summary>Q. 인증과 인가의 차이, 시큐리티에서는 각각 어디서 처리되나요?</summary>
-
-**답변(30초)** 인증은 "너 누구니"를 확인하는 거고, 인가는 "이거 해도 되니"를 판단하는 거예요. 인증은 `UsernamePasswordAuthenticationFilter`나 `BearerTokenAuthenticationFilter` 같은 인증 필터가 `AuthenticationManager`에 맡겨 처리하고, 결과를 `SecurityContextHolder`에 담아요. 인가는 필터 체인 맨 끝의 `AuthorizationFilter`가 `AuthorizationManager`에 위임해 결정해요. 인증이 먼저 돼야 인가가 의미가 있어서 순서도 그래요.
+**답변(30초)** 비밀번호는 되돌릴 수 없는 적응형 단방향 함수로 저장해요. SHA-256은 너무 빨라서 요즘 하드웨어로 초당 수십억 번 대입할 수 있어 부적합해요. BCrypt는 강도를 올려 일부러 느리게 만들 수 있고, 사용자마다 다른 솔트를 해시 안에 넣어서 같은 비밀번호도 매번 다른 값이 돼요. 스프링 시큐리티 문서는 검증 1회에 약 1초 걸리도록 맞추라고 권하고, 비교는 `matches()`로 해요.
 
 **꼬리질문**
-- Q. 401과 403은 각각 언제 나나요? → 누군지 모르면 `AuthenticationEntryPoint`가 로그인을 요구하고 흔히 401이에요. 누군지는 아는데 권한이 없으면 `AccessDeniedHandler`가 처리하고 흔히 403이에요. 둘 다 `ExceptionTranslationFilter`가 갈라 줘요.
+- Q. `{bcrypt}` 접두사는 왜 붙나요? → `DelegatingPasswordEncoder`가 이 id로 어떤 인코더로 검증할지 골라요. 옛 해시를 그대로 검증하면서 새 비밀번호만 새 알고리즘으로 저장할 수 있어요.
+- Q. 강도를 높이면 단점은? → 로그인 한 번에 드는 CPU가 늘어나서, 로그인이 몰리면 서버가 버거워질 수 있어요.
 </details>
 
 <details>
@@ -278,26 +289,6 @@ bcrypt는 솔트를 해시 문자열 안에 같이 넣어요. 그래서 같은 �
 **꼬리질문**
 - Q. 로그인 성공 시 세션 ID를 왜 바꾸나요? → 세션 고정 공격을 막으려고요. 공격자가 미리 심어 둔 세션 ID로 로그인 상태가 이어지지 않게 해요.
 - Q. 아이디가 없으면 바로 실패시키면 되지 않나요? → 응답 시간 차이로 아이디 존재 여부가 새요. 그래서 `DaoAuthenticationProvider`는 없는 사용자도 더미 해시와 비교해요.
-</details>
-
-<details>
-<summary>Q. SecurityContextHolder는 현재 사용자를 어떻게 저장하나요? 스레드 풀 환경에서 문제는 없나요?</summary>
-
-**답변(30초)** 기본 전략이 ThreadLocal이라 스레드마다 따로 저장해요. 스프링 MVC는 요청 하나를 스레드 하나가 끝까지 처리하니, 같은 요청 안이면 어디서든 인자 없이 꺼낼 수 있어요. 톰캣은 스레드를 재사용하기 때문에 안 비우면 다음 요청에 이전 사용자 정보가 남을 수 있는데, `FilterChainProxy`가 요청 끝에 항상 비워 줘서 안전해요. 다만 `@Async`처럼 다른 스레드로 넘어가면 컨텍스트가 전달되지 않아요.
-
-**꼬리질문**
-- Q. 비동기에서 사용자 정보가 필요하면요? → `DelegatingSecurityContextExecutor` 같은 래퍼로 컨텍스트를 옮기거나, 필요한 사용자 ID만 인자로 넘겨요. 후자가 더 단순해요.
-- Q. INHERITABLE 모드를 쓰면 되지 않나요? → 자식 스레드가 물려받긴 하지만, 스레드 풀은 스레드를 재사용해서 이전 사용자가 남을 위험이 있다고 알려져 있어요.
-</details>
-
-<details>
-<summary>Q. 비밀번호는 어떻게 저장하나요? SHA-256 대신 BCrypt를 쓰는 이유는?</summary>
-
-**답변(30초)** 비밀번호는 되돌릴 수 없는 적응형 단방향 함수로 저장해요. SHA-256은 너무 빨라서 요즘 하드웨어로 초당 수십억 번 대입할 수 있어 부적합해요. BCrypt는 강도를 올려 일부러 느리게 만들 수 있고, 사용자마다 다른 솔트를 해시 안에 넣어서 같은 비밀번호도 매번 다른 값이 돼요. 스프링 시큐리티 문서는 검증 1회에 약 1초 걸리도록 맞추라고 권하고, 비교는 `matches()`로 해요.
-
-**꼬리질문**
-- Q. `{bcrypt}` 접두사는 왜 붙나요? → `DelegatingPasswordEncoder`가 이 id로 어떤 인코더로 검증할지 골라요. 옛 해시를 그대로 검증하면서 새 비밀번호만 새 알고리즘으로 저장할 수 있어요.
-- Q. 강도를 높이면 단점은? → 로그인 한 번에 드는 CPU가 늘어나서, 로그인이 몰리면 서버가 버거워질 수 있어요.
 </details>
 
 <details>
@@ -317,6 +308,25 @@ bcrypt는 솔트를 해시 문자열 안에 같이 넣어요. 그래서 같은 �
 
 **꼬리질문**
 - Q. 인가 규칙 순서는 중요한가요? → 네, 위에서부터 처음 맞는 규칙 하나만 적용돼요. `anyRequest()`는 항상 맨 아래에 둬요.
+</details>
+
+<details>
+<summary>Q. DelegatingFilterProxy는 왜 필요한가요?</summary>
+
+**답변(30초)** 톰캣은 스프링 빈을 모르기 때문이에요. `DelegatingFilterProxy`는 톰캣에 평범한 서블릿 필터로 등록되고, 실제 일은 스프링 컨텍스트 안의 필터 빈에 위임해요. 또 톰캣은 시작할 때 필터를 먼저 등록해야 하는데 스프링 빈은 더 늦게 만들어져서, 위임 대상 빈을 나중에 찾는 지연 조회를 해요. 컨테이너 세계와 스프링 세계를 잇는 다리예요.
+
+**꼬리질문**
+- Q. FilterChainProxy와 뭐가 다른가요? → `DelegatingFilterProxy`는 스프링 프레임워크가 주는 다리이고, `FilterChainProxy`는 시큐리티가 주는 보안 필터 묶음의 관리자예요. 다리 뒤에 관리자가 있어요.
+</details>
+
+<details>
+<summary>Q. SecurityContextHolder는 현재 사용자를 어떻게 저장하나요? 스레드 풀 환경에서 문제는 없나요?</summary>
+
+**답변(30초)** 기본 전략이 ThreadLocal이라 스레드마다 따로 저장해요. 스프링 MVC는 요청 하나를 스레드 하나가 끝까지 처리하니, 같은 요청 안이면 어디서든 인자 없이 꺼낼 수 있어요. 톰캣은 스레드를 재사용하기 때문에 안 비우면 다음 요청에 이전 사용자 정보가 남을 수 있는데, `FilterChainProxy`가 요청 끝에 항상 비워 줘서 안전해요. 다만 `@Async`처럼 다른 스레드로 넘어가면 컨텍스트가 전달되지 않아요.
+
+**꼬리질문**
+- Q. 비동기에서 사용자 정보가 필요하면요? → `DelegatingSecurityContextExecutor` 같은 래퍼로 컨텍스트를 옮기거나, 필요한 사용자 ID만 인자로 넘겨요. 후자가 더 단순해요.
+- Q. INHERITABLE 모드를 쓰면 되지 않나요? → 자식 스레드가 물려받긴 하지만, 스레드 풀은 스레드를 재사용해서 이전 사용자가 남을 위험이 있다고 알려져 있어요.
 </details>
 
 ## 서술형 연습

@@ -12,6 +12,16 @@ import NPlusOneFixCompare from '~/components/viz/NPlusOneFixCompare.astro';
 **N+1**은 목록을 1번 조회한 뒤, 결과 N개마다 연관 데이터를 1번씩 더 조회해서 SQL이 **1+N번** 나가는 문제예요. 지연 로딩이든 즉시 로딩이든 생기고, 연관은 전부 LAZY로 둔 뒤 필요한 곳에서만 **fetch join·@EntityGraph·batch size·DTO 조회**로 한 번에(또는 몇 번에) 가져와서 해결해요.
 :::
 
+:::note[처음이라면 여기까지]
+① 목록을 한 번 가져온 뒤, 항목마다 연결된 데이터를 한 번씩 더 가져와서 DB에 SQL이 1+N번 나가는 문제예요.
+
+② "필요할 때 가져오기"(지연 로딩)로 미뤄도 횟수는 그대로예요.
+
+③ 해결은 처음부터 같이 가져오기(fetch join)나 묶어서 가져오기(batch size)예요.
+
+④ 면접에선 질문 1·2·3번을 먼저 연습하세요.
+:::
+
 ## 쉽게 이해하기
 
 반 학생 30명의 부모님 연락처가 필요하다고 해 봐요. 먼저 교무실에서 "우리 반 명단"을 한 번 받아요(1번). 그런데 연락처는 명단에 없어서, 학생 한 명씩 행정실에 가서 "이 학생 부모님 번호요" 하고 30번 따로 물어봐요(N번). 총 31번 왕복이에요. 이게 **N+1**이에요.
@@ -170,7 +180,7 @@ Spring Data JPA의 **인터페이스 프로젝션**으로도 같은 일을 할 �
 | batch size | 1 + ⌈N/size⌉ | 페이징과 같이 써도 안전, 설정 한 줄 | 쿼리가 1개는 아님 |
 | DTO 조회 | 1 | 필요한 컬럼만, 지연 로딩 없음 | 변경 감지 안 됨, 화면마다 DTO 필요 |
 
-### 9. fetch join과 페이징을 같이 쓰면
+### 심화: 9. fetch join과 페이징을 같이 쓰면
 
 **페이징**(paging, 목록을 10개씩 끊어 가져오기)은 SQL의 `LIMIT`/`OFFSET`으로 해요. 그런데 **컬렉션(일대다)을 fetch join**하면 행이 부모 수보다 많아져요. 팀 3개 × 회원 2명이면 6행이라서, DB에서 "처음 2행"을 자르면 "팀 2개"가 아니라 "팀 1개와 회원 2명"이 돼 버려요.
 
@@ -190,7 +200,7 @@ Spring Data JPA의 **인터페이스 프로젝션**으로도 같은 일을 할 �
 - **컬렉션은 LAZY + batch size**로 채워요.
 - 또는 **ID만 먼저 페이징 조회**하고, `where t.id in :ids` + fetch join으로 다시 가져와요.
 
-### 10. 컬렉션 두 개를 동시에 fetch join하면: MultipleBagFetchException
+### 심화: 10. 컬렉션 두 개를 동시에 fetch join하면: MultipleBagFetchException
 
 순서도 인덱스도 없는 `List` 컬렉션을 Hibernate는 **bag**(가방, 중복 허용·순서 없음)이라고 불러요. bag 두 개를 한 쿼리에서 같이 fetch join하면 Hibernate가 아예 거부해요.
 
@@ -205,7 +215,7 @@ MultipleBagFetchException: cannot simultaneously fetch multiple bags:
 - **하나만 fetch join**하고 나머지는 batch size로 채워요. 보통 이쪽을 권해요.
 - `List`를 `Set`으로 바꿔요. 예외는 사라지지만 **행 폭증(카테시안 곱)은 그대로** 남아요.
 
-### 11. LazyInitializationException
+### 심화: 11. LazyInitializationException
 
 영속성 컨텍스트가 **닫힌 뒤에** 초기화 안 된 프록시·컬렉션을 건드리면 나는 예외예요.
 
@@ -218,7 +228,7 @@ with key '1' (no session)
 
 해결은 "서비스 안에서 필요한 건 다 로딩하고 나온다"예요. fetch join이나 엔티티 그래프로 가져오고, 서비스에서 DTO로 바꿔 반환해요. 트랜잭션 범위는 [@Transactional](../transactional/)에서 다뤄요.
 
-### 12. OSIV(Open Session In View)
+### 심화: 12. OSIV(Open Session In View)
 
 **OSIV**(Open Session/EntityManager In View)는 영속성 컨텍스트를 **요청 시작부터 응답 끝까지** 열어 두는 기능이에요. 그래서 컨트롤러나 뷰에서도 지연 로딩이 돼요.
 

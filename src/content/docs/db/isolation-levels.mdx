@@ -12,6 +12,16 @@ import RRSnapshotVsLockingRead from '~/components/viz/RRSnapshotVsLockingRead.as
 **격리 수준**은 동시에 도는 트랜잭션끼리 **서로의 변경을 어디까지 볼 수 있게 할지** 정하는 설정이에요. READ UNCOMMITTED → READ COMMITTED → REPEATABLE READ → SERIALIZABLE 순으로 격리가 강해지고, 대신 동시 처리 성능은 떨어져요. MySQL InnoDB 기본값은 **REPEATABLE READ**이고, 트랜잭션의 **첫 읽기 때 찍은 스냅숏**을 계속 읽어서 값이 중간에 바뀌어 보이지 않게 해요.
 :::
 
+:::note[처음이라면 여기까지]
+① 여러 트랜잭션이 동시에 돌 때, 남이 고친 내용을 내가 어디까지 볼지 정하는 설정이 **격리 수준**이에요.
+
+② 약한 것부터 READ UNCOMMITTED, READ COMMITTED, REPEATABLE READ, SERIALIZABLE이에요. 강할수록 안전하지만 동시 처리 성능은 떨어져요.
+
+③ MySQL 기본값은 REPEATABLE READ예요. 트랜잭션에서 처음 읽은 순간의 사진(스냅숏)을 계속 봐서, 같은 걸 다시 읽어도 값이 안 바뀌어요.
+
+④ 면접에선 질문 1·2번 먼저 연습하세요.
+:::
+
 <Aside type="note" title="이 페이지의 기준">
 설명은 MySQL 8.0 기준 책과 MySQL 8.4 공식문서를 바탕으로 했어요. 타임라인 예시는 **MySQL 9.6.0**(InnoDB, 기본 설정)에서 두 세션 A·B를 번갈아 실행한 실제 결과예요. 격리 수준 관련 동작은 8.0/8.4 매뉴얼 설명과 같았어요.
 </Aside>
@@ -101,7 +111,7 @@ SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED;
 
 스프링에서는 `@Transactional(isolation = ...)`으로 정하고, 기본값 `DEFAULT`는 DB 기본값을 따라요. MySQL이면 RR이에요. 자세한 건 [@Transactional](../../spring/transactional/)에서 다뤄요.
 
-### 4. RC와 RR은 스냅숏을 찍는 시점이 달라요
+### 심화: 4. RC와 RR은 스냅숏을 찍는 시점이 달라요
 
 RC와 RR은 둘 다 **MVCC**(Multi-Version Concurrency Control, 한 행의 여러 버전을 보관해 두고 트랜잭션마다 맞는 버전을 보여 주는 방식)를 써요. 다른 트랜잭션이 행을 고치고 있으면, InnoDB는 **언두 로그**(undo log, 변경 전 값을 백업해 두는 곳)에서 이전 버전을 꺼내 보여 줘요. 원리는 [트랜잭션과 ACID](../transaction-acid/)에서 다뤄요.
 
@@ -118,7 +128,7 @@ RC와 RR은 둘 다 **MVCC**(Multi-Version Concurrency Control, 한 행의 여�
 "RR은 트랜잭션 시작(BEGIN) 시점 데이터를 본다"고 단순하게 설명하는 자료가 많아요. 공식 매뉴얼 표현은 **"첫 번째 읽기 시점"** 이에요. 실험에서도 A가 BEGIN만 하고 아무것도 안 읽은 사이 B가 500으로 바꿔 커밋하자, A의 첫 SELECT는 **500**을 봤어요. BEGIN 순간에 사진을 찍고 싶으면 `START TRANSACTION WITH CONSISTENT SNAPSHOT`으로 시작해요. 이렇게 하면 같은 실험에서 1000이 유지됐어요.
 </Aside>
 
-### 5. 일관된 읽기 vs 잠금 읽기
+### 심화: 5. 일관된 읽기 vs 잠금 읽기
 
 MySQL RR을 이해하는 핵심이에요. SELECT에는 두 종류가 있어요.
 
@@ -144,7 +154,7 @@ MySQL RR을 이해하는 핵심이에요. SELECT에는 두 종류가 있어요.
 
 UPDATE도 마찬가지예요. A의 SELECT에는 park가 안 보이는데, A가 `UPDATE acct SET balance = balance + 1`을 실행하면 park 행까지 3행이 갱신돼요. 그리고 **A가 직접 고친 행이라** 그 뒤 A의 SELECT에도 park(1001)가 나타나요. 매뉴얼도 잠금 문장과 비잠금 문장을 한 트랜잭션에 섞지 말라고 권해요.
 
-### 6. MySQL RR은 팬텀을 어떻게 "대부분" 막나
+### 심화: 6. MySQL RR은 팬텀을 어떻게 "대부분" 막나
 
 InnoDB RR은 표준보다 강해서 팬텀을 두 갈래로 막아요.
 
@@ -155,20 +165,20 @@ InnoDB RR은 표준보다 강해서 팬텀을 두 갈래로 막아요.
 
 정리하면 MySQL RR에서 팬텀이 보이는 건 **일반 SELECT로 먼저 읽고, 그 사이 다른 세션이 INSERT·커밋을 끝낸 뒤에 잠금 읽기나 UPDATE를 하는** 경우예요. 갭 락의 세부는 [락](../locks/)에서 다뤄요.
 
-### 7. SERIALIZABLE
+### 심화: 7. SERIALIZABLE
 
 InnoDB의 SERIALIZABLE은 RR과 같되, 명시적 트랜잭션 안의 **모든 일반 SELECT를 `SELECT ... FOR SHARE`로 바꿔** 공유 잠금을 걸어요. 그래서 A가 읽은 행을 B가 고치거나, A가 읽은 범위에 B가 INSERT하려 하면 기다려요. 실험에서 A가 `WHERE balance >= 1000`으로 읽기만 했는데, B의 UPDATE와 INSERT가 모두 lock wait timeout이 났어요.
 
 - 예외: autocommit이 켜진 상태의 단독 SELECT는 그 자체가 읽기 전용 트랜잭션이라 잠금 없이 읽어요.
 - 읽기끼리도 잠금으로 부딪히니 동시 처리 성능이 가장 낮아요. 매뉴얼은 XA(여러 DB에 걸친) 트랜잭션이나 동시성·데드락 문제 디버깅 같은 특수 상황용으로 소개해요.
 
-### 8. 격리 수준과 성능
+### 심화: 8. 격리 수준과 성능
 
 - 책 저자는 RU·RC·RR 사이에선 **성능 차이가 크지 않다**고 봐요. 크게 느려지는 건 읽기에도 잠금을 거는 SERIALIZABLE이에요.
 - RR에서 트랜잭션을 **오래 열어 두면** 그 트랜잭션이 볼 수도 있는 옛 버전을 언두에서 지울 수 없어서, 언두가 쌓이고 성능이 떨어질 수 있어요.
 - **RC가 잠금이 더 가벼워요.** 갭 락을 (외래키·중복키 검사 외에는) 안 쓰고, UPDATE·DELETE가 조건에 안 맞는 행의 잠금을 바로 풀어요. 대신 non-repeatable read와 팬텀을 허용해요. 또 RC를 쓰려면 바이너리 로그(복제용 변경 기록)는 ROW 포맷이어야 해요.
 
-### 9. RR이어도 lost update는 생겨요
+### 심화: 9. RR이어도 lost update는 생겨요
 
 표준의 세 가지 현상 말고 실무에서 더 자주 터지는 게 **갱신 분실**(lost update)이에요. 두 트랜잭션이 같은 값을 읽고 각자 계산해서 덮어쓰면, 먼저 쓴 쪽 변경이 사라져요.
 
@@ -200,6 +210,15 @@ WHERE id = 1 AND version = 7;
 ## 면접 질문
 
 <details>
+<summary>Q. Dirty read, Non-repeatable read, Phantom read는 어떻게 다른가요?</summary>
+
+**답변(30초)** dirty read는 다른 트랜잭션이 커밋하지 않은 값을 읽는 거라, 그쪽이 롤백하면 존재한 적 없는 값을 본 게 돼요. non-repeatable read는 같은 행을 두 번 읽는 사이에 남이 그 행을 고치고 커밋해서 값이 달라지는 거예요. phantom read는 같은 조건으로 두 번 조회하는 사이에 남이 행을 추가하거나 지워서 행 개수가 달라지는 거예요. 값이 바뀌면 non-repeatable, 행 집합이 바뀌면 phantom이에요.
+
+**꼬리질문**
+- Q. non-repeatable read가 왜 문제예요? → 한 트랜잭션 안에서 앞에서 읽은 값과 뒤에서 읽은 값을 같이 써서 계산하면, 서로 다른 시점의 숫자를 섞게 돼요. 예를 들어 정산 합계가 맞지 않아요.
+</details>
+
+<details>
 <summary>Q. 트랜잭션 격리 수준 4가지와 각각에서 생기는 이상 현상을 설명해 주세요.</summary>
 
 **답변(30초)** 격리 수준은 동시에 도는 트랜잭션이 서로의 변경을 어디까지 보게 할지 정하는 설정이에요. READ UNCOMMITTED는 커밋 안 된 값까지 보여서 dirty read가 생겨요. READ COMMITTED는 커밋된 값만 보지만 SELECT마다 새로 읽어서 non-repeatable read와 phantom read가 생겨요. REPEATABLE READ는 같은 행을 다시 읽어도 같은 값이고, 표준상 phantom만 허용해요. SERIALIZABLE은 셋 다 막지만 가장 느려요.
@@ -207,15 +226,6 @@ WHERE id = 1 AND version = 7;
 **꼬리질문**
 - Q. MySQL 기본값은요? → InnoDB는 REPEATABLE READ예요. 오라클 같은 DB는 주로 READ COMMITTED를 써요.
 - Q. 격리 수준을 올리면 무조건 느려지나요? → RU·RC·RR 사이엔 차이가 크지 않다는 게 일반적인 평가예요. 크게 느린 건 읽기에도 공유 잠금을 거는 SERIALIZABLE이에요.
-</details>
-
-<details>
-<summary>Q. Dirty read, Non-repeatable read, Phantom read는 어떻게 다른가요?</summary>
-
-**답변(30초)** dirty read는 다른 트랜잭션이 커밋하지 않은 값을 읽는 거라, 그쪽이 롤백하면 존재한 적 없는 값을 본 게 돼요. non-repeatable read는 같은 행을 두 번 읽는 사이에 남이 그 행을 고치고 커밋해서 값이 달라지는 거예요. phantom read는 같은 조건으로 두 번 조회하는 사이에 남이 행을 추가하거나 지워서 행 개수가 달라지는 거예요. 값이 바뀌면 non-repeatable, 행 집합이 바뀌면 phantom이에요.
-
-**꼬리질문**
-- Q. non-repeatable read가 왜 문제예요? → 한 트랜잭션 안에서 앞에서 읽은 값과 뒤에서 읽은 값을 같이 써서 계산하면, 서로 다른 시점의 숫자를 섞게 돼요. 예를 들어 정산 합계가 맞지 않아요.
 </details>
 
 <details>

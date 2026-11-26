@@ -1,0 +1,392 @@
+---
+title: 컨테이너 실행·네트워크·볼륨
+description: "컨테이너는 지우면 안에 쓴 데이터가 같이 사라져서, 남겨야 할 데이터는 볼륨에 둬요. 컨테이너끼리는 같은 사용자 정의 네트워크에서 이름으로 찾고, 바깥에서 들어올 때만 -p로 포트를 열어요."
+sidebar: { order: 3 }
+tags: [면접빈출, 서술형]
+---
+import { Aside } from '@astrojs/starlight/components';
+import ContainerLayerVsVolume from '~/components/viz/ContainerLayerVsVolume.astro';
+import NetworkNameAndPort from '~/components/viz/NetworkNameAndPort.astro';
+
+:::tip[한 줄 요약]
+컨테이너 안에 쓴 파일은 **컨테이너를 지우면 같이 사라져요.** 그래서 DB 데이터처럼 남겨야 하는 건 **볼륨**에 둬요. 컨테이너끼리는 같은 **사용자 정의 네트워크**에서 **이름**으로 서로 찾고, 내 PC 같은 바깥에서 들어올 때만 `-p`로 포트를 열어요.
+:::
+
+<Aside type="note" title="이 페이지의 기준">
+설명은 Docker 공식 문서를 바탕으로 했어요(2026-11 조회). 실험은 Mac의 Docker Desktop(Docker Engine 28, Compose v2)에서 한 번씩 돌려 본 결과라서, 출력은 "이런 모양으로 나온다"는 예시로 봐 주세요.
+</Aside>
+
+## 쉽게 이해하기
+
+컨테이너를 **호텔 방**이라고 해 봐요.
+
+방 안 책상에 메모를 써 두면, 체크아웃하고 방을 치우는 순간 메모도 버려져요. 이게 컨테이너의 **쓰기 층**이에요. 꼭 남겨야 하는 짐은 호텔 **보관함(볼륨)** 에 맡겨요. 방을 바꿔도 보관함 번호만 알면 짐을 다시 찾을 수 있어요.
+
+같은 층 투숙객끼리는 **방 이름**으로 내선 전화를 걸어요. 이게 사용자 정의 네트워크의 **이름 찾기**예요. 바깥 손님이 방에 전화하려면 프런트가 "대표번호 8080은 302호로 연결"처럼 **돌려 주기**를 설정해 둬야 해요. 이게 **포트 매핑**(`-p`)이에요.
+
+그리고 방 안에서 "여기(localhost)"라고 하면 **내 방 자신**이에요. 옆방 DB에 전화하면서 "여기로 연결해 주세요"라고 하면 당연히 안 돼요.
+
+단, 실제로는 체크아웃(컨테이너 **멈춤**, stop)만으로는 메모가 안 버려져요. 방을 아예 **없앨 때**(컨테이너 **삭제**, rm) 사라져요. 다만 배포할 때마다 컨테이너를 지우고 새로 만들기 때문에, 결국 볼륨이 필요해요.
+
+## 그림으로 보기
+
+<ContainerLayerVsVolume />
+
+<NetworkNameAndPort />
+
+## 제대로 알기
+
+### 1. 컨테이너의 한살이와 상태
+
+`docker run`은 이미지로 컨테이너를 **만들고(create) 시작(start)하는** 명령이에요. 컨테이너는 안의 **메인 프로세스**(컨테이너를 띄울 때 실행한 그 프로그램)가 살아 있는 동안만 돌아요. 메인 프로세스가 끝나면 컨테이너도 멈춰요.
+
+컨테이너 상태는 7가지예요: `created`, `restarting`, `running`, `removing`, `paused`, `exited`, `dead`.
+
+- 실험: `docker create`만 하고 보니 상태가 `created`였어요. 명령을 다 실행하고 끝난 컨테이너는 `exited`(종료 코드 0)였어요.
+- 흐름: `create`(created) → `start`(running) → 끝나거나 `stop`(exited) → 재시작 정책에 따라 다시 running 또는 그대로 → `rm`(삭제).
+
+### 2. docker run 핵심 옵션
+
+| 옵션 | 뜻 | 예시 |
+|---|---|---|
+| `-d` | 백그라운드로 실행 | `docker run -d redis:7-alpine` |
+| `--name` | 컨테이너 이름. 안 주면 무작위 이름이 붙음 | `--name my-redis` |
+| `--rm` | 끝나면 컨테이너와 **익명 볼륨**을 자동 삭제 | 일회성 실험용 |
+| `-e`, `--env-file` | 환경 변수 주입. Dockerfile의 ENV를 덮어씀 | `-e SPRING_PROFILES_ACTIVE=dev` |
+| `-p 호스트:컨테이너` | 포트 매핑(바깥 → 컨테이너) | `-p 127.0.0.1:8080:8080` |
+| `-v`, `--mount` | 볼륨·바인드 마운트 연결 | `-v mydata:/var/lib/mysql` |
+| `--network` | 붙을 네트워크. 안 주면 기본 bridge | `--network my-net` |
+| `--restart` | 재시작 정책 | `--restart unless-stopped` |
+
+몇 가지 함정이 있어요.
+
+- `--rm`은 **이름 있는 볼륨은 지우지 않아요.** 그리고 `--rm`과 `--restart`는 같이 쓸 수 없어요(에러).
+- env 파일에 값 없이 `VAR`만 쓰면 **호스트의 같은 이름 환경 변수 값**을 가져와요. 비밀번호는 이미지나 깃에 넣지 말고 이렇게 실행할 때 주입해요.
+- 문서는 `-v`보다 `--mount`를 권장해요. `--mount`가 볼륨·바인드·tmpfs를 더 명확하게 적을 수 있어서예요. 그렇다고 `-v`가 없어질 계획은 없어요.
+
+### 3. 재시작 정책
+
+| 값 | 언제 다시 띄우나 |
+|---|---|
+| `no` (기본) | 안 띄움 |
+| `on-failure[:최대횟수]` | 종료 코드가 0이 아닐 때만(= 실패로 끝났을 때) |
+| `always` | 멈추면 항상. 손으로 stop했어도 **Docker 데몬이 재시작되면** 다시 띄움 |
+| `unless-stopped` | always와 같지만, 손으로 멈춘 건 데몬이 재시작돼도 안 띄움 |
+
+재시작 간격은 100ms에서 시작해 두 배씩 늘어나고 최대 1분이에요. 컨테이너가 10초 이상 살아 있으면 간격이 처음으로 돌아가요. 그래서 계속 죽는 컨테이너는 `docker ps`에서 `Restarting`으로 보이며 점점 느리게 재시작돼요.
+
+### 4. 데이터는 어디에 쓰이나: 쓰기 층, 볼륨, 바인드 마운트, tmpfs
+
+컨테이너는 이미지(읽기 전용) 위에 **쓰기 가능한 층**(writable layer, 그 컨테이너만의 변경 내용을 담는 맨 위 층)을 하나 얹고 돌아요. 컨테이너 안에서 파일을 쓰면 여기에 쓰여요. 이 층은 **컨테이너를 삭제하면 같이 사라져요.** → [Docker 이미지](../docker-image/)
+
+그래서 남겨야 할 데이터는 컨테이너 바깥에 둬요.
+
+| | 쓰기 층 | 볼륨 | 바인드 마운트 | tmpfs |
+|---|---|---|---|---|
+| 어디에 저장 | 컨테이너 안 | Docker가 관리하는 영역 | 내가 고른 호스트 폴더 | 호스트 **메모리** |
+| 컨테이너 삭제 후 | 사라짐 | **남음** | 남음(원래 호스트 파일) | 사라짐 |
+| 주 용도 | 임시 파일 | DB 데이터, 업로드 파일 | 개발 중 소스 코드, 설정 파일 | 비밀값 임시 보관, 디스크에 남기면 안 되는 것 |
+| 예시 | (아무것도 안 붙임) | `-v mydata:/var/lib/mysql` | `-v ./app.py:/app/app.py:ro` | `--mount type=tmpfs,dst=/tmp` |
+
+- **볼륨**(volume)은 Docker 데몬이 만들고 관리하는 저장소예요. 이름으로 부르고, 어느 컨테이너에든 붙였다 뗄 수 있어요.
+- **바인드 마운트**(bind mount)는 호스트의 특정 폴더를 컨테이너에 그대로 연결해요. 호스트와 컨테이너가 같은 파일을 함께 봐야 할 때 써요. 호스트 경로가 없으면 `-v`는 **빈 디렉터리를 만들어 버려요.** 오타가 나도 에러 없이 빈 폴더가 붙을 수 있으니 조심해요.
+
+실험해 봤어요.
+
+```bash
+# 1) 쓰기 층: 파일을 쓰고 컨테이너를 지운 뒤, 새 컨테이너에서 찾기
+docker run --name t1 alpine:3.20 sh -c 'echo hi > /data.txt'
+docker rm t1
+docker run --rm alpine:3.20 cat /data.txt
+# (파일 없음)                      ← 사라짐
+
+# 2) 볼륨: 볼륨에 쓰고 컨테이너가 끝난 뒤, 새 컨테이너에서 읽기
+docker run --rm -v myvol:/data alpine:3.20 sh -c 'echo saved > /data/f.txt'
+docker run --rm -v myvol:/data alpine:3.20 cat /data/f.txt
+# saved                           ← 남아 있음
+```
+
+`--rm`으로 컨테이너는 지워졌지만 이름 있는 볼륨 `myvol`은 남아서, 새 컨테이너가 그대로 읽었어요.
+
+### 5. 네트워크: 컨테이너끼리 어떻게 찾나
+
+`--network`를 안 주면 컨테이너는 **기본 bridge** 네트워크에 붙어요. **bridge**는 한 호스트 안에서 컨테이너들을 묶어 주는 가상 네트워크예요.
+
+| | 기본 bridge | 사용자 정의 bridge |
+|---|---|---|
+| 만드는 법 | 처음부터 있음(`--network` 생략 시) | `docker network create my-net` |
+| 이름으로 찾기 | **안 됨**(IP로만) | **됨**(컨테이너 이름·별칭) |
+| 같은 네트워크끼리 통신 | IP로 가능 | 이름으로 모든 포트 가능, `-p` 필요 없음 |
+| 비고 | `--link`로 이름을 잇던 방식은 레거시 | Compose도 이 방식으로 네트워크를 만듦 |
+
+둘 다 드라이버 이름은 `bridge`지만, **이름 찾기(DNS)** 지원이 달라요. **DNS**는 이름을 IP 주소로 바꿔 주는 전화번호부예요. → [DNS](../../web/dns/)
+
+실험 결과예요.
+
+- 기본 bridge에서 다른 컨테이너 이름으로 `ping` → `bad address`(이름을 모름).
+- `docker network create`로 만든 네트워크에서 같은 방식으로 `ping` → 그 컨테이너 IP로 응답이 왔어요.
+- 사용자 정의 네트워크 컨테이너 안의 `/etc/resolv.conf`(어느 DNS에 물어볼지 적힌 파일)를 보니 `nameserver 127.0.0.11`이었어요. 이게 **Docker 내장 DNS**예요. 컨테이너가 "redis가 어디야?"라고 물으면 이 DNS가 같은 네트워크의 redis 컨테이너 IP를 알려 줘요.
+
+<Aside type="caution" title="컨테이너 안의 localhost는 그 컨테이너 자신">
+앱 컨테이너 안에서 `localhost:3306`은 **앱 컨테이너 자기 자신**의 3306 포트예요. 다른 컨테이너의 DB에 붙으려면 `mysql:3306`처럼 **컨테이너(서비스) 이름**을 써요.
+</Aside>
+
+### 6. 포트 매핑: 바깥에서 들어오기
+
+같은 네트워크 안의 컨테이너끼리는 포트 공개 없이 통신해요. 하지만 **내 PC 브라우저나 다른 서버** 같은 바깥에서 들어오려면 `-p`(`--publish`)로 포트를 열어야 해요.
+
+- `-p 8080:80` = **앞이 호스트, 뒤가 컨테이너.** 호스트 8080으로 온 요청을 컨테이너 80으로 넘겨요.
+- 호스트 주소를 안 쓰면 호스트의 **모든 주소(0.0.0.0)** 에 열려요. 공식 문서도 기본적으로 안전하지 않다고 말해요. `-p 127.0.0.1:8080:80`처럼 **루프백**(127.0.0.1, 자기 자신만 접속할 수 있는 주소)에 묶으면 그 호스트 안에서만 접속돼요.
+- Dockerfile의 `EXPOSE`는 **실제로 포트를 열지 않아요.** "이 앱은 이 포트를 씁니다"라는 문서 역할이에요. 여는 건 `-p`(또는 EXPOSE된 포트를 전부 여는 `-P`)예요.
+
+```bash
+# 매핑 없이 띄운 Redis: 호스트에서 접속하면
+redis-cli -h 127.0.0.1 -p 6379 ping
+# (접속 거부)                     ← 매핑이 없어 못 들어감
+
+# 루프백에 묶어 매핑해서 띄운 Redis
+docker run -d --name r3 -p 127.0.0.1:16379:6379 redis:7-alpine
+redis-cli -h 127.0.0.1 -p 16379 ping
+# PONG
+docker port r3
+# 6379/tcp -> 127.0.0.1:16379     ← 매핑 확인
+```
+
+### 7. 실행 중인 컨테이너 들여다보기: logs, exec
+
+- `docker logs 컨테이너`: 메인 프로세스가 표준 출력·표준 에러로 찍은 로그를 보여 줘요. 실험에서 Redis는 마지막 줄에 `Ready to accept connections tcp`가 찍혔어요.
+- `docker exec 컨테이너 명령`: **실행 중인** 컨테이너 안에서 명령을 하나 더 실행해요. `docker exec r3 redis-cli ping` → `PONG`.
+
+재시작을 반복하는 컨테이너는 `docker ps`로 `Restarting`인지 보고, `docker logs`로 왜 죽는지 확인하는 게 첫 순서예요.
+
+### 8. Docker Compose: 여러 컨테이너를 한 파일로
+
+**Docker Compose**는 컨테이너 여러 개(앱, DB, 캐시)를 YAML 파일 하나에 적고 `docker compose up` 한 번으로 띄우는 도구예요. 하나하나를 **서비스**(service)라고 불러요.
+
+- Compose는 프로젝트 이름으로 네트워크 하나(`<프로젝트>_default`)를 만들고 모든 서비스를 거기 붙여요. 실험에서도 `<프로젝트>_default`(드라이버 bridge)가 생겼어요.
+- 서비스끼리는 **서비스 이름**으로 찾아요(`redis:6379`, `mysql:3306`).
+- 서비스끼리는 **컨테이너 포트**로 통신해요. `ports`에 적은 **호스트 포트**는 내 PC에서 들어올 때만 써요.
+
+#### depends_on은 "준비"까지 기다려 주지 않아요
+
+`depends_on: [db]`라고 쓰면 Compose는 db 컨테이너가 **running**이 될 때까지만 기다려요. 컨테이너가 떴다고 DB 서버가 요청을 받을 준비(ready)가 된 건 아니에요. 준비까지 기다리려면 두 가지가 필요해요.
+
+1. 의존 대상에 **healthcheck**(컨테이너가 정말 정상인지 주기적으로 검사하는 명령)를 둔다.
+2. `depends_on.<서비스>.condition: service_healthy`로 "healthy가 되면 시작"을 건다.
+
+healthcheck 상태는 `starting` → 성공하면 `healthy`, 연속으로 `retries`번 실패하면 `unhealthy`예요. Dockerfile HEALTHCHECK의 기본값은 interval 30s, timeout 30s, start-period 0s, retries 3이에요. 종료할 때는 의존 순서의 **역순**으로 내려요.
+
+실험으로 재현해 봤어요. Redis는 일부러 4초 늦게 뜨게 하고, 앱은 시작하자마자 `redis:6379`에 PING을 보내 실패하면 종료하게 했어요.
+
+| 설정 | 결과 |
+|---|---|
+| `depends_on: [redis]` (짧은 문법) | redis 컨테이너는 Started인데 서버는 아직 안 뜸 → 앱 `ConnectionRefusedError`, `Exited (1)` |
+| healthcheck + `condition: service_healthy` | `redis Waiting → Healthy → app Starting → Started`, 앱 running, redis `Up (healthy)` |
+
+#### 예시: Spring + MySQL + Redis
+
+```yaml
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}         # 바깥에서 주입
+      MYSQL_DATABASE: app
+    volumes: ["mysql-data:/var/lib/mysql"]      # DB 파일은 볼륨에
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1"]  # TCP로 검사
+      interval: 5s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 2s, retries: 20 }
+  app:
+    image: my-spring-app:1.0
+    environment:                                  # localhost가 아니라 서비스 이름
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/app
+      SPRING_DATA_REDIS_HOST: redis
+    ports: ["127.0.0.1:8080:8080"]                # 내 PC에서만 접속
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis: { condition: service_healthy }
+volumes: { mysql-data: {} }
+```
+
+- MySQL과 Redis에는 `ports`가 없어요. 앱이 같은 네트워크에서 이름으로 붙으니 바깥에 열 필요가 없어요.
+- 비밀번호는 `${DB_PASSWORD}`처럼 바깥에서 주입하고 파일에 직접 적지 않아요.
+- 이 MySQL·Spring 부분은 구조 예시예요. 위 실험은 Redis와 작은 파이썬 앱으로만 재현했어요.
+
+<Aside type="tip" title="healthcheck로도 못 막는 것">
+`service_healthy`는 **처음 띄울 때 순서**만 맞춰 줘요. 운영 중에 DB가 잠깐 죽었다 살아나는 건 못 막아요. 그래서 앱 쪽 **연결 재시도**도 함께 필요해요.
+</Aside>
+
+## 면접 질문
+
+<details>
+<summary>Q. 컨테이너를 다시 만들었더니 DB 데이터가 사라졌어요. 왜 그렇고 어떻게 막나요?</summary>
+
+**답변(30초)** 데이터가 컨테이너의 쓰기 층에 있었기 때문이에요. 쓰기 층은 그 컨테이너에만 딸린 층이라 컨테이너를 삭제하면 같이 사라져요. 배포할 때마다 컨테이너를 새로 만들면 결국 날아가요. 그래서 DB 데이터 폴더에는 볼륨을 붙여서, 컨테이너가 바뀌어도 같은 볼륨을 다시 붙이게 해요.
+
+**꼬리질문**
+- Q. stop만 해도 사라지나요? → 아니에요. stop은 exited 상태로 남고 쓰기 층도 남아요. rm으로 삭제해야 사라져요.
+- Q. `--rm`으로 띄우면 볼륨도 지워지나요? → 익명 볼륨만 지워지고, 이름 있는 볼륨은 남아요.
+</details>
+
+<details>
+<summary>Q. 볼륨과 바인드 마운트의 차이는 무엇이고, 언제 무엇을 쓰나요?</summary>
+
+**답변(30초)** 볼륨은 Docker가 관리하는 저장 영역이고, 바인드 마운트는 내가 고른 호스트 폴더를 그대로 연결하는 거예요. DB 데이터처럼 컨테이너보다 오래 남겨야 하는데 호스트에서 직접 만질 일이 없는 건 볼륨을 써요. 개발 중 소스 코드나 설정 파일처럼 호스트와 컨테이너가 같은 파일을 함께 봐야 할 땐 바인드 마운트를 써요.
+
+**꼬리질문**
+- Q. 디스크에 남기면 안 되는 비밀값은요? → tmpfs 마운트를 써요. 호스트 메모리에만 두고 컨테이너가 끝나면 사라져요.
+- Q. 바인드 마운트 경로를 틀리면요? → `-v`는 호스트 경로가 없으면 빈 디렉터리를 만들어 버려서, 에러 없이 빈 폴더가 붙을 수 있어요.
+</details>
+
+<details>
+<summary>Q. 컨테이너끼리는 어떻게 통신하나요? 기본 bridge와 사용자 정의 네트워크는 뭐가 다른가요?</summary>
+
+**답변(30초)** 같은 사용자 정의 네트워크에 붙이면 컨테이너 이름으로 서로 찾아요. Docker 내장 DNS가 이름을 그 컨테이너 IP로 바꿔 주기 때문이에요. 기본 bridge는 이 이름 해석이 안 돼서 IP로만 통신할 수 있어요. 그래서 실무에서는 네트워크를 따로 만들거나, 이걸 자동으로 해 주는 Compose를 써요.
+
+**꼬리질문**
+- Q. 같은 네트워크끼리도 `-p`가 필요한가요? → 아니에요. 같은 사용자 정의 네트워크 안에서는 모든 포트로 통신돼요. `-p`는 바깥에서 들어올 때만 필요해요.
+- Q. Compose에서 앱이 Redis에 붙을 때 호스트 포트를 써야 하나요? → 컨테이너 포트를 써요. 호스트 포트는 내 PC에서 들어올 때만 쓰는 번호예요.
+</details>
+
+<details>
+<summary>Q. 포트 매핑(-p)은 무엇이고, EXPOSE와는 어떻게 다른가요?</summary>
+
+**답변(30초)** `-p 8080:80`은 호스트의 8080 포트로 온 요청을 컨테이너의 80 포트로 넘겨 주는 설정이에요. 앞이 호스트, 뒤가 컨테이너예요. 이게 없으면 바깥에서는 컨테이너에 못 들어와요. EXPOSE는 Dockerfile에 "이 포트를 쓴다"고 적어 두는 문서 역할일 뿐 실제로 포트를 열지 않아요.
+
+**꼬리질문**
+- Q. `-p 6379:6379`로 Redis를 띄우면 뭐가 위험하죠? → 호스트 주소를 안 쓰면 모든 주소(0.0.0.0)에 열려 외부에 노출될 수 있어요. `127.0.0.1:`로 묶거나, 같은 네트워크 안에서만 쓰면 매핑 자체를 빼요.
+</details>
+
+<details>
+<summary>Q. Compose의 depends_on은 무엇을 보장하나요?</summary>
+
+**답변(30초)** 짧은 문법은 시작 순서만 보장해요. 의존 컨테이너가 running이 되면 바로 다음 서비스를 띄우기 때문에, DB가 아직 요청을 받을 준비가 안 됐을 수 있어요. 준비까지 기다리려면 DB에 healthcheck를 두고 `condition: service_healthy`를 써요. 그래도 운영 중 DB 재시작까지는 못 막으니 앱의 연결 재시도도 같이 둬요.
+
+**꼬리질문**
+- Q. healthcheck 상태는 어떻게 바뀌나요? → starting에서 시작해 검사가 성공하면 healthy, 연속으로 retries번 실패하면 unhealthy가 돼요.
+</details>
+
+<details>
+<summary>Q. 재시작 정책 always와 unless-stopped는 어떻게 다른가요?</summary>
+
+**답변(30초)** 둘 다 컨테이너가 멈추면 다시 띄워요. 차이는 내가 손으로 멈췄을 때예요. always는 손으로 stop한 컨테이너도 Docker 데몬이 재시작되면 다시 띄우고, unless-stopped는 손으로 멈춘 건 그대로 둬요. 실패했을 때만 다시 띄우려면 on-failure를 쓰고 최대 횟수를 정할 수 있어요.
+
+**꼬리질문**
+- Q. 계속 죽는 컨테이너는 어떻게 보이고 어떻게 조사하나요? → `docker ps`에서 Restarting으로 보이고, 재시작 간격이 최대 1분까지 늘어나요. `docker logs`로 죽는 이유를 보고, 떠 있는 동안 `docker exec`로 안을 확인해요.
+</details>
+
+## 서술형 연습
+
+<details>
+<summary>상황: MySQL을 컨테이너로 운영 중입니다. 새 버전 이미지로 바꾸려고 컨테이너를 지우고 다시 띄웠더니 테이블과 데이터가 전부 사라졌습니다.</summary>
+
+**상황 파악**
+"컨테이너를 지우고 다시 만들었더니" 사라졌다면, 데이터가 **컨테이너 쓰기 층**에 있었을 가능성이 커요. 쓰기 층은 그 컨테이너에만 딸려 있어서 삭제하면 함께 없어져요. 먼저 기존 실행 명령이나 compose 파일에 MySQL 데이터 폴더(`/var/lib/mysql`)에 볼륨이 붙어 있었는지 확인해요.
+
+**원인 후보**
+1. 데이터 폴더에 볼륨이나 바인드 마운트를 아예 안 붙였어요. 가장 흔해요.
+2. 볼륨을 붙였지만 **익명 볼륨**이었고 `--rm`으로 띄워서 컨테이너와 같이 지워졌어요.
+3. 볼륨은 남아 있는데, 새 컨테이너에 **다른 이름의 볼륨**을 붙이거나 경로를 틀려서 빈 저장소로 새로 시작했어요. 바인드 마운트 경로 오타라면 `-v`가 빈 폴더를 만들어 붙여요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. 데이터 폴더에 **이름 있는 볼륨** 붙이기 | Docker가 관리해서 간단함. 컨테이너를 바꿔도 같은 이름으로 다시 붙이면 됨 | 그 호스트에 묶임. 호스트 디스크가 망가지면 같이 잃으니 백업은 따로 필요 |
+| B. 호스트 폴더에 **바인드 마운트** | 호스트에서 파일 위치가 바로 보여 백업 도구로 다루기 쉬움 | 경로·권한을 내가 관리해야 하고, 경로 오타면 빈 폴더가 붙음 |
+| C. DB를 컨테이너 밖(관리형 DB)으로 빼기 | 백업·복구·장애 대응을 서비스가 해 줌 | 비용이 들고, 로컬 개발 환경과 구성이 달라짐 |
+
+**내가 고를 방법**
+로컬·단일 서버라면 A를 골라요. DB 데이터는 호스트에서 직접 만질 일이 없어서 Docker가 관리하는 볼륨이 맞고, 이름을 정해 두면 배포 때마다 같은 볼륨을 다시 붙이기 쉬워요. 볼륨만으로는 디스크 장애를 못 막으니 정기 백업을 함께 둬요. 운영 서비스라면 C를 검토해요. 적용 후엔 컨테이너를 지우고 다시 띄워서 데이터가 남는지 꼭 확인해요.
+
+**채점 포인트**: 쓰기 층은 컨테이너 삭제 시 사라짐, stop과 rm 구분, 볼륨/바인드 마운트 차이, `--rm`과 익명 볼륨, 같은 볼륨 이름을 다시 붙여야 함, 볼륨은 백업이 아님(백업 별도), 관리형 DB 대안, 적용 후 재생성 테스트.
+</details>
+
+<details>
+<summary>상황: Spring 앱과 MySQL을 각각 컨테이너로 띄웠습니다. 로컬에서 직접 실행할 땐 `jdbc:mysql://localhost:3306`으로 잘 붙었는데, 앱을 컨테이너로 옮기자 `Connection refused`가 납니다.</summary>
+
+**상황 파악**
+로컬에선 앱과 MySQL(포트 매핑된 컨테이너)이 같은 호스트에 있어서 `localhost`가 통했어요. 그런데 **컨테이너 안의 localhost는 그 컨테이너 자신**이에요. 앱 컨테이너 안에는 MySQL이 없으니 자기 3306 포트에 붙다가 거부당한 거예요. 앱 설정의 접속 주소와 두 컨테이너가 붙은 네트워크를 확인해요.
+
+**원인 후보**
+1. 접속 주소가 `localhost`라서 앱이 자기 자신에게 접속하고 있어요.
+2. 이름으로 바꿨는데 두 컨테이너가 **기본 bridge**에 있어서 이름 해석이 안 돼요(`bad address`류 에러).
+3. 서로 다른 네트워크에 붙어 있어요.
+4. 호스트 포트(예: 13306)를 써서 접속하고 있어요. 컨테이너끼리는 컨테이너 포트(3306)를 써야 해요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. `docker network create`로 네트워크를 만들고 둘 다 붙인 뒤, `jdbc:mysql://mysql:3306`처럼 **컨테이너 이름**으로 접속 | 내장 DNS가 이름을 IP로 바꿔 줘서 IP가 바뀌어도 상관없음. DB 포트를 바깥에 안 열어도 됨 | 실행 명령마다 `--network`, `--name`을 맞춰 줘야 함 |
+| B. **Compose**로 묶고 서비스 이름으로 접속 | 네트워크를 자동으로 만들고 서비스 이름으로 찾게 해 줌. 설정이 파일 하나에 남음 | Compose 파일을 새로 관리해야 함 |
+| C. 컨테이너 IP를 직접 적기 | 당장 붙음 | 컨테이너를 다시 만들면 IP가 바뀔 수 있어 금방 깨짐 |
+
+**내가 고를 방법**
+B를 골라요. 앱·DB·캐시를 함께 띄우는 구성이면 Compose가 네트워크와 이름 찾기를 알아서 해 주고, 접속 주소를 서비스 이름으로 고정할 수 있어요. 접속 주소는 코드가 아니라 환경 변수(`SPRING_DATASOURCE_URL`)로 주입해서 로컬과 컨테이너 환경을 나눠요. DB에는 `ports`를 빼서 바깥 노출도 줄여요. 적용 후 앱 컨테이너에서 `mysql` 이름이 풀리는지, 접속이 되는지 확인해요.
+
+**채점 포인트**: 컨테이너 안 localhost = 자기 자신, 사용자 정의 네트워크와 내장 DNS, 기본 bridge는 이름 해석 불가, 서비스(컨테이너) 이름으로 접속, 컨테이너 포트와 호스트 포트 구분, IP 하드코딩의 문제, 접속 주소를 환경 변수로 주입, DB 포트 외부 노출 최소화.
+</details>
+
+<details>
+<summary>상황: `docker compose up`을 하면 가끔 Spring 앱이 DB 연결 실패로 죽습니다. `depends_on: [mysql]`은 이미 적혀 있고, 다시 up 하면 될 때도 있습니다.</summary>
+
+**상황 파악**
+"가끔" 실패하고 다시 하면 된다면 **타이밍** 문제예요. 짧은 문법 `depends_on`은 MySQL 컨테이너가 **running**이 될 때까지만 기다려요. MySQL 서버가 초기화를 끝내고 접속을 받을 준비가 되기 전에 앱이 먼저 접속하면 연결이 거부돼요. 앱 로그의 에러 시각과 MySQL 로그의 준비 완료 시각을 비교해 확인해요.
+
+**원인 후보**
+1. depends_on이 시작 순서만 보장하고 준비(ready)는 기다리지 않아요. 가장 유력해요.
+2. 앱에 연결 재시도가 없어서 첫 실패에 바로 종료해요.
+3. MySQL 첫 기동(데이터 초기화)처럼 유난히 오래 걸리는 경우에만 드러나요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. MySQL에 **healthcheck**를 두고 앱에 `condition: service_healthy` | 설정만으로 "준비된 뒤 시작"이 보장됨. 앱 코드 변경 없음 | 처음 기동할 때만 효과가 있음. 운영 중 DB 재시작은 못 막음. 검사 간격만큼 기동이 늦어짐 |
+| B. 앱에 **연결 재시도** 또는 `restart: on-failure` | 기동 때뿐 아니라 운영 중 DB가 잠깐 죽어도 버팀 | 재시도는 앱 코드·설정이 필요함. restart만 쓰면 실패-재시작 로그가 쌓이고 원인이 가려질 수 있음 |
+| C. 앱 시작 스크립트에 `sleep` 넣기 | 가장 간단함 | 몇 초면 충분한지 알 수 없음. 느린 날엔 또 실패하고, 빠른 날엔 괜히 기다림 |
+
+**내가 고를 방법**
+A와 B를 함께 써요. A로 기동 순서를 정확히 맞추고(실험에서도 짧은 문법은 `Exited (1)`, `service_healthy`는 `Waiting → Healthy → Started` 순으로 성공했어요), B로 운영 중 DB 순간 장애에도 앱이 버티게 해요. C는 "기다리면 되겠지"라는 추측이라 고르지 않아요. 적용 후 MySQL 볼륨을 비운 첫 기동처럼 느린 상황에서도 앱이 성공하는지 확인해요.
+
+**채점 포인트**: depends_on 짧은 문법은 running까지만 기다림(ready 아님), healthcheck + `condition: service_healthy`, healthcheck 상태(starting/healthy/unhealthy), 기동 순서와 운영 중 장애 구분, 앱 연결 재시도, restart 정책, sleep의 한계, 재현 테스트.
+</details>
+
+## 필기 포인트
+
+- `docker run` = create + start. 메인 프로세스가 끝나면 컨테이너도 멈춤.
+- 상태 7가지: created, restarting, running, removing, paused, exited, dead.
+- 쓰기 층은 **rm**하면 사라짐(stop으로는 안 사라짐). 볼륨은 남음.
+- `--rm`은 익명 볼륨만 지움. `--rm`과 `--restart`는 함께 못 씀.
+- tmpfs = 호스트 메모리에만 저장.
+- 기본 bridge = 이름 해석 안 됨. 사용자 정의 bridge = 이름으로 찾음(내장 DNS 127.0.0.11).
+- `-p 호스트:컨테이너`. 주소 생략 시 0.0.0.0. EXPOSE는 문서일 뿐 포트를 열지 않음.
+- 재시작 정책: no(기본) / on-failure[:N] / always / unless-stopped.
+- HEALTHCHECK 기본값: interval 30s, timeout 30s, start-period 0s, retries 3.
+- Compose depends_on 짧은 문법 = 시작 순서만. 준비까지는 healthcheck + `service_healthy`.
+
+## 함께 보기
+
+- [컨테이너와 VM](../container-vs-vm/) — 컨테이너가 격리된 프로세스라는 것
+- [Docker 이미지](../docker-image/) — 읽기 전용 층과 쓰기 층
+- [Pod와 Deployment](../k8s-pod-deployment/) — 쿠버네티스에서 컨테이너를 띄우는 단위
+- [Probe와 스케일링](../k8s-probes-scaling/) — healthcheck의 쿠버네티스 버전
+- [DNS](../../web/dns/) — 이름을 IP로 바꾸는 원리
+
+## 출처
+
+- [Bridge network driver — Docker Docs](https://docs.docker.com/engine/network/drivers/bridge/)
+- [Storage — Docker Docs](https://docs.docker.com/engine/storage/)
+- [docker container run — Docker Docs](https://docs.docker.com/reference/cli/docker/container/run/)
+- [Port publishing and mapping — Docker Docs](https://docs.docker.com/engine/network/port-publishing/)
+- [docker container ls — Docker Docs](https://docs.docker.com/reference/cli/docker/container/ls/)
+- [Dockerfile reference (EXPOSE, HEALTHCHECK) — Docker Docs](https://docs.docker.com/reference/dockerfile/)
+- [Networking in Compose — Docker Docs](https://docs.docker.com/compose/how-tos/networking/)
+- [Control startup and shutdown order in Compose — Docker Docs](https://docs.docker.com/compose/how-tos/startup-order/)
+- [Compose file reference: Services — Docker Docs](https://docs.docker.com/reference/compose-file/services/)
+- 직접 실험: Docker Desktop(Mac), `alpine:3.20`·`redis:7-alpine`·`python:3.12-alpine` 이미지, 각 1회 실행
