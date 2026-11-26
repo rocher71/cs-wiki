@@ -1,0 +1,138 @@
+---
+// 주문 테이블을 비정규형 → 1NF → 2NF → 3NF로 쪼개는 과정. 폰 폭 때문에 표는 "칸 이름: 값"을 세로로 쌓은 카드로 그린다.
+import Stepper from '../Stepper.astro';
+const cols = ['주문번호', '주문일', '회원ID', '회원명', '상품번호', '상품명', '가격', '수량'];
+const v0 = ['1001', '11-01', 'm7', '김하늘', 'P1, P2', '키보드, 마우스', '50000, 20000', '1, 2'];
+const v1 = ['1001', '11-01', 'm7', '김하늘', 'P1', '키보드', '50000', '1'];
+const v2 = ['1001', '11-01', 'm7', '김하늘', 'P2', '마우스', '20000', '2'];
+const Y = 30, HD = 28, RH = 24;
+const ry = (i: number) => Y + HD + i * RH;
+// 스키마 표: 이름 + 세로 칼럼 목록. tag = 'PK' | 'FK'
+type Col = [string, string?];
+const tbl = (x: number, name: string, list: Col[], y = Y) => ({ x, y, name, list, h: HD + list.length * RH });
+const oi = tbl(4, '주문상품', [['주문번호', 'PK'], ['상품번호', 'PK'], ['수량']]);
+const pr = tbl(4, '상품', [['상품번호', 'PK'], ['상품명'], ['가격']], 144);
+const o4 = tbl(164, '주문', [['주문번호', 'PK'], ['주문일'], ['회원ID'], ['회원명']]);
+const o3 = tbl(164, '주문', [['주문번호', 'PK'], ['주문일'], ['회원ID', 'FK']]);
+const mb = tbl(164, '회원', [['회원ID', 'PK'], ['회원명']], 144);
+const W = 152;
+const steps = [
+  { caption: '비정규형: 주문 1001 한 행의 상품번호 칸에 "P1, P2" 두 값이 들어 있어요. 상품명·가격·수량도 값이 2개씩이라, "P2만 찾기" 같은 조회도 문자열을 쪼개야 해요.', show: ['c0'] },
+  { caption: '1NF: 한 칸에 값 하나만 두도록 행을 둘로 나눴어요. 이제 행을 구분하는 키는 (주문번호, 상품번호)예요. 대신 주문일·회원ID·회원명이 두 행에 똑같이 반복돼요. P1을 다른 주문이 사면 상품명·가격도 반복되고요.', show: ['c1'] },
+  { caption: '부분 종속 찾기: 상품명·가격은 키 중 상품번호만 알면 정해지고, 주문일·회원ID·회원명은 주문번호만 알면 정해져요. 키 전체가 있어야 정해지는 건 수량뿐이에요.', show: ['fd'] },
+  { caption: '2NF: 키의 일부에만 기대던 칸을, 그 일부를 키로 하는 테이블로 떼어 냈어요. 주문상품(수량만 남김) / 상품 / 주문 세 개가 됐어요.', show: ['oi', 'pr', 'o4'] },
+  { caption: '이행 종속 찾기: 주문 테이블에서 주문번호 → 회원ID → 회원명으로 이어져요. 회원명은 키가 아닌 회원ID를 거쳐 정해지니, 한 회원이 주문할 때마다 이름이 또 반복돼요.', show: ['oi', 'pr', 'o4', 'tr'] },
+  { caption: '3NF: 회원ID → 회원명을 회원 테이블로 떼어 내고, 주문에는 회원ID만 남겼어요(FK). 최종 4개 테이블이고, 회원명은 이제 회원 테이블 한 곳에만 있어요.', show: ['oi', 'pr', 'o3', 'mb', 'h6'] },
+];
+const arrow = 'stroke: var(--sl-color-gray-2); stroke-width: 1.6; fill: none;';
+const bad = 'stroke: var(--sl-color-red); stroke-width: 1.8; fill: none;';
+---
+<Stepper title="주문 테이블을 차례로 쪼개 보기" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 290" role="img" aria-label="주문 테이블이 비정규형에서 1NF, 2NF, 3NF로 분해되어 주문상품, 상품, 주문, 회원 4개 테이블이 되는 과정">
+    <defs>
+      <marker id="ns-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0 L10 5 L0 10 z" style="fill: var(--sl-color-gray-2)" />
+      </marker>
+      <marker id="ns-arr-r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0 L10 5 L0 10 z" style="fill: var(--sl-color-red)" />
+      </marker>
+    </defs>
+
+    <!-- 1) 비정규형: 카드 1장 -->
+    <g data-id="c0" class="hide">
+      <text class="sub" x="160" y="14">주문 1행 (비정규형)</text>
+      <rect class="box" x="40" y={Y} width="240" height={HD + 8 * RH} rx="8" />
+      <text x="160" y={Y + HD / 2} style="font-weight:700">주문</text>
+      {cols.map((c, i) => (
+        <g>
+          {i >= 4 && <rect class="err" x="44" y={ry(i) + 1} width="232" height={RH - 2} rx="4" />}
+          <text class="sub l" x="52" y={ry(i) + RH / 2}>{c}</text>
+          <text class={`l ${i >= 4 ? 'err-t' : ''}`} x="130" y={ry(i) + RH / 2} style="font-size:14px">{v0[i]}</text>
+        </g>
+      ))}
+      <text class="err-t" x="160" y="270" style="font-size:14px">빨간 칸: 한 칸에 값이 2개</text>
+    </g>
+
+    <!-- 2) 1NF: 카드 2장 -->
+    <g data-id="c1" class="hide">
+      <text class="sub" x="160" y="14">1NF · 키 = (주문번호, 상품번호)</text>
+      {[v1, v2].map((v, k) => {
+        const x = 4 + k * 160;
+        return (
+          <g>
+            <rect class="box" x={x} y={Y} width={W} height={HD + 8 * RH} rx="8" />
+            <text x={x + W / 2} y={Y + HD / 2} style="font-weight:700">행 {k + 1}</text>
+            {cols.map((c, i) => (
+              <g>
+                {(i === 0 || i === 4) && <rect class="chip" x={x + 3} y={ry(i) + 1} width={W - 6} height={RH - 2} rx="4" />}
+                {(i >= 1 && i <= 3) && <rect class="err" x={x + 3} y={ry(i) + 1} width={W - 6} height={RH - 2} rx="4" />}
+                <text class="sub l" x={x + 8} y={ry(i) + RH / 2}>{c}</text>
+                <text class={`l ${(i >= 1 && i <= 3) ? 'err-t' : ''}`} x={x + 76} y={ry(i) + RH / 2} style="font-size:14px">{v[i]}</text>
+                {(i === 0 || i === 4) && <text class="hi" x={x + W - 14} y={ry(i) + RH / 2} style="font-size:14px">키</text>}
+              </g>
+            ))}
+          </g>
+        );
+      })}
+      <text class="err-t" x="160" y="270" style="font-size:14px">빨간 칸: 두 행에 똑같이 반복</text>
+    </g>
+
+    <!-- 3) 부분 종속 -->
+    <g data-id="fd" class="hide">
+      <text class="sub" x="160" y="14">기본키 = (주문번호, 상품번호)</text>
+      <rect class="chip" x="8" y="30" width="148" height="32" rx="6" />
+      <text x="82" y="46" style="font-weight:700">주문번호</text>
+      <rect class="chip" x="164" y="30" width="148" height="32" rx="6" />
+      <text x="238" y="46" style="font-weight:700">상품번호</text>
+
+      <rect class="frame" x="8" y="100" width="120" height="114" rx="8" />
+      {['주문일', '회원ID', '회원명'].map((n, i) => (<g><rect class="box" x="18" y={108 + i * 34} width="100" height="28" rx="5" /><text x="68" y={122 + i * 34}>{n}</text></g>))}
+      <rect class="frame" x="192" y="100" width="120" height="80" rx="8" />
+      {['상품명', '가격'].map((n, i) => (<g><rect class="box" x="202" y={108 + i * 34} width="100" height="28" rx="5" /><text x="252" y={122 + i * 34}>{n}</text></g>))}
+      <rect class="box" x="134" y="108" width="52" height="28" rx="5" />
+      <text x="160" y="122">수량</text>
+
+      <path d="M60 62 L60 97" style={bad} marker-end="url(#ns-arr-r)" />
+      <path d="M252 62 L252 97" style={bad} marker-end="url(#ns-arr-r)" />
+      <path d="M130 62 L152 105" style={arrow} marker-end="url(#ns-arr)" />
+      <path d="M190 62 L168 105" style={arrow} marker-end="url(#ns-arr)" />
+
+      <text class="err-t" x="68" y="230" style="font-size:14px">부분 종속</text>
+      <text class="err-t" x="252" y="196" style="font-size:14px">부분 종속</text>
+      <text class="hi" x="160" y="152" style="font-size:14px">완전 종속</text>
+      <text class="sub" x="160" y="262">키의 일부만 보고 정해지는 칸 = 부분 종속</text>
+    </g>
+
+    <!-- 4~6) 분해된 테이블 -->
+    {[['oi', oi], ['pr', pr], ['o4', o4], ['o3', o3], ['mb', mb]].map(([id, t]: any) => (
+      <g data-id={id} class="hide">
+        <rect class="box" x={t.x} y={t.y} width={W} height={t.h} rx="8" />
+        <text x={t.x + W / 2} y={t.y + HD / 2} style="font-weight:700">{t.name}</text>
+        <path d={`M${t.x} ${t.y + HD} h${W}`} class="line" style="stroke-width:1" />
+        {t.list.map(([n, tag]: Col, i: number) => (
+          <g>
+            {tag && <text class={tag === 'PK' ? 'hi l' : 'sub l'} x={t.x + 8} y={ry(i) - Y + t.y + RH / 2} style="font-size:14px">{tag}</text>}
+            <text class="l" x={t.x + 34} y={ry(i) - Y + t.y + RH / 2} style={`font-size:14px;${tag === 'PK' ? 'text-decoration:underline' : ''}`}>{n}</text>
+          </g>
+        ))}
+      </g>
+    ))}
+
+    <!-- 5) 이행 종속 표시 -->
+    <g data-id="tr" class="hide">
+      <rect class="err" x="167" y={ry(2) + 1} width={W - 6} height={2 * RH - 2} rx="4" style="fill-opacity:.5" />
+      <path d={`M272 ${ry(0) + 12} C 304 ${ry(0) + 12}, 304 ${ry(2) + 12}, 280 ${ry(2) + 12}`} style={bad} marker-end="url(#ns-arr-r)" />
+      <path d={`M272 ${ry(2) + 12} C 298 ${ry(2) + 12}, 298 ${ry(3) + 12}, 280 ${ry(3) + 12}`} style={bad} marker-end="url(#ns-arr-r)" />
+      <text class="err-t" x="240" y="172" style="font-size:14px">이행 종속</text>
+      <text class="sub" x="240" y="194">주문번호 → 회원ID</text>
+      <text class="sub" x="240" y="214">→ 회원명</text>
+    </g>
+
+    <!-- 6) 새로 생긴 곳 강조 -->
+    <g data-id="h6" class="hide">
+      <rect class="hl" x="161" y="27" width={W + 6} height={o3.h + 6} rx="10" />
+      <rect class="hl" x="161" y="141" width={W + 6} height={mb.h + 6} rx="10" />
+      <text class="sub" x="160" y="270">최종 4개 테이블 · 한 사실은 한 곳에만</text>
+    </g>
+  </svg>
+</Stepper>

@@ -1,0 +1,357 @@
+---
+title: 실행 계획 읽기 (EXPLAIN)
+description: "EXPLAIN은 MySQL이 쿼리를 어떤 순서로, 어떤 인덱스로 읽을지 미리 보여 주는 명령이에요. type → key → rows·filtered → Extra 순서로 읽고, 예상이 의심되면 실제로 실행해 재는 EXPLAIN ANALYZE로 확인해요."
+sidebar: { order: 4 }
+tags: [면접빈출, 서술형]
+---
+import { Aside } from '@astrojs/starlight/components';
+import ExplainTypeLadder from '~/components/viz/ExplainTypeLadder.astro';
+import ExplainReadOrder from '~/components/viz/ExplainReadOrder.astro';
+
+:::tip[한 줄 요약]
+**EXPLAIN**은 MySQL이 쿼리를 **어떤 테이블부터, 어떤 인덱스로 읽을지** 미리 보여 주는 명령이에요. 저는 **type → key → rows·filtered → Extra** 순서로 읽고, 예상 숫자가 의심되면 쿼리를 실제로 돌려 재는 **EXPLAIN ANALYZE**로 예상과 실제를 비교해요.
+:::
+
+<Aside type="note" title="이 페이지의 기준">
+설명은 MySQL 8.4 공식문서와 MySQL 8.0 기준 책을 바탕으로 했어요. 예시 출력은 직접 돌린 **MySQL 9.6.0** 실험(회원 `member` 30만 행, 주문 `orders` 10만 행, 노트북 1회 실행)이라 숫자는 "경향"으로만 봐 주세요.
+</Aside>
+
+## 쉽게 이해하기
+
+내비게이션에 목적지를 찍으면, 출발하기 전에 "고속도로로 40분" 같은 **예상 경로**를 먼저 보여 줘요. 아직 차는 안 움직였어요.
+
+DB에도 내비게이션이 있어요. **옵티마이저**(optimizer, 쿼리를 어떻게 실행할지 고르는 MySQL 내부 부품)예요. 쿼리 앞에 `EXPLAIN`을 붙이면 옵티마이저가 고른 경로, 즉 **실행 계획**을 보여 줘요. "이 테이블은 인덱스로 한 건만 찍어 읽을게요", "저 테이블은 처음부터 끝까지 다 훑을게요" 같은 내용이에요.
+
+쿼리가 느릴 때 제일 먼저 하는 일이 이 경로를 보는 거예요. 골목길로 돌아가고 있으면(풀 스캔) 길을 바꿔 줄 방법(인덱스)을 찾으면 돼요.
+
+단, 실제로는 내비 예상 시간이 틀리듯 EXPLAIN의 숫자도 **통계로 짐작한 값**이에요. 진짜로 달려 보고 기록을 보려면 `EXPLAIN ANALYZE`를 써요.
+
+## 그림으로 보기
+
+<ExplainTypeLadder />
+
+<ExplainReadOrder />
+
+## 제대로 알기
+
+### 1. EXPLAIN은 무엇을 보여 주나
+
+`EXPLAIN SELECT ...`처럼 쿼리 앞에 붙여요. 결과는 **표 한 줄 = 테이블 하나에 대한 읽기 방법**이에요. 조인하는 테이블이 두 개면 두 줄이 나와요.
+
+일반 EXPLAIN은 **쿼리를 실행하지 않아요.** 계획만 보여 줘요.
+
+출력 형식은 세 가지예요.
+
+| 형식 | 모양 | 특징 |
+|---|---|---|
+| TRADITIONAL | 표 | 면접·책에서 주로 보는 모양 |
+| TREE | 들여쓰기 트리 | 처리 방식을 더 정확히 보여 줌. 해시 조인이 `hash join` 단계로 보여요 |
+| JSON | JSON | 프로그램으로 읽기 좋음 |
+
+<Aside type="caution" title="기본 형식은 버전마다 달라요">
+어떤 형식이 기본으로 나오는지는 MySQL 버전과 설정에 따라 달라요. 표가 아니라 트리가 나오면 `EXPLAIN FORMAT=TRADITIONAL SELECT ...`처럼 형식을 직접 지정하세요. 이 페이지의 표 예시는 모두 TRADITIONAL 형식이에요.
+</Aside>
+
+### 2. 컬럼은 이 순서로 봐요
+
+컬럼이 열 개 넘게 나오지만, 튜닝할 때 꼭 보는 건 네 덩어리예요.
+
+| 순서 | 컬럼 | 뜻 | 볼 점 |
+|---|---|---|---|
+| 1 | **type** | 테이블을 어떻게 읽었나(접근 방식) | 좋은 등급인가 |
+| 2 | **possible_keys / key** | 후보 인덱스 / **실제로 쓴** 인덱스 | key가 NULL이면 인덱스 안 씀 |
+| 3 | **rows / filtered** | 읽을 것으로 **예상한** 행 수 / 그중 조건을 통과할 비율(%) | 많이 읽고 조금 남기나 |
+| 4 | **Extra** | 추가 작업 메모 | filesort, temporary가 있나 |
+
+나머지도 알아 두면 좋아요.
+
+- **key_len**: 인덱스에서 쓴 바이트 수예요. 복합 인덱스에서 몇 번째 컬럼까지 썼는지 가늠할 때 봐요.
+- **ref**: 인덱스와 무엇을 비교했는지예요. `const`면 상수, `lab.o.member_id`처럼 나오면 앞 테이블의 컬럼이에요.
+
+<Aside type="note" title="type은 'join type'이에요">
+공식문서는 type을 "join type"이라고 불러요. 그런데 테이블 하나짜리 쿼리에도 나오니까 "이 테이블을 읽는 방식"으로 이해하면 편해요.
+</Aside>
+
+### 3. type: 좋은 것부터 나쁜 것까지
+
+공식문서가 정한 순서는 이래요(왼쪽이 좋음).
+
+`system` → `const` → `eq_ref` → `ref` → `fulltext` → `ref_or_null` → `index_merge` → `unique_subquery` → `index_subquery` → `range` → `index` → `ALL`
+
+면접에선 자주 나오는 여섯 개만 확실히 알면 돼요. 아래 rows는 30만 행 `member`로 돌린 실험값이에요.
+
+| type | 언제 나오나 | 실험 예 | rows |
+|---|---|---|---|
+| **const** | PK나 UNIQUE 인덱스 **전체**를 상수와 `=` 비교. 최대 1건 | `WHERE id = 100` | 1 |
+| **eq_ref** | 조인에서 **뒤에 읽는 테이블**을 PK/UNIQUE(NOT NULL)로 찾음. 앞 테이블 행마다 정확히 1건 | `orders o JOIN member m ON m.id = o.member_id`의 m | 1 (행마다) |
+| **ref** | 인덱스로 `=` 찾기인데 결과가 여러 건일 수 있음(유니크 아닌 인덱스 등) | `WHERE age = 30` | 6,000 |
+| **range** | 인덱스로 **범위**를 읽음(`BETWEEN`, `<`, `>`, `IN`, `LIKE 'abc%'`) | `WHERE id BETWEEN 100 AND 200` | 101 |
+| **index** | 인덱스를 **처음부터 끝까지** 다 읽음(인덱스 풀 스캔) | `SELECT age FROM member` | 299,202 |
+| **ALL** | 테이블을 처음부터 끝까지 다 읽음(**풀 테이블 스캔**) | `WHERE gender = 'M'`(인덱스 없음) | 299,202 |
+
+**const와 eq_ref 차이**를 자주 물어요. const는 쿼리 전체에서 **딱 한 번** 읽고 그 값을 상수처럼 써요. eq_ref는 조인에서 앞 테이블 행이 100개면 **100번**, 매번 1건씩 찾아요. 둘 다 "1건"이지만 반복 횟수가 달라요.
+
+참고로 없는 PK로 const 조회(`WHERE id = 0`)를 하면 Extra에 `no matching row in const table`이 나와요.
+
+<Aside type="caution" title="type=index는 '인덱스 잘 탔다'가 아니에요">
+이름 때문에 제일 많이 오해하는 등급이에요. index는 인덱스 **전체**를 다 읽는다는 뜻이에요. 실험에서도 rows가 299,202로 ALL과 같았어요. 인덱스가 테이블보다 작아서 읽는 양이 조금 적을 뿐이에요. 그래서 key에 인덱스 이름이 있어도 **type과 rows를 같이** 봐야 해요.
+</Aside>
+
+**ALL이 항상 나쁜 건 아니에요.** 테이블 대부분을 읽어야 한다면, 인덱스를 거쳐 한 건씩 찾아가는 것(랜덤 I/O)보다 쭉 읽는 것(순차 I/O)이 빠를 수 있어요. 그래서 옵티마이저가 일부러 ALL을 고르기도 해요. 실험에서 `WHERE gender = 'M' LIMIT 5`는 type이 ALL이었지만, 5건을 채우자마자 멈춰서 실제로는 10행만 읽고 약 0.04ms에 끝났어요. 이 "어느 정도 읽으면 풀 스캔이 낫나"는 [인덱스와 B+트리](../index-btree/)에서 다뤄요.
+
+### 4. rows와 filtered: 얼마나 읽고 얼마나 남기나
+
+- **rows**는 이 테이블에서 읽어야 한다고 **예상한** 행 수예요. InnoDB에선 통계로 짐작한 값이라 정확하지 않을 수 있어요.
+- **filtered**는 읽은 rows 중 조건을 통과할 것으로 예상하는 **비율(%)** 이에요.
+- 그래서 **rows × filtered% = 다음 단계로 넘어갈 예상 행 수**예요. rows 1000, filtered 50이면 500건이 다음으로 넘어가요.
+
+옵티마이저는 이 값으로 **조인 순서**를 정해요. 다음으로 넘겨줄 건수가 적은 테이블을 먼저 읽는 게 유리하거든요.
+
+실험 예를 볼게요. `WHERE age = 30 AND gender = 'M'`은 type=ref, rows 6,000, filtered 10이었어요. "age 인덱스로 6,000건 읽고, gender 조건으로 10%쯤 남을 것"이라는 예상이에요.
+
+### 5. Extra: 좋은 신호와 주의 신호
+
+Extra에는 여러 문구가 `;`로 같이 나올 수 있어요(예: `Using index condition; Using where`). 문구 순서는 성능과 상관없어요.
+
+| 문구 | 뜻 | 신호 |
+|---|---|---|
+| **Using index** | 필요한 컬럼을 인덱스만으로 다 얻어서 테이블 행을 안 읽음(**커버링 인덱스**) | 좋음 |
+| **Using index condition** | 인덱스에 있는 컬럼 조건을 테이블 행을 읽기 **전에** 인덱스 단계에서 먼저 검사(**ICP**, Index Condition Pushdown, 5.6부터) | 좋음 |
+| **Using where** | 스토리지 엔진(실제로 데이터를 읽고 쓰는 부분)이 넘겨준 행을 MySQL 서버가 WHERE로 한 번 더 거름 | 상황에 따라 |
+| **Using filesort** | 인덱스 순서로 정렬을 못 해서 **따로 정렬**함 | 주의 |
+| **Using temporary** | 결과를 담으려고 **임시 테이블**을 만듦 | 주의 |
+
+헷갈리는 짝 세 가지를 정리해 둘게요.
+
+- **Using index vs Using index condition**: 앞은 테이블을 **아예 안 읽어요**(커버링). 뒤는 테이블을 읽긴 하지만, 읽기 전에 인덱스에서 먼저 걸러서 **덜 읽어요**. 커버링 인덱스는 [클러스터드·커버링 인덱스](../clustered-covering/)에서 자세히 다뤄요.
+- **Using where = 인덱스 안 탔다?** 아니에요. 실험에서 `age = 30 AND gender = 'M'`은 **ref + Using where**였어요. age 인덱스로 읽은 뒤 gender를 서버에서 추가로 거른 거예요. 공식문서는 오히려 type이 ALL이나 index인데 Using where가 **없으면**, 정말 전부 가져오려는 게 아닌 이상 쿼리가 이상한지 의심하라고 해요.
+- **Using filesort = 디스크에 파일을 쓴다?** 이름만 그래요. "별도 정렬 단계가 있다"는 뜻이고, 정렬 버퍼(메모리) 안에서 끝나면 파일을 안 써요.
+
+**filesort와 temporary를 인덱스로 없앤 실험**이에요(`orders` 10만 행, `status`는 PAID/READY/CANCEL 3종).
+
+| 쿼리 | 인덱스 | type | Extra |
+|---|---|---|---|
+| `WHERE status='PAID' ORDER BY amount LIMIT 10` | 없음 | ALL | Using where; Using filesort |
+| 같은 쿼리 | `(status, amount)` 추가 | ref | (없음) |
+| `SELECT status, COUNT(*) ... GROUP BY status` | 없음 | ALL | Using temporary |
+| 같은 쿼리 | `(status, amount)` 추가 | index | Using index |
+
+`(status, amount)` 인덱스는 status가 같은 것끼리 amount 순으로 정렬돼 있어요. 그래서 따로 정렬할 필요가 없어지고, GROUP BY도 인덱스 순서대로 묶을 수 있어요. 왜 컬럼 순서가 중요한지, `ORDER BY`·`GROUP BY`가 인덱스를 타는 규칙은 [복합 인덱스](../composite-index/)에 EXPLAIN 예와 함께 정리돼 있어요.
+
+### 6. EXPLAIN ANALYZE: 실제로 돌려 보기
+
+EXPLAIN의 rows는 예상치예요. 진짜 몇 건을 읽었고 얼마나 걸렸는지는 **EXPLAIN ANALYZE**로 봐요(MySQL **8.0.18**부터).
+
+- 쿼리를 **실제로 실행**해요. 그리고 예상값 옆에 실측값을 붙여 보여 줘요.
+- SELECT, 다중 테이블 UPDATE/DELETE, TABLE 문에 쓸 수 있어요.
+- 결과는 항상 TREE 형식이에요.
+
+<Aside type="danger" title="운영 DB에서 조심하세요">
+EXPLAIN ANALYZE는 쿼리를 **진짜로 실행**해요. 운영 DB에서 무거운 쿼리나 UPDATE·DELETE에 함부로 돌리면 그 부하와 결과가 그대로 생겨요. 오래 걸리면 `KILL QUERY`나 Ctrl-C로 멈출 수 있어요.
+</Aside>
+
+실험의 조인 쿼리(`orders o JOIN member m ON m.id = o.member_id WHERE o.id < 100`) 결과예요.
+
+```text
+-> Nested loop inner join  (cost=54.7 rows=99) (actual time=0.0473..0.172 rows=99 loops=1)
+    -> Filter: (o.id < 100)  (cost=20.1 rows=99) (actual time=0.0362..0.047 rows=99 loops=1)
+        -> Index range scan on o using PRIMARY over (id < 100)  (cost=20.1 rows=99) (actual time=0.0352..0.0418 rows=99 loops=1)
+    -> Single-row index lookup on m using PRIMARY (id = o.member_id)  (cost=0.251 rows=1) (actual time=0.00114..0.00116 rows=1 loops=99)
+```
+
+**한 줄 읽는 법**
+
+| 부분 | 뜻 |
+|---|---|
+| `cost=..`, 앞쪽 `rows=..` | 옵티마이저의 **예상** |
+| `actual time=A..B` | 실제 시간(ms). A는 첫 행이 나올 때까지, B는 이 단계가 끝날 때까지 |
+| 뒤쪽 `rows=..` | **실제로** 돌려준 행 수 |
+| `loops=..` | 이 단계가 반복된 횟수 |
+
+loops가 2 이상이면 시간과 rows는 **1회 평균**이에요. 그래서 총 작업량은 `rows × loops`, 총 시간은 대략 `끝 시간 × loops`로 봐요. 위 예에서 m 줄은 `loops=99`라서, member를 PK로 1건씩 **99번** 찾은 거예요.
+
+**실행 순서**는 **들여쓰기가 가장 깊은 줄부터**, 깊이가 같으면 **위 줄부터**예요. 바깥 줄은 안쪽 결과를 받아 처리해요. 위 예는 이렇게 돌아요.
+
+1. orders를 PK 범위(`id < 100`)로 99행 읽고 걸러요.
+2. 그 99행마다 member를 PK로 1건씩 찾아요.
+3. 둘을 합쳐 99행을 돌려줘요.
+
+### 7. 예상과 실제가 다르면: 통계
+
+rows가 틀리는 이유는 **통계**(테이블에 행이 몇 개고, 값 종류가 몇 개인지 같은 요약 정보)가 추정치라서예요. InnoDB는 일부 페이지만 표본으로 읽어 통계를 만들어요(`innodb_stats_persistent_sample_pages` 기본 20). 실험에서도 `age` 값은 실제로 50종류인데, 통계는 48, `SHOW INDEX`의 Cardinality는 51로 나왔어요.
+
+통계가 틀리면 옵티마이저가 엉뚱한 계획을 고를 수 있어요. 고치는 도구는 두 가지예요.
+
+- **`ANALYZE TABLE 테이블명`**: 통계를 다시 모아요.
+- **히스토그램**(histogram, 컬럼 값이 어떻게 분포하는지 구간별로 센 정보, 8.0부터): `ANALYZE TABLE t UPDATE HISTOGRAM ON col WITH N BUCKETS`로 만들어요. 인덱스가 없는 컬럼의 filtered 추정이 좋아져요.
+
+실험 결과예요.
+
+| 상황 | 예상 | 실제 |
+|---|---|---|
+| `status='PAID'` filtered, 히스토그램 없음 | 10% | 33.3% (3종 중 1) |
+| 같은 쿼리, status 히스토그램 생성 후 | **33.33%** | 33.3% |
+| `age=30 AND gender='M'` 결과 행, 히스토그램 없음 | 600 | 6,000 |
+| 같은 쿼리, gender 히스토그램 생성 후 | 3,000 | 6,000 |
+
+마지막 예가 재미있어요. 이 데이터는 age가 30이면 전부 남자였어요. 히스토그램은 "gender의 절반이 M"은 알지만 **age와 gender가 같이 움직인다는 건 모르기** 때문에, 나아지긴 해도 실제와 달라요. 통계로 다 해결되지는 않는다는 걸 보여 줘요.
+
+## 면접 질문
+
+<details>
+<summary>Q. 실행 계획을 보면 무엇부터 확인하나요?</summary>
+
+**답변(30초)** type, key, rows·filtered, Extra 순서로 봐요. 먼저 type으로 테이블을 어떻게 읽는지 보는데, const·eq_ref·ref면 괜찮고 index나 ALL이면 전체를 읽는다는 경고예요. 그다음 key로 실제 쓴 인덱스를, rows와 filtered로 얼마나 읽고 얼마나 남기는지를 봐요. 마지막으로 Extra에 Using filesort나 Using temporary 같은 추가 작업이 있는지 확인해요.
+
+**꼬리질문**
+- Q. key에 인덱스 이름이 있으면 괜찮은 거죠? → 아니에요. type이 index면 인덱스 전체를 읽는 거라 rows가 테이블 전체만큼 나올 수 있어요. type과 rows를 같이 봐야 해요.
+- Q. rows는 실제 읽은 행 수인가요? → 통계로 짐작한 예상치예요. 실제는 EXPLAIN ANALYZE로 봐요.
+</details>
+
+<details>
+<summary>Q. type 종류를 좋은 순서대로 설명해 주세요.</summary>
+
+**답변(30초)** 자주 보는 건 const, eq_ref, ref, range, index, ALL 순이에요. const는 PK나 유니크 키로 딱 한 건을 찾는 거고, eq_ref는 조인에서 앞 테이블 행마다 PK로 한 건씩 찾는 거예요. ref는 유니크하지 않은 인덱스로 같은 값 여러 건, range는 인덱스로 범위를 읽어요. index는 인덱스 전체, ALL은 테이블 전체를 읽는 거라 보통 가장 나빠요.
+
+**꼬리질문**
+- Q. const와 eq_ref 차이는? → const는 쿼리 전체에서 한 번만 읽고 상수처럼 써요. eq_ref는 조인에서 앞 테이블 행 수만큼 반복해서 한 건씩 찾아요.
+- Q. ALL은 항상 나쁜가요? → 아니에요. 대부분 행을 읽어야 하면 순차로 쭉 읽는 게 인덱스를 거치는 것보다 빠를 수 있고, LIMIT으로 일찍 끝나는 경우도 있어요.
+</details>
+
+<details>
+<summary>Q. Using index와 Using index condition은 어떻게 다른가요?</summary>
+
+**답변(30초)** Using index는 커버링 인덱스라는 뜻이에요. 필요한 컬럼이 인덱스에 다 있어서 테이블 행을 아예 읽지 않아요. Using index condition은 인덱스 컨디션 푸시다운으로, 인덱스에 있는 컬럼 조건을 테이블을 읽기 전에 먼저 검사해서 테이블 읽기를 줄여요. 둘 다 좋은 신호지만, 뒤쪽은 걸러진 행에 대해 테이블을 결국 읽어요.
+
+**꼬리질문**
+- Q. Using where는 나쁜 건가요? → 스토리지 엔진이 준 행을 서버가 한 번 더 거른다는 뜻일 뿐이에요. 인덱스로 읽은 뒤 나머지 조건을 거를 때도 나와요. rows는 큰데 filtered가 낮으면 많이 읽고 많이 버린다는 신호라 인덱스를 고민해요.
+</details>
+
+<details>
+<summary>Q. Using filesort와 Using temporary는 언제 나오고, 어떻게 없애나요?</summary>
+
+**답변(30초)** Using filesort는 인덱스 순서로 정렬을 못 해서 따로 정렬할 때, Using temporary는 GROUP BY 같은 결과를 담을 임시 테이블을 만들 때 나와요. 둘 다 행이 많으면 비싸서 주의 신호예요. 보통 WHERE 조건 컬럼과 정렬·그룹 컬럼을 순서대로 묶은 복합 인덱스로 없애요. 실험에서도 `(status, amount)` 인덱스를 추가하니 filesort와 temporary가 둘 다 사라졌어요.
+
+**꼬리질문**
+- Q. filesort면 디스크를 쓰나요? → 이름과 달리 "별도 정렬"이라는 뜻이에요. 정렬 버퍼 안에서 끝나면 메모리에서 정렬해요.
+</details>
+
+<details>
+<summary>Q. EXPLAIN과 EXPLAIN ANALYZE는 뭐가 다른가요?</summary>
+
+**답변(30초)** EXPLAIN은 쿼리를 실행하지 않고 옵티마이저의 예상 계획만 보여 줘요. EXPLAIN ANALYZE는 MySQL 8.0.18부터 있는 기능으로, 쿼리를 실제로 실행하고 예상 옆에 실제 시간, 실제 행 수, 반복 횟수를 붙여 보여 줘요. 그래서 예상 rows와 실제 rows를 비교해 통계가 틀렸는지 확인할 수 있어요. 대신 진짜 실행되니 운영 DB에서 무거운 쿼리나 UPDATE·DELETE에는 조심해야 해요.
+
+**꼬리질문**
+- Q. actual time이 0.001ms인데 loops가 10만이면요? → 시간은 1회 평균이라, 총 시간은 곱해서 봐야 해요. 한 번은 빨라도 10만 번 반복되면 전체가 느려요.
+- Q. 트리는 어느 줄부터 실행되나요? → 가장 깊이 들여쓴 줄부터, 같은 깊이면 위에서 아래로요.
+</details>
+
+<details>
+<summary>Q. 예상 rows와 실제 rows가 크게 다르면 왜 그렇고 어떻게 하나요?</summary>
+
+**답변(30초)** InnoDB 통계가 일부 페이지만 표본으로 본 추정치라 틀릴 수 있어요. 통계가 틀리면 옵티마이저가 인덱스나 조인 순서를 잘못 고를 수 있어요. 먼저 ANALYZE TABLE로 통계를 다시 모으고, 인덱스 없는 컬럼의 분포가 문제면 히스토그램을 만들어요. 그래도 안 되면 최후에 인덱스 힌트를 고려해요.
+
+**꼬리질문**
+- Q. 히스토그램이면 다 해결되나요? → 컬럼 하나의 분포만 알아서, 두 컬럼이 같이 움직이는 상관관계는 반영 못 해요. 실험에서도 히스토그램 후 예상 3,000 대 실제 6,000으로 차이가 남았어요.
+- Q. 힌트(FORCE INDEX)를 쓰면 안 되나요? → 당장은 고쳐도 데이터가 바뀌면 그 고정된 선택이 오히려 독이 될 수 있어서 마지막 수단이에요.
+</details>
+
+## 서술형 연습
+
+<details>
+<summary>상황: 주문 목록 API(`WHERE status = ? ORDER BY created_at DESC LIMIT 20`)가 데이터가 쌓이면서 점점 느려져 수백 ms가 됐습니다.</summary>
+
+**상황 파악**
+데이터가 늘수록 느려졌다면 읽는 양이 데이터 크기에 비례하고 있을 가능성이 커요. 목록 API는 호출이 많아 효과도 커요. 추측하지 않고 먼저 `EXPLAIN`으로 계획을 보고, 필요하면 `EXPLAIN ANALYZE`로 실제 읽은 행 수를 확인해요.
+
+**원인 후보**
+1. `status`에 쓸 인덱스가 없어 `type=ALL`로 전체를 읽고 있어요.
+2. 조건은 인덱스를 타지만 정렬 컬럼이 인덱스에 없어 `Using filesort`가 붙어요. 그러면 LIMIT 20이어도 조건에 맞는 행을 **전부** 모아 정렬한 뒤에야 20개를 골라요. 실험에서도 `ORDER BY` 컬럼에 인덱스가 없을 때 10만 행을 다 읽고, 걸러진 3.3만 행을 정렬해서 10개를 냈어요.
+3. 통계가 틀려 옵티마이저가 나쁜 인덱스를 골랐어요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. `(status, created_at)` 복합 인덱스 | 인덱스가 이미 정렬돼 있어 별도 정렬(filesort)이 사라짐 | 주문 INSERT·상태 UPDATE마다 인덱스 갱신 비용, 디스크 공간 증가 |
+| B. 목록 결과 캐시 | DB 부하 자체가 줄어듦 | 새 주문이 늦게 보이는 데이터 지연, 캐시 무효화 관리 필요 |
+| C. `ANALYZE TABLE`로 통계 갱신 | 원인이 3이면 가장 싸게 해결 | 인덱스가 없는 문제는 그대로 |
+
+**내가 고를 방법**
+EXPLAIN에 `ALL` 또는 `Using filesort`가 보이면 A를 골라요. 목록 조회는 쓰기보다 훨씬 자주 일어나서 인덱스 갱신 비용을 감수할 만하고, 정렬과 조건을 한 번에 해결해요. 적용 후 다시 EXPLAIN을 떠서 type이 `ref`로 바뀌고 Extra에서 filesort가 사라졌는지, 응답 시간이 줄었는지 확인해요. 그래도 트래픽이 너무 많으면 B를 덧붙여요.
+
+**채점 포인트**: EXPLAIN으로 먼저 확인, type=ALL, Using filesort와 LIMIT의 관계, WHERE+ORDER BY 복합 인덱스(컬럼 순서), 쓰기 비용 트레이드오프, 적용 후 EXPLAIN 재확인.
+</details>
+
+<details>
+<summary>상황: 대량 배치로 데이터를 넣고 지운 다음 날부터, 코드는 그대로인데 특정 조회 쿼리가 갑자기 느려졌습니다.</summary>
+
+**상황 파악**
+쿼리와 코드가 그대로인데 느려졌다면, 같은 쿼리의 **실행 계획이 바뀌었을** 가능성이 커요. 데이터 분포가 크게 바뀐 직후라는 게 단서예요.
+
+**원인 후보**
+1. 통계가 실제 데이터와 어긋나서 옵티마이저가 다른 인덱스나 조인 순서를 골랐어요.
+2. 데이터 분포 자체가 바뀌어서, 예전에는 맞던 인덱스가 이제는 너무 많은 행을 읽어요.
+
+`EXPLAIN ANALYZE`로 각 단계의 **예상 rows와 실제 rows**를 나란히 봐요. 차이가 몇 배씩 나면 1번을 의심해요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. `ANALYZE TABLE`로 통계 재수집 | 간단하고 쿼리를 안 고쳐도 됨 | 표본 추정이라 여전히 틀릴 수 있음 |
+| B. 조건 컬럼에 히스토그램 생성 | 인덱스 없는 컬럼의 filtered 추정이 좋아짐 | 컬럼 간 상관관계는 반영 못 함, 데이터가 바뀌면 다시 만들어야 함 |
+| C. 인덱스 힌트(`FORCE INDEX`) 등으로 계획 고정 | 즉시 원하는 계획을 강제 | 데이터가 또 바뀌면 고정된 계획이 오히려 독, 코드에 DB 사정이 박힘 |
+
+**내가 고를 방법**
+A를 먼저 해요. 비용이 가장 작고 원인이 통계면 바로 풀려요. 그다음 EXPLAIN ANALYZE로 예상과 실제가 가까워졌는지 확인하고, 인덱스 없는 컬럼 때문에 여전히 어긋나면 B를 더해요. C는 최후의 수단으로만 쓰고, 쓴다면 이유와 날짜를 남겨 나중에 다시 검토해요.
+
+**채점 포인트**: 계획이 바뀌었을 가능성, 통계는 표본 추정치, EXPLAIN ANALYZE로 예상 vs 실제 rows 비교, ANALYZE TABLE, 히스토그램과 그 한계, 힌트의 위험.
+</details>
+
+<details>
+<summary>상황: 주문 내역에 회원 이름을 붙이는 조인 쿼리가 느립니다. EXPLAIN ANALYZE를 보니 안쪽 테이블 줄이 `loops=100000`입니다.</summary>
+
+**상황 파악**
+loops가 10만이라는 건 안쪽 테이블을 **인덱스로 10만 번 찾아갔다**는 뜻이에요. 1회 시간과 rows는 **1회 평균**이라, 총 작업량은 rows × loops로 곱해서 봐야 해요. 참고로 MySQL 8.0.18부터는 조인 컬럼에 인덱스가 아예 없으면 보통 해시 조인을 써요. 해시 조인은 안쪽 테이블을 한 번만 읽어 해시 테이블(값으로 바로 찾는 표)을 만들기 때문에, 안쪽 loops가 10만이 되지 않아요. 해시 조인을 쓰면 TREE에는 `hash join`으로, 표 형식에는 Extra에 `Using join buffer (hash join)`으로 나와요.
+
+**원인 후보**
+1. 바깥 테이블에서 넘어오는 행이 너무 많아요. 회원 테이블 PK로 찾는 조인이면 1회는 `eq_ref`로 1건이라 빠르지만, 조건이 약해서 주문 10만 건이 다 넘어오면 10만 번 찾아야 해요.
+2. 안쪽 인덱스가 유니크가 아니라(`ref`) 한 번 찾을 때 나오는 rows가 커요. 예를 들어 회원을 바깥에 두고 주문을 `member_id` 인덱스로 찾으면, 회원 한 명당 주문이 여러 건씩 나와서 rows × loops가 크게 불어나요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. 바깥 쪽 조건을 좁히거나 페이지 단위로 나눠 조회 | 반복 횟수(loops) 자체가 줄어듦 | 화면·API 요구사항을 바꿔야 할 수 있음 |
+| B. 안쪽 인덱스를 더 좁게 만들기(추가 조건 컬럼을 넣은 복합 인덱스, 가능하면 PK/유니크로 찾게) | 1회 rows가 줄어 `ref`가 가벼워지거나 `eq_ref`가 됨 | 쓰기 비용과 공간 증가, 쿼리 조건에 맞춰야만 효과 |
+
+**내가 고를 방법**
+먼저 TREE와 ANALYZE에서 바깥 단계의 실제 rows와 안쪽 단계의 1회 rows를 나눠 봐요. 바깥이 10만이고 안쪽 1회가 1건이면 A로 넘겨주는 행을 줄여요. 화면에 10만 건을 한꺼번에 보여줄 일은 거의 없어서 페이지 단위 조회가 가장 확실해요. 안쪽 1회 rows가 크면 B로 인덱스를 좁혀요. 적용한 뒤 EXPLAIN ANALYZE를 다시 돌려 rows × loops가 실제로 줄었는지 확인해요.
+
+**채점 포인트**: loops는 반복 횟수이고 시간·rows는 1회 평균, 총 작업량 = rows × loops, 바깥 행이 많은지와 안쪽 1회 rows가 큰지(`ref`) 구분, 인덱스가 없으면 8.0.18+는 보통 해시 조인(TREE에서 확인), 적용 후 재확인.
+</details>
+
+## 필기 포인트
+
+- type 순서(좋은 → 나쁜): **system, const, eq_ref, ref, fulltext, ref_or_null, index_merge, unique_subquery, index_subquery, range, index, ALL**.
+- **index**는 인덱스 풀 스캔이에요. "인덱스를 효율적으로 탔다"는 뜻이 아니에요.
+- **const**: PK/UNIQUE 전체를 상수와 비교, 1건. **eq_ref**: 조인 뒤쪽 테이블을 PK/UNIQUE로 행마다 1건.
+- **key = NULL**이면 인덱스 미사용. **rows**는 예상치. **rows × filtered%** = 다음으로 넘어가는 예상 행 수.
+- **Using index** = 커버링(테이블 안 읽음). **Using index condition** = ICP. **Using filesort** = 별도 정렬(꼭 디스크는 아님). **Using temporary** = 임시 테이블.
+- 일반 EXPLAIN은 실행 안 함, **EXPLAIN ANALYZE는 실제 실행**(8.0.18+), 결과는 TREE 형식.
+- ANALYZE의 actual time·rows는 loops가 여러 번이면 **1회 평균**.
+
+## 함께 보기
+
+- [인덱스와 B+트리](../index-btree/)
+- [클러스터드·커버링 인덱스](../clustered-covering/)
+- [복합 인덱스와 인덱스를 못 타는 경우](../composite-index/)
+- [커넥션 풀과 쿼리](../connection-pool-query/)
+
+## 출처
+
+- [MySQL 8.4 Reference Manual, EXPLAIN Statement](https://dev.mysql.com/doc/refman/8.4/en/explain.html)
+- [MySQL 8.4 Reference Manual, EXPLAIN Output Format](https://dev.mysql.com/doc/refman/8.4/en/explain-output.html)
+- Real MySQL 8.0 (1권) 10장 "실행 계획"
+- 로컬 실험: MySQL 9.6.0, InnoDB, member 30만 행·orders 10만 행, 1회 실행

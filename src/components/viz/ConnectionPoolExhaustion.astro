@@ -1,0 +1,90 @@
+---
+// 커넥션 풀(최대 10) 고갈 과정. 행: 도착 / 풀 10칸(5x2) / 대기열 3칸 / 응답, 왼쪽에 대여 카운터, 맨 아래 규칙 한 줄.
+// 칸 안 카드·카운터·문구는 단계별 복제 요소(.hide)라 단계에 없으면 완전히 사라진다.
+import Stepper from '../Stepper.astro';
+const LX = 10, SX = 108, SG = 42, SW = 36, SH = 34;
+const rows = { arr: 8, p1: 66, p2: 106, q: 160, res: 216 };
+const slot = (i: number) => ({ x: SX + (i % 5) * SG, y: i < 5 ? rows.p1 : rows.p2 });
+const QX = [108, 176, 244], QW = 64;
+const arr = ['요청A → getConnection()', '요청A: 빌림 → 쿼리 → 반납', '요청B (결제 API 포함)', '요청 C~K 몰림', '1개 반납됨', '/health (DB 안 씀)'];
+const res = [['응답 대기', ''], ['200 OK (수 ms)', ''], ['요청B 응답 3초+', ''], ['에러 없이 느려지기만', ''], ['요청K: SQLException → 500', 'err'], ['톰캣 스레드 모두 대기 중', 'err']];
+const cnt = ['0', '1', '1', '10', '10', '10'];
+const notes = ['풀에서 빌리기 = getConnection()', '새로 연결하지 않고 빌렸다 돌려줘요', '트랜잭션이 끝날 때까지 쥐고 있어요', '10/10 → 기다림 (아직 에러 아님)', 'connectionTimeout 기본 30초', '스레드 고갈 → DB 무관 API도 지연'];
+const full = ['s1x', 's2', 's3', 's4', 's5', 's6', 's7', 's8', 's9', 's10'];
+const k = (i: number, ...ids: string[]) => [...ids, `a${i}`, `r${i}`, `k${i}`, `n${i}`];
+const steps = [
+  { caption: '요청A가 도착하면 앱 스레드가 풀에 "커넥션 하나 줘"(getConnection)를 해요. 풀에는 미리 맺어 둔 커넥션 10개가 놀고 있어요.', show: k(1, 'hl-pool') },
+  { caption: '놀고 있는 커넥션 하나를 바로 빌려 쿼리를 실행하고, 끝나면 풀에 돌려줘요. 연결을 새로 맺지 않으니 수 ms면 끝나요.', show: k(2, 's1', 'hl-s1') },
+  { caption: '요청B는 @Transactional 안에서 외부 결제 API를 3초 기다려요. 트랜잭션이 안 끝났으니 그동안 커넥션 하나를 계속 쥐고 있어요.', show: k(3, 's1x', 'hl-s1') },
+  { caption: '이런 요청이 몰려 10개가 모두 대여 중이에요. 새 요청은 에러 없이 대기열에서 기다려요. 최대 30초(connectionTimeout)까지요.', show: k(4, ...full, 'w1', 'w2', 'w3', 'hl-q') },
+  { caption: '누가 반납하면 맨 앞 대기자가 받아가요. 하지만 30초 안에 못 받은 요청은 SQLException이 나고 500으로 응답해요.', show: k(5, ...full, 'w1ok', 'w2', 'w3x', 'hl-s2', 'hl-w3') },
+  { caption: '기다리는 동안 톰캣 스레드도 같이 묶여 있어요. 스레드가 다 묶이면 DB를 안 쓰는 /health 같은 API도 받아 줄 스레드가 없어 느려져요.', show: k(6, ...full, 'w1', 'w2', 'w3', 'hl-res') },
+];
+const hls: [string, number, number, number, number][] = [
+  ['hl-pool', SX, rows.p1, 4 * SG + SW, rows.p2 + SH - rows.p1],
+  ['hl-s1', slot(0).x, slot(0).y, SW, SH], ['hl-s2', slot(1).x, slot(1).y, SW, SH],
+  ['hl-q', QX[0], rows.q, QX[2] + QW - QX[0], SH], ['hl-w3', QX[2], rows.q, QW, SH],
+  ['hl-res', SX, rows.res, 4 * SG + SW, SH],
+];
+---
+<Stepper title="커넥션 풀이 바닥나는 과정 (풀 크기 10)" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 300" role="img" aria-label="커넥션 10개짜리 풀에서 한 요청이 커넥션을 오래 쥐고, 10개가 모두 대여되면 새 요청이 최대 30초 기다리다 에러가 나고 톰캣 스레드까지 묶이는 과정">
+    <!-- 행 라벨 -->
+    <text class="l" x={LX} y={rows.arr + 18} style="font-weight:700">도착</text>
+    <text class="l" x={LX} y={rows.p1 + 12} style="font-weight:700">커넥션 풀</text>
+    <text class="sub l" x={LX} y={rows.p1 + 32}>대여 중</text>
+    <text class="sub l" x={LX + 44} y={rows.p1 + 62}>/ 10</text>
+    <text class="l" x={LX} y={rows.q + 8} style="font-weight:700">대기열</text>
+    <text class="sub l" x={LX} y={rows.q + 28}>최대 30초</text>
+    <text class="l" x={LX} y={rows.res + 17} style="font-weight:700">응답</text>
+
+    <!-- 빈 자리 (항상 보임) -->
+    {Array.from({ length: 10 }, (_, i) => <rect class="frame" x={slot(i).x} y={slot(i).y} width={SW} height={SH} rx="5" />)}
+    {QX.map((x) => <rect class="frame" x={x} y={rows.q} width={QW} height={SH} rx="5" />)}
+
+    <!-- 도착 문구 -->
+    {arr.map((t, i) => <text data-id={`a${i + 1}`} class="l hide" x={SX} y={rows.arr + 18}>{t}</text>)}
+
+    <!-- 대여 중인 커넥션 -->
+    {Array.from({ length: 10 }, (_, i) => (
+      <g data-id={`s${i + 1}`} class="hide">
+        <rect class="chip" x={slot(i).x} y={slot(i).y} width={SW} height={SH} rx="5" />
+        <text x={slot(i).x + SW / 2} y={slot(i).y + 18} style="font-size:14px">{i === 0 ? '쿼리' : '사용'}</text>
+      </g>
+    ))}
+    <g data-id="s1x" class="hide">
+      <rect class="err" x={slot(0).x} y={slot(0).y} width={SW} height={SH} rx="5" />
+      <text class="err-t" x={slot(0).x + SW / 2} y={slot(0).y + 18} style="font-size:14px">API</text>
+    </g>
+
+    <!-- 대기열 -->
+    {[1, 2, 3].map((n) => (
+      <g data-id={`w${n}`} class="hide">
+        <rect class="box" x={QX[n - 1]} y={rows.q} width={QW} height={SH} rx="5" />
+        <text x={QX[n - 1] + QW / 2} y={rows.q + 18} style="font-size:14px">{['I', 'J', 'K'][n - 1]} 대기</text>
+      </g>
+    ))}
+    <g data-id="w1ok" class="hide">
+      <rect class="chip" x={QX[0]} y={rows.q} width={QW} height={SH} rx="5" />
+      <text x={QX[0] + QW / 2} y={rows.q + 18} style="font-size:14px">I 받음</text>
+    </g>
+    <g data-id="w3x" class="hide">
+      <rect class="err" x={QX[2]} y={rows.q} width={QW} height={SH} rx="5" />
+      <text class="err-t" x={QX[2] + QW / 2} y={rows.q + 18} style="font-size:14px">K 에러</text>
+    </g>
+
+    <!-- 응답 -->
+    {res.map(([t, c], i) => <text data-id={`r${i + 1}`} class={`l hide ${c === 'err' ? 'err-t' : ''}`} x={SX} y={rows.res + 17}>{t}</text>)}
+
+    <!-- 대여 카운터 -->
+    {cnt.map((v, i) => (
+      <text data-id={`k${i + 1}`} class={`hide ${v === '10' ? 'err-t' : ''}`} x={LX + 20} y={rows.p1 + 61} style="font-size:24px;font-weight:700">{v}</text>
+    ))}
+
+    <!-- 강조 테두리 -->
+    {hls.map(([id, x, y, w, h]) => <rect data-id={id} class="hl" x={x - 3} y={y - 3} width={w + 6} height={h + 6} rx="7" />)}
+
+    <!-- 이번 단계 규칙 한 줄 -->
+    {notes.map((t, i) => <text data-id={`n${i + 1}`} class="hi hide" x="160" y="280" style="font-size:14px">{t}</text>)}
+  </svg>
+</Stepper>

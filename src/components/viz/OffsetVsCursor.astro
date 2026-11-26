@@ -1,0 +1,90 @@
+---
+// PK 인덱스(B+트리)에서 OFFSET 900000 LIMIT 20 과 WHERE id > 900000 LIMIT 20 이 읽는 양 비교.
+// 위: 루트 → 브랜치 2개 → 리프 4개(id 순, 옆 리프와 연결). 아래: 읽은 행 / 가져간 행 카운터, 걸린 시간 한 줄.
+import Stepper from '../Stepper.astro';
+const LW = 72, LY = 160, LH = 48;
+const lx = [6, 85, 164, 243];
+const leaves = [['id', '1 ~ 20'], ['id', '21 ⋯'], ['id', '⋯900,000'], ['id', '900,001~']];
+const root = { x: 110, y: 20, w: 100 }, br = [{ x: 30, y: 88 }, { x: 190, y: 88 }], BW = 100, NH = 36;
+const acc = 'stroke:var(--sl-color-accent);stroke-width:3;fill:none';
+const red = 'stroke:var(--sl-color-red);stroke-width:2;fill:none;stroke-dasharray:6 4';
+const cnt = [['-', '-'], ['900,000', '0'], ['900,020', '20'], ['0', '0'], ['20', '20']];
+const notes = ['id 순으로 정렬돼 옆으로 이어진 리프', '앞에서부터 하나씩 세며 버려요', 'OFFSET: 약 86~99ms', '키 비교로 위치를 바로 찾아요', '커서: 약 0.6ms'];
+const off = ['po1', 'po2', 'walk', 'drop'];
+const cur = ['pc1', 'pc2'];
+const k = (i: number, ...ids: string[]) => [...ids, `k${i}`, `n${i}`];
+const steps = [
+  { caption: 'PK 인덱스(B+트리)의 맨 아래 리프에는 id가 순서대로 늘어서 있고, 리프끼리 옆으로 이어져 있어요. 실제로는 100만 행이라 리프가 훨씬 많아요.', show: k(1, 'hl-leaf') },
+  { caption: 'OFFSET 900000: "90만 번째"가 어디인지 바로 알 방법이 없어요. 맨 왼쪽 리프로 내려가 한 행씩 세면서 900,000행을 읽고 버려요.', show: k(2, ...off) },
+  { caption: '그다음 20행만 결과에 담아요. 결과는 20행인데 읽은 건 900,020행이에요. 뒤 페이지일수록 버리는 양이 늘어 느려져요.', show: k(3, ...off, 'take', 'hl-l3') },
+  { caption: '커서(WHERE id > 900000): 루트에서 키를 비교하며 내려가 900,000 바로 다음 위치로 점프해요. 트리 높이만큼, 페이지 몇 장만 읽어요.', show: k(4, ...cur, 'hl-l3') },
+  { caption: '거기서 20행을 담고 멈춰요. 읽은 행도 20행이라 몇 페이지 뒤든 속도가 거의 같아요.', show: k(5, ...cur, 'take', 'hl-l3') },
+];
+const KY = 266, KW = 148, kx = (j: number) => 8 + j * 156;
+---
+<Stepper title="OFFSET vs 커서 페이징: 읽는 양 비교" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 376" role="img" aria-label="PK 인덱스에서 OFFSET 900000은 앞의 90만 행을 읽고 버린 뒤 20행을 담고, 커서 방식은 트리를 내려가 id 900000 다음 위치로 바로 가서 20행만 읽는 비교">
+    <defs>
+      <marker id="ovc-a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-red)" />
+      </marker>
+    </defs>
+    <!-- 트리 연결선 (고정) -->
+    <line class="line" x1={root.x + 30} y1={root.y + NH} x2={br[0].x + BW / 2} y2={br[0].y} />
+    <line class="line" x1={root.x + 70} y1={root.y + NH} x2={br[1].x + BW / 2} y2={br[1].y} />
+    {[0, 1, 2, 3].map((i) => <line class="line" x1={br[i >> 1].x + (i % 2 ? 75 : 25)} y1={br[0].y + NH} x2={lx[i] + LW / 2} y2={LY} />)}
+    {[0, 1, 2].map((i) => <line class="line" x1={lx[i] + LW} y1={LY + LH / 2} x2={lx[i + 1]} y2={LY + LH / 2} />)}
+
+    <!-- 내려가는 경로 -->
+    <line data-id="po1" class="hide" x1={root.x + 30} y1={root.y + NH} x2={br[0].x + BW / 2} y2={br[0].y} style={acc} />
+    <line data-id="po2" class="hide" x1={br[0].x + 25} y1={br[0].y + NH} x2={lx[0] + LW / 2} y2={LY} style={acc} />
+    <line data-id="pc1" class="hide" x1={root.x + 70} y1={root.y + NH} x2={br[1].x + BW / 2} y2={br[1].y} style={acc} />
+    <line data-id="pc2" class="hide" x1={br[1].x + 75} y1={br[1].y + NH} x2={lx[3] + LW / 2} y2={LY} style={acc} />
+
+    <!-- 노드 -->
+    <rect class="box" x={root.x} y={root.y} width={root.w} height={NH} rx="6" />
+    <text x={root.x + root.w / 2} y={root.y + NH / 2 + 1}>루트</text>
+    {br.map((b) => (
+      <g>
+        <rect class="box" x={b.x} y={b.y} width={BW} height={NH} rx="6" />
+        <text x={b.x + BW / 2} y={b.y + NH / 2 + 1}>브랜치</text>
+      </g>
+    ))}
+    <text class="sub" x="160" y="148">리프 (PK 순)</text>
+    {leaves.map(([a, b], i) => (
+      <g>
+        <rect class="box" x={lx[i]} y={LY} width={LW} height={LH} rx="6" />
+        <text class="sub" x={lx[i] + LW / 2} y={LY + 15}>{a}</text>
+        <text x={lx[i] + LW / 2} y={LY + 34} style="font-size:14px">{b}</text>
+      </g>
+    ))}
+    <rect data-id="hl-leaf" class="hl" x={lx[0] - 3} y={LY - 3} width={lx[3] + LW - lx[0] + 6} height={LH + 6} rx="8" />
+
+    <!-- OFFSET: 읽고 버림 -->
+    <rect data-id="drop" class="hide" x={lx[0] - 3} y={LY - 3} width={lx[2] + LW - lx[0] + 6} height={LH + 6} rx="8" style={red} />
+    <g data-id="walk" class="hide">
+      <line x1={lx[0] + 4} y1="222" x2={lx[2] + LW - 4} y2="222" style="stroke:var(--sl-color-red);stroke-width:2" marker-end="url(#ovc-a)" />
+      <text class="err-t" x={(lx[0] + lx[2] + LW) / 2} y="242" style="font-size:14px">읽고 버림 900,000행</text>
+    </g>
+
+    <!-- 담는 20행 -->
+    <rect data-id="hl-l3" class="hl" x={lx[3] - 3} y={LY - 3} width={LW + 6} height={LH + 6} rx="8" />
+    <text data-id="take" class="hi hide" x={lx[3] + LW / 2} y="242" style="font-size:14px">담음 20행</text>
+
+    <!-- 카운터 -->
+    {['읽은 행', '가져간 행'].map((name, j) => (
+      <g>
+        <rect class="box" x={kx(j)} y={KY} width={KW} height="72" rx="8" />
+        <text class="sub" x={kx(j) + KW / 2} y={KY + 18}>{name}</text>
+      </g>
+    ))}
+    {cnt.map((c, i) => (
+      <g data-id={`k${i + 1}`} class="hide">
+        {c.map((v, j) => <text x={kx(j) + KW / 2} y={KY + 48} class={j === 0 && v.length > 3 ? 'err-t' : ''} style="font-size:24px;font-weight:700">{v}</text>)}
+      </g>
+    ))}
+
+    <!-- 이번 단계 한 줄 -->
+    {notes.map((t, i) => <text data-id={`n${i + 1}`} class="hi hide" x="160" y="360" style="font-size:14px">{t}</text>)}
+  </svg>
+</Stepper>

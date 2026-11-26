@@ -1,0 +1,177 @@
+---
+// 이상 현상 3종. 탭(라디오) 하나당 Stepper 하나. 위 = acct 테이블 상태, 아래 = 세션 A | 세션 B 세로 타임라인.
+import Stepper from '../Stepper.astro';
+type Row = { side: 'A' | 'B'; l1: string; l2: string; cls?: string; tc?: string };
+type Cell = { id: string; t: string; cls?: string; tc?: string };
+type Scen = {
+  key: string; tab: string; title: string; level: string;
+  begin: { A?: number; B?: number }; // BEGIN 표시가 처음 켜지는 단계 번호
+  rows: Row[]; kim: Cell[]; park?: Cell[]; res?: [string, string];
+  steps: { caption: string; show: string[] }[];
+};
+const AX = 80, BX = 240, CW = 148, CH = 44;
+const T0 = 230, GAP = 54; // 첫 타임라인 행 중심, 행 간격
+const TY = [80, 106, 132]; // 테이블 kim, lee, park 행
+
+const base = ['k0'];
+const S = (n: number, extra: string[] = []) => [...Array.from({ length: n }, (_, i) => `r${i}`), ...extra];
+const scen: Scen[] = [
+  {
+    key: 'dirty', tab: 'Dirty read', title: 'Dirty read: 커밋 안 된 값을 읽음', level: 'READ UNCOMMITTED',
+    begin: { A: 1, B: 2 },
+    rows: [
+      { side: 'A', l1: 'SELECT id=1', l2: '→ 1000' },
+      { side: 'B', l1: 'UPDATE 500', l2: '커밋 안 함', cls: 'unc' },
+      { side: 'A', l1: 'SELECT id=1', l2: '→ 500 (미커밋)', cls: 'err', tc: 'err-t' },
+      { side: 'B', l1: 'ROLLBACK', l2: '500 취소' },
+      { side: 'A', l1: 'SELECT id=1', l2: '→ 1000' },
+    ],
+    kim: [{ id: 'k0', t: '1000' }, { id: 'k1', t: '500 미커밋', cls: 'unc' }],
+    res: ['A는 존재한 적 없는 500을 봤어요', '(B가 ROLLBACK해서 500은 없던 일)'],
+    steps: [],
+  },
+  {
+    key: 'nrr', tab: 'Non-repeatable', title: 'Non-repeatable read: 같은 행 값이 바뀜', level: 'READ COMMITTED',
+    begin: { A: 1 },
+    rows: [
+      { side: 'A', l1: 'SELECT id=1', l2: '→ 1000' },
+      { side: 'B', l1: 'UPDATE 500', l2: '자동 커밋' },
+      { side: 'A', l1: 'SELECT id=1', l2: '→ 500 (바뀜)', cls: 'err', tc: 'err-t' },
+    ],
+    kim: [{ id: 'k0', t: '1000' }, { id: 'k1', t: '500', tc: 'hi' }],
+    res: ['REPEATABLE READ였다면', '③도 1000 (첫 읽기 스냅숏을 계속 읽음)'],
+    steps: [],
+  },
+  {
+    key: 'phantom', tab: 'Phantom', title: 'Phantom read: 행 개수가 바뀜', level: 'READ COMMITTED',
+    begin: { A: 1 },
+    rows: [
+      { side: 'A', l1: 'COUNT ≥1000', l2: '→ 2건' },
+      { side: 'B', l1: 'INSERT park', l2: '자동 커밋' },
+      { side: 'A', l1: 'COUNT ≥1000', l2: '→ 3건 (늘어남)', cls: 'err', tc: 'err-t' },
+    ],
+    kim: [{ id: 'k0', t: '1000' }],
+    park: [{ id: 'p0', t: '3  park  1000', cls: 'ghost' }],
+    res: ['non-repeatable: 있던 행의 값이 바뀜', 'phantom: 없던 행이 생겨 개수가 바뀜'],
+    steps: [],
+  },
+];
+// 단계 정의
+scen[0].steps = [
+  { caption: 'acct 테이블에 kim, lee 두 행이 있고 잔액은 둘 다 1000이에요. 격리 수준은 READ UNCOMMITTED예요.', show: [...base] },
+  { caption: 'A가 트랜잭션을 시작하고 kim(id=1)의 잔액을 읽어요. 1000이에요.', show: ['bA', 'k0', ...S(1), 'hl0'] },
+  { caption: 'B가 kim의 잔액을 500으로 바꿔요. 아직 커밋은 안 했어요(주황 점선 = 미커밋).', show: ['bA', 'bB', 'k1', ...S(2), 'hl1'] },
+  { caption: 'A가 같은 SELECT를 다시 해요. 커밋도 안 된 500이 보여요. 이게 dirty read예요.', show: ['bA', 'bB', 'k1', ...S(3), 'hl2'] },
+  { caption: 'B가 ROLLBACK해요. kim의 잔액은 다시 1000이에요.', show: ['bA', 'bB', 'k0', ...S(4), 'hl3'] },
+  { caption: 'A가 또 읽으면 1000이에요. A는 존재한 적 없는 500을 본 거예요. 그 값으로 계산했다면 틀린 결과가 남아요.', show: ['bA', 'bB', 'k0', ...S(5), 'hl4', 'res'] },
+];
+scen[1].steps = [
+  { caption: '격리 수준을 READ COMMITTED로 올렸어요. 커밋된 값만 보이니 dirty read는 없어요.', show: [...base] },
+  { caption: 'A가 트랜잭션을 시작하고 kim의 잔액을 읽어요. 1000이에요.', show: ['bA', 'k0', ...S(1), 'hl0'] },
+  { caption: 'B가 kim의 잔액을 500으로 바꾸고 바로 커밋해요(자동 커밋).', show: ['bA', 'k1', ...S(2), 'hl1'] },
+  { caption: 'A가 같은 트랜잭션 안에서 같은 SELECT를 해요. 이번엔 500이에요. 같은 행인데 값이 바뀌었어요(non-repeatable read).', show: ['bA', 'k1', ...S(3), 'hl2'] },
+  { caption: 'READ COMMITTED는 SELECT마다 새로 커밋된 값을 읽어서 그래요. REPEATABLE READ였다면 ③도 1000이에요.', show: ['bA', 'k1', ...S(3), 'res'] },
+];
+scen[2].steps = [
+  { caption: '이번엔 행 하나가 아니라 조건에 맞는 행 전체를 세요. 격리 수준은 READ COMMITTED예요.', show: [...base] },
+  { caption: 'A가 트랜잭션을 시작하고 잔액 1000 이상인 행을 세요. kim, lee 2건이에요.', show: ['bA', 'k0', ...S(1), 'hl0'] },
+  { caption: 'B가 park(잔액 1000)을 새로 넣고 커밋해요.', show: ['bA', 'k0', 'p0', ...S(2), 'hl1'] },
+  { caption: 'A가 같은 COUNT를 다시 하면 3건이에요. 없던 park 행이 유령(phantom)처럼 나타났어요.', show: ['bA', 'k0', 'p0', ...S(3), 'hl2'] },
+  { caption: '구분법: non-repeatable read는 있던 행의 값이 바뀌고, phantom read는 조건에 맞는 행의 개수가 바뀌어요.', show: ['bA', 'k0', 'p0', ...S(3), 'res'] },
+];
+const lastY = (s: Scen) => T0 + (s.rows.length - 1) * GAP;
+const resY = (s: Scen) => lastY(s) + CH / 2 + 14;
+const H = (s: Scen) => resY(s) + 62;
+---
+<div class="anom">
+  {scen.map((s, i) => <input type="radio" name="anom-tab" id={`anom-${s.key}`} checked={i === 0} />)}
+  <div class="anom-tabs" role="radiogroup" aria-label="이상 현상 고르기">
+    {scen.map((s) => <label for={`anom-${s.key}`}>{s.tab}</label>)}
+  </div>
+  {scen.map((s) => (
+    <div class={`anom-panel p-${s.key}`}>
+      <Stepper title={s.title} steps={s.steps}>
+        <svg class="viz" viewBox={`0 0 320 ${H(s)}`} role="img" aria-label={`${s.title}. 세션 A와 B가 번갈아 실행하는 타임라인`}>
+          <rect class="badge" x="70" y="6" width="180" height="26" rx="13" />
+          <text class="on-badge" x="160" y="19">{s.level}</text>
+
+          <!-- acct 테이블 -->
+          <text class="sub" x="160" y="44">acct 테이블 (DB 실물)</text>
+          <rect class="frame" x="40" y="56" width="240" height={s.park ? 90 : 64} rx="6" />
+          {[['1', 'kim'], ['2', 'lee']].map(([id, n], j) => (
+            <g>
+              <text x="70" y={TY[j]}>{id}</text>
+              <text x="130" y={TY[j]}>{n}</text>
+              {j === 1 && <text x="220" y={TY[1]}>1000</text>}
+            </g>
+          ))}
+          {s.kim.map((c) => (
+            <g data-id={c.id} class="hide">
+              {c.cls && <rect class={c.cls} x="168" y={TY[0] - 12} width="104" height="24" rx="5" />}
+              <text class={c.tc} x="220" y={TY[0]} style={c.cls ? 'font-size:14px' : ''}>{c.t}</text>
+            </g>
+          ))}
+          {s.park?.map((c) => (
+            <g data-id={c.id} class="hide">
+              <rect class={c.cls} x="48" y={TY[2] - 12} width="224" height="24" rx="5" />
+              <text x="70" y={TY[2]}>3</text>
+              <text x="130" y={TY[2]}>park</text>
+              <text x="220" y={TY[2]}>1000</text>
+            </g>
+          ))}
+
+          <!-- 세션 열 -->
+          <text x={AX} y="174" style="font-weight:700">세션 A</text>
+          <text x={BX} y="174" style="font-weight:700">세션 B</text>
+          {s.begin.A && <g data-id="bA" class="hide"><rect class="box" x={AX - 34} y="186" width="68" height="20" rx="10" /><text x={AX} y="196" style="font-size:14px">BEGIN</text></g>}
+          {s.begin.B && <g data-id="bB" class="hide"><rect class="box" x={BX - 34} y="186" width="68" height="20" rx="10" /><text x={BX} y="196" style="font-size:14px">BEGIN</text></g>}
+
+          {s.rows.map((_, j) => <rect data-id={`hl${j}`} class="hl" x="2" y={T0 + j * GAP - CH / 2 - 4} width="316" height={CH + 8} rx="8" />)}
+          {s.rows.map((r, j) => {
+            const y = T0 + j * GAP, cx = r.side === 'A' ? AX : BX;
+            return (
+              <g data-id={`r${j}`} class="hide">
+                <rect class={r.cls ?? 'chip'} x={cx - CW / 2} y={y - CH / 2} width={CW} height={CH} rx="6" />
+                <text class="sub" x={cx - CW / 2 + 12} y={y - 10} style="font-size:14px">{['①', '②', '③', '④', '⑤'][j]}</text>
+                <text class="mono" x={cx + 6} y={y - 10}>{r.l1}</text>
+                <text class={r.tc} x={cx} y={y + 11} style="font-size:14px;font-weight:700">{r.l2}</text>
+              </g>
+            );
+          })}
+
+          {s.res && (
+            <g data-id="res" class="hide">
+              <rect class={s.key === 'dirty' ? 'err' : 'box'} x="6" y={resY(s)} width="308" height="56" rx="8" />
+              <text class={s.key === 'dirty' ? 'err-t' : 'hi'} x="160" y={resY(s) + 18} style="font-size:14px">{s.res[0]}</text>
+              <text x="160" y={resY(s) + 39} style="font-size:14px">{s.res[1]}</text>
+            </g>
+          )}
+        </svg>
+      </Stepper>
+    </div>
+  ))}
+</div>
+
+<style>
+  .anom > input { position: absolute; opacity: 0; pointer-events: none; }
+  .anom-tabs { display: flex; gap: .35rem; margin-top: 1.25rem; }
+  .anom-tabs label {
+    flex: 1 1 0; text-align: center; min-height: 44px; display: flex; align-items: center; justify-content: center;
+    padding: 0 .3rem; border-radius: .5rem; font-size: .85rem; line-height: 1.2; cursor: pointer;
+    border: 1px solid var(--sl-color-gray-4); color: var(--sl-color-text); background: var(--sl-color-bg);
+  }
+  .anom-panel { display: none; }
+  .anom-panel :global(.stepper) { margin-top: .5rem !important; }
+  #anom-dirty:checked ~ .p-dirty, #anom-nrr:checked ~ .p-nrr, #anom-phantom:checked ~ .p-phantom { display: block; }
+  #anom-dirty:checked ~ .anom-tabs label[for='anom-dirty'],
+  #anom-nrr:checked ~ .anom-tabs label[for='anom-nrr'],
+  #anom-phantom:checked ~ .anom-tabs label[for='anom-phantom'] {
+    background: var(--sl-color-accent); color: var(--sl-color-black); border-color: transparent; font-weight: 700;
+  }
+  #anom-dirty:focus-visible ~ .anom-tabs label[for='anom-dirty'],
+  #anom-nrr:focus-visible ~ .anom-tabs label[for='anom-nrr'],
+  #anom-phantom:focus-visible ~ .anom-tabs label[for='anom-phantom'] { outline: 2px solid var(--sl-color-accent-high); outline-offset: 2px; }
+  .anom :global(*) { margin-top: 0; }
+  svg .unc { fill: var(--sl-color-orange-low); stroke: var(--sl-color-orange); stroke-width: 1.4; stroke-dasharray: 4 3; }
+  svg .ghost { fill: none; stroke: var(--sl-color-red); stroke-width: 1.4; stroke-dasharray: 4 3; }
+</style>

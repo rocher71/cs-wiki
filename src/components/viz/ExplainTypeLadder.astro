@@ -1,0 +1,43 @@
+---
+// EXPLAIN type 사다리: 위(좋음) → 아래(나쁨). 각 칸 옆 막대는 B-Tree/테이블에서 읽는 범위(비율 아님, 대략).
+import Stepper from '../Stepper.astro';
+const Y0 = 34, RH = 60, TX = 92, TW = 222;
+const rows = [
+  { t: 'const', label: '한 점 · rows 1', fill: [[200, 6]] },
+  { t: 'eq_ref', label: '앞 행마다 한 점 · 1 × N번', fill: [[108, 6], [150, 6], [192, 6], [234, 6], [276, 6]] },
+  { t: 'ref', label: '같은 값 구간 · rows 6,000', fill: [[180, 26]] },
+  { t: 'range', label: '범위 구간 · rows 101~12,000', fill: [[150, 76]] },
+  { t: 'index', label: '인덱스 리프 전부 · 299,202', fill: [[TX, TW]] },
+  { t: 'ALL', label: '테이블 전부 · 299,202', fill: [[TX, TW]], bad: true },
+];
+const steps = [
+  { caption: 'const: PK나 UNIQUE 인덱스를 = 로 찾아 B-Tree에서 한 점만 찍어요. WHERE id = 100 → rows 1. 쿼리 전체에서 딱 한 번 읽어요.', show: ['r0', 'h0'] },
+  { caption: 'eq_ref: 조인에서 앞 테이블 행마다 뒤 테이블을 PK로 1건씩 찍어요. 한 번은 1건이지만 앞 행 수(N)만큼 반복해요.', show: ['r0', 'r1', 'h1'] },
+  { caption: 'ref: 유니크가 아닌 인덱스를 = 로 찾아 같은 값이 모인 구간을 읽어요. age = 30 → rows 6,000.', show: ['r0', 'r1', 'r2', 'h2'] },
+  { caption: 'range: BETWEEN, <, IN 같은 조건으로 인덱스의 한 구간을 읽어요. id BETWEEN 100 AND 200은 101행, age IN(30,31)은 약 12,000행. 구간 크기를 꼭 봐요.', show: ['r0', 'r1', 'r2', 'r3', 'h3'] },
+  { caption: 'index: 인덱스 리프를 처음부터 끝까지 다 읽어요(인덱스 풀 스캔). SELECT age만 해도 rows 299,202. 이름과 달리 경고 신호예요.', show: ['r0', 'r1', 'r2', 'r3', 'r4', 'h4'] },
+  { caption: 'ALL: 테이블 전체를 다 읽어요(풀 테이블 스캔). 인덱스 없는 gender = \'M\' → rows 299,202. 대부분을 읽을 땐 옵티마이저가 일부러 고르기도 해요.', show: ['r0', 'r1', 'r2', 'r3', 'r4', 'r5', 'h5'] },
+];
+const H = Y0 + rows.length * RH + 6;
+---
+<Stepper title="type 사다리: 위로 갈수록 적게 읽어요" steps={steps}>
+  <svg class="viz" viewBox={`0 0 320 ${H}`} role="img" aria-label="EXPLAIN type을 좋은 것부터 나쁜 것까지 쌓고, 각각 읽는 범위를 막대로 비교">
+    <text class="sub" x="44" y="16">type</text>
+    <text class="sub" x={TX + TW / 2} y="16">읽는 범위 (막대는 대략)</text>
+    {rows.map((r, k) => {
+      const y = Y0 + k * RH;
+      return (
+        <g>
+          <rect data-id={`h${k}`} class="hl hide" x="3" y={y + 1} width="314" height={RH - 4} rx="10" />
+          <g data-id={`r${k}`}>
+            <rect class="box" x="8" y={y + 6} width="74" height={RH - 14} rx="8" />
+            <text class="mono" x="45" y={y + RH / 2 - 1} style="font-weight:700">{r.t}</text>
+            <rect class="box" x={TX} y={y + 8} width={TW} height="16" rx="4" />
+            {r.fill.map(([x, w]) => <rect class={r.bad ? 'err' : 'chip'} x={x} y={y + 8} width={w} height="16" rx="3" />)}
+            <text class="sub l" x={TX} y={y + 40}>{r.label}</text>
+          </g>
+        </g>
+      );
+    })}
+  </svg>
+</Stepper>

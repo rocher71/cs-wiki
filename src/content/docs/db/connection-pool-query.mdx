@@ -1,0 +1,440 @@
+---
+title: 커넥션 풀과 쿼리 성능 실무
+description: "커넥션 풀은 DB 연결을 미리 만들어 두고 빌려 쓰는 장치예요. 풀이 고갈되면 에러보다 '느린 API'가 먼저 보이고, 원인은 대개 풀 크기가 아니라 커넥션을 오래 쥐는 코드와 느린 쿼리예요."
+sidebar: { order: 9 }
+tags: [면접빈출, 서술형]
+---
+import { Aside } from '@astrojs/starlight/components';
+import ConnectionPoolExhaustion from '~/components/viz/ConnectionPoolExhaustion.astro';
+import OffsetVsCursor from '~/components/viz/OffsetVsCursor.astro';
+
+:::tip[한 줄 요약]
+**커넥션 풀**은 DB 연결을 미리 맺어 두고 빌려주고 돌려받는 장치예요. 풀이 바닥나면 요청은 에러 대신 **최대 30초 기다리기**부터 해서, 증상이 "느린 API"로 먼저 보여요. 원인은 대개 풀이 작아서가 아니라 **커넥션을 오래 쥐는 코드**(트랜잭션 안 외부 호출, 느린 쿼리)라서, 풀을 키우기 전에 점유 시간부터 줄여요.
+:::
+
+<Aside type="note" title="이 페이지의 기준">
+HikariCP README·위키, MySQL 8.4 공식문서를 바탕으로 했어요. 직접 돌린 실험은 **MySQL 9.6.0**(로컬 노트북, 100만 행, 데이터가 전부 메모리에 올라간 상태)이라 숫자는 "경향"으로만 봐 주세요. 실제 서버에서는 디스크·네트워크 때문에 차이가 더 커질 수 있어요.
+</Aside>
+
+## 쉽게 이해하기
+
+식당에 직원(앱 스레드)은 많은데, 주방으로 들어가는 문(DB 커넥션)은 10개뿐이라고 해 봐요. 문을 매번 새로 달면 공사비가 크니까, 문 10개를 미리 달아 두고 돌려 써요. 이게 **커넥션 풀**이에요.
+
+한 직원이 문을 붙잡고 전화 통화(외부 결제 API)까지 하면, 뒤에 선 직원들은 문 앞에서 줄을 서요. 손님 입장에선 "주문이 안 나온다", 즉 느려진 거예요. 줄을 30초 서도 문이 안 나면 그제야 "주문 실패"(에러)가 떠요.
+
+여기서 문을 1000개로 늘리면 될 것 같지만, 주방 요리사(DB의 CPU 코어)는 몇 명뿐이에요. 문으로 사람이 몰려 들어와도 요리 속도는 그대로고, 주방만 북적여서 오히려 느려져요.
+
+단, 실제로는 "문"이 물리적인 게 아니라 DB와 맺은 **네트워크 연결**이고, 줄 서기는 `getConnection()` 호출이 멈춰 있는 상태예요.
+
+## 그림으로 보기
+
+<ConnectionPoolExhaustion />
+
+## 제대로 알기
+
+### 1. 커넥션 풀은 왜 있나
+
+DB와 **커넥션**(connection, 앱과 DB 사이의 통신 연결)을 새로 맺는 건 비싸요. MySQL 공식문서는 INSERT 한 건에 드는 비용을 대략 이렇게 나눠요.
+
+| 단계 | 비용 비율 |
+|---|---|
+| 연결 맺기 | 3 |
+| 쿼리 보내기 | 2 |
+| 쿼리 해석(파싱) | 2 |
+| 행 넣기 | 1 × 행 크기 |
+| 인덱스 갱신 | 1 × 인덱스 수 |
+| 연결 닫기 | 1 |
+
+연결과 닫기만 합쳐도 행을 넣는 비용보다 커요. 그래서 연결을 미리 맺어 두고 재사용하는 **커넥션 풀**(connection pool)을 써요. 이 페이지는 자바에서 많이 쓰는 **HikariCP** 기준으로 설명해요.
+
+### 2. HikariCP 주요 설정과 기본값
+
+| 설정 | 기본값 | 뜻 |
+|---|---|---|
+| `maximumPoolSize` | **10** | 풀에 둘 수 있는 커넥션 최대 개수 |
+| `connectionTimeout` | **30초**(최소 250ms) | 빈 커넥션이 없을 때 기다리는 최대 시간. 넘으면 `SQLException` |
+| `minimumIdle` | maximumPoolSize와 같음 | 놀고 있는 커넥션 최소 개수. README는 따로 정하지 말고 **고정 크기 풀**로 쓰라고 권해요 |
+| `idleTimeout` | 10분 | 남는 유휴 커넥션을 닫는 시간. minimumIdle이 최대 크기보다 작을 때만 적용 |
+| `maxLifetime` | 30분 | 커넥션 하나의 최대 수명. 쓰는 중인 커넥션은 은퇴시키지 않아요 |
+| `keepaliveTime` | 2분 | 유휴 커넥션에 주기적으로 신호를 보내 끊기지 않게 함. maxLifetime보다 작아야 해요 |
+| `leakDetectionThreshold` | 0(꺼짐) | 커넥션이 이 시간 넘게 반납 안 되면 "누수 의심" 로그. 켤 때 최솟값 2초 |
+| `validationTimeout` | 5초 | 커넥션이 살아 있는지 검사하는 제한 시간. connectionTimeout보다 작아야 해요 |
+
+**maxLifetime 잡는 법**: README는 이 값을 **DB나 방화벽·로드밸런서가 연결을 강제로 끊는 시간보다 몇 초 짧게** 잡으라고 강하게 권해요. 바깥에서 먼저 끊어 버리면, 풀은 죽은 연결을 살아 있는 줄 알고 빌려줘요. MySQL 쪽에서는 `wait_timeout`이 이 "끊는 시간"이에요. 아무 요청 없는 연결을 이 시간(기본 **28800초 = 8시간**)이 지나면 서버가 닫아요. 클라우드 DB나 방화벽은 이보다 짧게 잡혀 있을 수 있으니 실제 환경 값을 확인해서 그보다 짧게 맞춰요.
+
+### 3. 풀 크기는 "크게"가 아니라 "작게"
+
+HikariCP 위키가 출발점으로 소개하는 공식이에요(PostgreSQL 프로젝트 공식을 인용).
+
+```text
+커넥션 수 = (CPU 코어 수 × 2) + 디스크 수
+# 코어 수는 하이퍼스레딩 제외
+# 데이터가 전부 메모리에 있으면 디스크 수는 0
+# 예: 4코어 + 디스크 1개 → 9, 반올림해 10
+```
+
+왜 작아야 할까요? CPU 코어 하나는 한 번에 한 작업만 실행해요. 코어보다 훨씬 많은 쿼리를 DB에 동시에 밀어 넣으면 **컨텍스트 스위칭**(CPU가 작업을 번갈아 바꾸는 비용)과 디스크·락 경합만 늘고, 총 처리량은 오르지 않아요. 위키가 인용한 Oracle 성능팀 사례에서는 다른 건 안 건드리고 **커넥션을 2048개에서 96개로 줄였더니** 응답 시간이 약 100ms에서 약 2ms로 줄었어요.
+
+위키의 결론은 "작은 풀 + 그 앞에서 기다리는 스레드"가 낫다는 거예요. 사용자가 1만 명이어도 풀은 많아야 수십 개라고 해요.
+
+**풀 데드락**(pool-locking)도 알아 두세요. 한 스레드가 커넥션을 동시에 여러 개 쥐는 구조면, 모두가 "하나 더"를 기다리며 멈출 수 있어요. 이를 피하는 **최소** 크기 공식이에요.
+
+```text
+풀 크기 = 최대 스레드 수 × (스레드당 동시 커넥션 수 − 1) + 1
+# 예: 스레드 8개가 각각 3개씩 → 8 × 2 + 1 = 17
+```
+
+위키는 이게 최적값이 아니라 데드락을 피하는 최소값일 뿐이고, 풀을 키우기 전에 한 스레드가 여러 개를 쥐는 앱 구조부터 고치라고 해요. 스프링의 `REQUIRES_NEW`가 바로 이 구조예요(바깥 트랜잭션 1개 + 안쪽 1개). 자세한 건 [@Transactional](../../spring/transactional/)에서 다뤄요.
+
+### 4. 커넥션 고갈: 증상과 원인
+
+**증상은 이 순서로 나타나요.**
+
+1. 앱 스레드들이 `getConnection()`에서 멈춰 기다려요.
+2. API 응답 시간이 급증해요(최대 connectionTimeout, 기본 30초).
+3. 그래도 못 받으면 `SQLException`이 나고 500 응답이 나가요.
+4. 톰캣(웹 요청을 받는 서버)의 스레드까지 대기에 다 묶이면, DB를 안 쓰는 API까지 느려질 수 있어요.
+
+즉 "풀 고갈 = 바로 에러"가 아니에요. **먼저 느려지고, 그다음 에러**예요.
+
+이때 HikariCP가 던지는 예외는 `SQLTransientConnectionException`(SQLException의 하위 클래스)이고, 메시지는 `HikariPool-1 - Connection is not available, request timed out after 30000ms ...` 형태예요. 로그에서 이 문구가 보이면 풀 고갈을 의심해요.
+
+**원인은 대개 "커넥션을 쥐는 시간이 길다"예요.** 간단한 산수로 보면, 풀이 10개일 때 요청 하나가 커넥션을 100ms 쥐면 이론상 초당 100건, 1초 쥐면 초당 10건밖에 처리 못 해요. 점유 시간을 늘리는 대표 원인이에요.
+
+| 원인 | 왜 오래 쥐나 | 자세히 |
+|---|---|---|
+| 트랜잭션 안에서 외부 API·결제·메일 호출 | 외부 응답을 기다리는 동안 커넥션을 놓지 않음 | [@Transactional](../../spring/transactional/), [트랜잭션과 ACID](../transaction-acid/) |
+| OSIV 켜짐 | 요청이 끝날 때(JSON 응답 만들기)까지 커넥션 유지 | [JPA N+1](../../spring/jpa-n-plus-one/) |
+| 느린 쿼리 | 풀스캔, 깊은 OFFSET, 무거운 COUNT | 아래 5~8절 |
+| 커넥션 누수 | 반납을 안 함 | `leakDetectionThreshold`로 탐지 |
+| 한 스레드가 커넥션 2개 이상 | `REQUIRES_NEW` 등 → 풀 데드락 | 3절 |
+
+**OSIV**(Open Session In View)는 JPA의 DB 세션을 화면(응답) 만들 때까지 열어 두는 스프링 설정이에요.
+
+<Aside type="caution" title="풀만 늘리면 안 되는 이유">
+풀을 키우면 DB로 동시에 들어가는 쿼리가 늘어서 DB 자체가 더 느려질 수 있어요(3절). 또 앱 서버가 N대면 DB가 받는 커넥션은 **N × 풀 크기**예요. 이 합이 DB의 `max_connections`(DB가 받을 수 있는 최대 연결 수)를 넘을 수 있어요. 실무에서는 흔히 느린 쿼리와 긴 트랜잭션 줄이기 → 외부 호출을 트랜잭션 밖으로 → OSIV 끄기 검토 → 그래도 부족하면 풀 크기 조정 순으로 봐요.
+</Aside>
+
+### 5. 슬로우 쿼리 로그: 느린 쿼리 찾기
+
+**슬로우 쿼리 로그**(slow query log)는 오래 걸린 쿼리를 파일이나 테이블에 남기는 MySQL 기능이에요.
+
+- **기본은 꺼져 있어요.**
+- 기준 시간 `long_query_time` 기본값은 **10초**예요. 그래서 1초짜리 쿼리는 기본 설정으론 안 잡혀요. 0까지 낮출 수 있고 마이크로초 단위도 돼요.
+- 쿼리 실행이 **끝난 뒤**에 기록해요. 그래서 로그 순서가 실행 순서와 다를 수 있고, `Time` 필드는 쿼리가 **끝난** 시각이에요.
+- 락을 기다린 시간은 실행 시간에 넣지 않아요.
+
+실험(MySQL 9.6)에서 `long_query_time=0.1`로 낮추고 잡은 실제 한 줄이에요.
+
+```text
+# Query_time: 0.222174  Lock_time: 0.000000 Rows_sent: 10  Rows_examined: 1500010
+SELECT id FROM orders ORDER BY created_at DESC LIMIT 500000,10;
+```
+
+| 필드 | 뜻 |
+|---|---|
+| `Query_time` | 실행 시간(초) |
+| `Lock_time` | 락을 잡는 데 걸린 시간(초) |
+| `Rows_sent` | 클라이언트로 보낸 행 수 |
+| `Rows_examined` | 서버가 검사한 행 수 |
+
+**읽는 법**: 10행 보내려고 150만 행을 검사했어요. `Rows_examined`가 `Rows_sent`보다 훨씬 크면 "조금 보내려고 많이 읽은" 쿼리라 튜닝 여지가 커요. 단, `GROUP BY`나 `COUNT` 같은 집계는 원래 많이 읽으니 예외예요.
+
+같은 서버에서 86~99ms 걸린 다른 쿼리는 0.1초 기준에 안 걸려 로그에 없었어요. **"느린데 로그엔 없다"면 기준 시간 설정부터 의심**해요.
+
+그 밖에 알아 둘 것이에요.
+
+- `log_queries_not_using_indexes`(기본 off): 인덱스를 안 쓴 쿼리도 기록해요.
+- `min_examined_row_limit`: 이 행 수 이상 검사한 쿼리만 기록해요.
+- `log_output`: 파일(FILE) 또는 테이블(`mysql.slow_log`)로 남겨요.
+- 요약 도구: MySQL에 들어 있는 `mysqldumpslow`, Percona의 `pt-query-digest`(같은 모양의 쿼리끼리 묶어 횟수·총시간 순으로 보여 줌).
+
+찾은 쿼리는 [EXPLAIN](../explain/)으로 실행 계획을 보고 고쳐요.
+
+### 6. OFFSET 페이징은 뒤로 갈수록 느려요
+
+**페이징**(paging)은 목록을 20개씩 끊어 보여 주는 거예요. 흔한 방식은 `LIMIT offset, n`이에요.
+
+```sql
+-- OFFSET 방식: 90만 행을 읽고 버린 뒤 20행을 줌
+SELECT * FROM orders ORDER BY id LIMIT 900000, 20;
+
+-- 커서 방식: 마지막으로 본 id 다음부터 바로 20행
+SELECT * FROM orders WHERE id > 900000 ORDER BY id LIMIT 20;
+```
+
+`LIMIT offset, n`은 앞의 offset개를 **실제로 읽고 버린 뒤** n개를 줘요. 그래서 뒤 페이지일수록 느려요. **커서 페이징**(cursor paging, 키셋·no-offset 페이징이라고도 함)은 마지막으로 본 키를 기억했다가 그다음부터 읽어요. 인덱스에서 그 위치로 바로 찾아가니 페이지가 깊어도 속도가 일정해요.
+
+<OffsetVsCursor />
+
+실험(MySQL 9.6, 100만 행) 결과예요.
+
+| 방식 | 시간 | 읽은 행 |
+|---|---|---|
+| ① 첫 페이지 | 0.15ms | 20 |
+| ② 깊은 OFFSET | 86~99ms | 900,020 |
+| ③ 커서 | 약 0.6ms | 20 |
+| ④ OFFSET + 정렬 인덱스 없음 | 222ms | 1,500,010 |
+
+```sql
+-- ① ORDER BY id LIMIT 0, 20
+-- ② ORDER BY id LIMIT 900000, 20
+-- ③ WHERE id > 900000 ORDER BY id LIMIT 20
+-- ④ ORDER BY created_at DESC LIMIT 500000, 10  (created_at에 인덱스 없음)
+```
+
+같은 20행인데 깊은 OFFSET이 커서보다 약 150배 느렸어요. 정렬 컬럼에 인덱스까지 없으면 더 나빠요. `ORDER BY ... LIMIT`은 인덱스로 정렬할 수 있으면 앞의 n행을 찾자마자 멈추지만, 따로 정렬(filesort)해야 하면 조건에 맞는 행을 사실상 다 읽고 정렬한 뒤에야 결과를 내기 때문이에요.
+
+**커서 페이징의 주의점**
+
+- **정렬 키가 유일해야 해요.** `created_at`처럼 같은 값이 여러 개면 경계에서 행이 빠지거나 겹칠 수 있어요. `ORDER BY created_at, id`처럼 유일한 컬럼을 덧붙이고 `WHERE (created_at, id) > (?, ?)`로 이어 받아요. MySQL 문서도 ORDER BY 값이 같은 행은 순서가 달라질 수 있으니 유일 컬럼을 추가하라고 해요.
+- **"37페이지로 바로 가기"가 안 돼요.** 앞 페이지의 마지막 키가 있어야 다음을 읽으니까요. 그래서 무한 스크롤이나 "더보기" 버튼에 잘 맞아요.
+
+### 7. COUNT(*)는 공짜가 아니에요
+
+목록 화면의 "전체 1,234건"을 위해 매 요청 `COUNT(*)`를 돌리는 게 흔한 숨은 비용이에요.
+
+- InnoDB는 테이블 행 수를 저장해 두지 않아요. 동시에 도는 트랜잭션마다 **보이는 행 수가 다르기 때문**이에요([격리 수준](../isolation-levels/)의 MVCC). 그래서 `COUNT(*)`는 매번 실제로 세요.
+- 셀 때는 **가장 작은 세컨더리 인덱스**를 훑어요. 없으면 클러스터드 인덱스를 훑어요.
+- InnoDB에서 `COUNT(*)`와 `COUNT(1)`은 성능 차이가 없어요.
+- 근사치면 충분할 때는 `SHOW TABLE STATUS`나 `information_schema.TABLES.TABLE_ROWS`를 쓰라고 문서가 권해요. 단, 추정치예요.
+
+| 쿼리 (100만 행) | 시간 | 비고 |
+|---|---|---|
+| `SELECT COUNT(*) FROM orders` | 50ms | 작은 인덱스로 셈 |
+| `... WHERE status='PAID'` (status 인덱스 없음) | 105ms | 100만 행 전부 검사 |
+| `TABLE_ROWS` 조회 | 즉시 | 991,746 (실제 1,000,000) |
+
+흔히 쓰는 대안은 커서 페이징으로 전체 개수를 아예 안 보여 주기, `LIMIT n+1`로 한 개 더 읽어서 "다음 페이지 있음"만 판단하기, 개수를 캐시하거나 근사치로 보여 주기예요.
+
+### 8. 대량 INSERT는 묶어서
+
+한 건씩 INSERT를 1만 번 하면, 매번 (1) 네트워크 왕복 (2) 쿼리 해석 (3) autocommit이면 커밋마다 **로그를 디스크에 강제로 쓰기**(flush)를 1만 번 치러요. 묶으면 이걸 몇 번으로 줄여요. **autocommit**은 문장 하나마다 자동으로 커밋하는 기본 모드예요.
+
+| 방식 (1만 행, 로컬) | 시간 |
+|---|---|
+| 단건 INSERT 1만 번, autocommit | 0.86초 |
+| 단건 INSERT 1만 번, 트랜잭션 1개로 묶음 | 0.31초 |
+| 1000행짜리 다중 행 INSERT 10번 | 0.03초 |
+
+```sql
+-- 다중 행 INSERT: 한 문장에 여러 행
+INSERT INTO orders (user_id, amount) VALUES (1, 100), (2, 200), (3, 300);
+```
+
+다중 행이 단건 autocommit보다 약 30배 빨랐어요. 이건 같은 노트북 안이라 네트워크 왕복이 거의 0인 조건이에요. 앱과 DB가 1ms 떨어져 있으면 왕복만 1만 × 1ms = 10초가 더 붙으니, 실서버 격차는 훨씬 커요. MySQL 문서도 다중 행 INSERT가 단건 반복보다 훨씬(경우에 따라 몇 배) 빠르고, 파일에서 읽어 넣는 `LOAD DATA`는 보통 INSERT보다 약 20배 빠르다고 해요.
+
+**자바에서 주의할 점**
+
+- MySQL JDBC 드라이버(Connector/J)의 `rewriteBatchedStatements` 기본값은 **false**예요. 이 상태에선 `addBatch()`로 모아도 문장이 하나씩 나가요. true로 켜야 `executeBatch()` 때 다중 행 INSERT 한 문장으로 바꿔 보내요.
+- JPA(Hibernate)는 PK 생성 전략이 `IDENTITY`(MySQL AUTO_INCREMENT)면 INSERT를 JDBC 배치로 묶지 못해요. INSERT를 실행해야 PK를 알 수 있어서, `persist()` 즉시 한 건씩 INSERT하기 때문이에요(Hibernate 사용자 가이드). 그래서 대량 적재엔 `JdbcTemplate.batchUpdate` + `rewriteBatchedStatements=true` 조합을 흔히 써요.
+
+## 면접 질문
+
+<details>
+<summary>Q. 커넥션 풀을 왜 쓰나요?</summary>
+
+**답변(30초)** DB 연결을 맺고 끊는 비용이 크기 때문이에요. MySQL 문서 기준으로 연결과 닫기 비용이 행 하나 넣는 비용보다 커요. 커넥션 풀은 연결을 미리 맺어 두고 요청마다 빌려주고 돌려받아서 이 비용을 없애요. 동시에 DB로 가는 연결 수에 상한을 두는 역할도 해요.
+
+**꼬리질문**
+- Q. 풀이 다 찼을 때 새 요청은 어떻게 되나요? → HikariCP는 `connectionTimeout`(기본 30초)만큼 기다리고, 그래도 못 받으면 `SQLException`을 던져요.
+- Q. HikariCP 기본 풀 크기는요? → `maximumPoolSize` 기본 10이고, `minimumIdle`도 기본으로 같은 값이라 고정 크기 풀로 동작해요.
+</details>
+
+<details>
+<summary>Q. 커넥션 풀 크기는 크게 잡을수록 좋은가요?</summary>
+
+**답변(30초)** 아니에요. DB의 CPU 코어는 한 번에 한 작업씩만 실행해서, 코어보다 훨씬 많은 쿼리를 동시에 넣으면 컨텍스트 스위칭과 경합만 늘어요. HikariCP 위키는 "코어 수 × 2 + 디스크 수"를 출발점으로 소개하고, 풀을 줄였더니 응답 시간이 약 100ms에서 2ms로 줄어든 사례를 들어요. 작은 풀에 앞에서 스레드가 기다리게 하는 게 처리량이 더 좋아요.
+
+**꼬리질문**
+- Q. 앱 서버를 늘릴 때 주의할 점은요? → DB가 받는 연결은 서버 수 × 풀 크기라서, DB의 `max_connections`를 넘지 않는지 같이 봐야 해요.
+- Q. 풀 데드락은 뭔가요? → 한 스레드가 커넥션을 여러 개 동시에 쥐는 구조에서 모두가 다음 커넥션을 기다리며 멈추는 거예요. `REQUIRES_NEW`가 대표적이라, 풀을 키우기보다 구조를 먼저 고쳐요.
+</details>
+
+<details>
+<summary>Q. 커넥션 풀 고갈은 어떻게 알아채고 원인은 뭔가요?</summary>
+
+**답변(30초)** 고갈되면 에러보다 응답 지연이 먼저 보여요. 스레드가 커넥션을 최대 30초 기다리다가 그다음에 예외가 나거든요. 원인은 대개 풀 크기보다 커넥션을 쥐는 시간이 긴 거예요. 트랜잭션 안 외부 API 호출, OSIV, 느린 쿼리, 반납 안 하는 누수가 대표적이에요. 그래서 풀 대기 지표와 슬로우 쿼리를 먼저 보고, 점유 시간을 줄이는 쪽으로 고쳐요.
+
+**꼬리질문**
+- Q. 누수는 어떻게 찾나요? → `leakDetectionThreshold`를 켜면 커넥션이 그 시간 넘게 안 돌아올 때 로그를 남겨요(기본 꺼짐, 최소 2초).
+- Q. 점유 시간과 처리량은 어떤 관계죠? → 풀 10개에 요청당 100ms면 이론상 초당 100건, 1초면 초당 10건이에요. 점유 시간을 줄이는 게 곧 처리량이에요.
+</details>
+
+<details>
+<summary>Q. maxLifetime은 어떻게 설정하나요?</summary>
+
+**답변(30초)** DB나 방화벽, 로드밸런서가 연결을 강제로 끊는 시간보다 몇 초 짧게 잡아요. 바깥에서 먼저 끊으면 풀이 죽은 연결을 빌려줘서 첫 요청이 실패할 수 있어요. 기본은 30분이고, 쓰는 중인 커넥션은 은퇴시키지 않아요. 유휴 연결이 끊기는 걸 막으려면 `keepaliveTime`(기본 2분)도 같이 봐요.
+
+**꼬리질문**
+- Q. 새벽 첫 요청만 실패한다면요? → 밤새 놀던 연결을 DB나 방화벽이 끊은 걸 의심해요. maxLifetime을 그 한도보다 짧게, keepaliveTime을 설정해요.
+</details>
+
+<details>
+<summary>Q. OFFSET 페이징이 왜 느리고, 대안은 뭔가요?</summary>
+
+**답변(30초)** `LIMIT offset, n`은 앞의 offset개 행을 실제로 읽고 버린 뒤 n개를 줘서, 뒤 페이지일수록 느려져요. 대안은 커서 페이징으로, 마지막으로 본 키를 기억해 `WHERE id > 마지막id ORDER BY id LIMIT 20`처럼 읽어요. 인덱스에서 그 위치로 바로 가니 페이지 깊이와 상관없이 빨라요. 실험에서 90만 번째 페이지가 OFFSET은 약 90ms, 커서는 약 0.6ms였어요.
+
+**꼬리질문**
+- Q. 커서 페이징의 단점은요? → 특정 페이지로 바로 점프할 수 없고, 정렬 키가 유일해야 해요. 유일하지 않으면 `(created_at, id)`처럼 PK를 덧붙여요.
+- Q. COUNT(*)는 왜 느린가요? → InnoDB는 MVCC 때문에 트랜잭션마다 보이는 행 수가 달라서 행 수를 저장하지 않고 매번 세요.
+</details>
+
+<details>
+<summary>Q. 슬로우 쿼리는 어떻게 찾나요?</summary>
+
+**답변(30초)** MySQL 슬로우 쿼리 로그를 켜요. 기본은 꺼져 있고 기준이 10초라서, 서비스에 맞게 `long_query_time`을 낮춰요. 로그에서 `Rows_examined`가 `Rows_sent`보다 훨씬 큰 쿼리가 튜닝 1순위예요. 양이 많으면 `pt-query-digest`로 같은 모양끼리 묶어 총시간 순으로 보고, EXPLAIN으로 실행 계획을 확인해 고쳐요.
+
+**꼬리질문**
+- Q. 락 대기 때문에 느린 쿼리도 Query_time에 잡히나요? → 락 대기 시간은 실행 시간에 포함하지 않아요. 그래서 락 문제는 따로 봐야 해요.
+</details>
+
+## 서술형 연습
+
+<Aside type="tip" title="장애 대응 답안의 뼈대">
+**증상 → 지표 확인 → 원인 → 조치** 순서로 써요. "풀을 늘렸다"로 바로 가지 말고, 커넥션 **대기 시간**과 **DB 실행 시간**을 나눠서 보는 게 핵심이에요.
+</Aside>
+
+<details>
+<summary>상황: 이벤트 시작 직후 주문 API의 p99 응답 시간이 30초로 튀고, 일부 요청은 500 에러가 납니다. DB CPU는 여유가 있습니다.</summary>
+
+**증상**
+p99(가장 느린 1% 요청의 응답 시간)가 정확히 30초 근처로 몰렸어요. HikariCP `connectionTimeout` 기본값과 같아요. 커넥션을 기다리다 시간이 끝난 요청들로 보여요. DB CPU가 여유라는 건 DB가 바쁜 게 아니라 **앱이 커넥션을 쥔 채 다른 일을 하고 있을** 가능성이 커요.
+
+**지표 확인**
+1. 풀 지표에서 대기 중인 스레드 수와 사용 중 커넥션 수를 봐요. 사용 중이 최대치(10)에 붙어 있고 대기자가 쌓였으면 고갈이에요.
+2. 에러 로그에서 커넥션 획득 타임아웃 예외인지 확인해요.
+3. APM(애플리케이션 성능 모니터링 도구)에서 요청 시간 중 **DB 쿼리 시간**과 **외부 호출 시간**을 나눠 봐요.
+
+**원인 후보**
+1. 주문 트랜잭션 안에서 외부 결제(PG) API를 호출해, 결제 응답을 기다리는 동안 커넥션을 쥐고 있어요. 이벤트로 결제사 응답까지 느려지면 점유 시간이 확 늘어요.
+2. OSIV가 켜져 있어 응답을 다 만들 때까지 커넥션을 붙잡아요.
+3. 반납이 안 되는 커넥션 누수.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. 외부 결제 호출을 트랜잭션 밖으로 빼기(주문 저장 → 커밋 → 결제 호출 → 결과 반영) | 점유 시간이 쿼리 시간만큼으로 줄어 근본 해결 | 결제 성공·DB 실패 같은 중간 상태가 생겨, 주문 상태값과 보상(취소) 처리를 설계해야 함 |
+| B. OSIV 끄기 | 서비스 계층이 끝나면 바로 반납 | 컨트롤러·뷰에서 지연 로딩하던 코드가 깨져 수정 필요 |
+| C. 풀 크기 키우기 | 설정만 바꾸면 돼 빠름 | 점유 시간이 그대로라 트래픽이 더 오면 다시 고갈. 서버 수 × 풀 크기가 `max_connections`를 넘을 수 있음 |
+
+**조치와 선택 이유**
+당장은 C로 버티되 DB 연결 한도 안에서만 늘려요. 근본 조치는 A예요. 고갈의 원인이 쿼리가 아니라 "외부 응답 대기 중 점유"라서 풀을 키워도 같은 일이 반복돼요. 이어서 B를 검토하고, `leakDetectionThreshold`를 켜서 누수가 없는지 확인해요. 적용 뒤 풀 대기 수와 p99가 내려갔는지 봐요.
+
+**채점 포인트**: 30초 = connectionTimeout 연결, DB CPU 여유 → 점유 시간 문제 추론, 풀 대기 지표 확인, 트랜잭션 안 외부 호출, OSIV, 누수 탐지, 풀만 키우기의 한계와 `max_connections`, 외부 호출 분리 시 정합성(상태·보상) 처리.
+</details>
+
+<details>
+<summary>상황: 관리자 주문 목록에서 뒤쪽 페이지를 열면 수 초가 걸리고, 그 시간대에 다른 API까지 느려집니다.</summary>
+
+**증상**
+한 화면이 느린데 무관한 API까지 느려졌어요. 느린 쿼리가 커넥션을 오래 쥐어서 **풀을 같이 쓰는 다른 요청들이 줄을 서고 있다**는 신호예요.
+
+**지표 확인**
+1. 슬로우 쿼리 로그에서 해당 쿼리를 찾아요. 기본 기준 10초라 안 잡히면 `long_query_time`을 낮춰요.
+2. `Rows_examined`와 `Rows_sent`를 비교해요. 20행 보내려고 수십만 행을 읽었으면 깊은 OFFSET을 의심해요.
+3. 같은 요청에서 `COUNT(*)`도 같이 도는지 봐요.
+4. EXPLAIN으로 정렬 컬럼에 인덱스를 타는지(filesort 여부) 확인해요.
+
+**원인 후보**
+1. `LIMIT 500000, 20` 같은 깊은 OFFSET으로 앞 행을 다 읽고 버려요.
+2. 정렬 컬럼(`created_at`)에 인덱스가 없어 전체를 읽고 정렬해요.
+3. "전체 N건" 표시를 위해 매 요청 조건 붙은 `COUNT(*)`를 돌려요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. 커서 페이징(`WHERE (created_at, id) < (?, ?) ORDER BY created_at DESC, id DESC LIMIT 20`) | 페이지 깊이와 무관하게 빠름 | 페이지 번호로 점프 불가, 화면을 "더보기"식으로 바꿔야 함 |
+| B. OFFSET은 두고 정렬 컬럼에 인덱스 추가 | 화면 변경 없음, filesort 제거 | 깊은 페이지는 여전히 앞 행을 읽고 버림. 인덱스 쓰기 비용 |
+| C. COUNT 생략·근사·캐시, 또는 `LIMIT n+1`로 다음 페이지 여부만 판단 | 매 요청 전체 세기 제거 | 정확한 총 건수를 못 보여 주거나 잠깐 틀릴 수 있음 |
+
+**조치와 선택 이유**
+B로 정렬 인덱스를 먼저 넣어 filesort를 없애요. 관리자 화면이 페이지 점프가 꼭 필요하지 않다면 A로 바꿔 깊은 OFFSET 자체를 없애요. COUNT는 C로 줄여요. 관리자가 정확한 숫자를 원하면 캐시해 두고 주기적으로 갱신해요. 핵심은 쿼리 하나를 빠르게 하는 것뿐 아니라 **커넥션 점유를 줄여 다른 API를 살리는 것**이에요.
+
+**채점 포인트**: 무관한 API 지연 → 공유 풀 점유 추론, 슬로우 로그 기준 시간, Rows_examined vs Rows_sent, OFFSET은 읽고 버림, 커서 페이징과 유일 정렬 키, 페이지 점프 불가 트레이드오프, 정렬 인덱스, COUNT(*) 비용과 대안.
+</details>
+
+<details>
+<summary>상황: 정산 배치가 100만 건을 INSERT하는 데 1시간이 걸립니다. JPA saveAll()을 쓰고 있습니다.</summary>
+
+**증상**
+건수 대비 너무 느려요. 한 건씩 나가고 있을 가능성이 커요.
+
+**지표 확인**
+1. SQL 로그나 DB 쪽에서 INSERT가 한 문장에 한 행씩 나가는지, 여러 행이 묶여 나가는지 봐요.
+2. 커밋이 몇 건마다 일어나는지 봐요.
+3. 엔티티의 PK 생성 전략과 JDBC URL의 `rewriteBatchedStatements` 값을 확인해요.
+
+**원인 후보**
+1. PK 전략이 `IDENTITY`라 Hibernate가 배치 INSERT를 쓰지 못함.
+2. `rewriteBatchedStatements`가 기본값 false라 배치를 모아도 한 문장씩 나감.
+3. 건마다 커밋해서 커밋마다 로그 디스크 쓰기를 100만 번 함.
+4. 건마다 네트워크 왕복. 앱과 DB가 1ms만 떨어져도 100만 번이면 약 17분이에요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. `JdbcTemplate.batchUpdate` + `rewriteBatchedStatements=true` + 1000건 단위 청크 커밋 | 다중 행 INSERT로 왕복·파싱·커밋 횟수가 크게 줆 | JPA 엔티티 관리 밖이라 코드가 따로 필요. 청크가 너무 크면 패킷 크기 한도(`max_allowed_packet`)에 걸리고, 실패 시 다시 할 범위가 커짐 |
+| B. 파일로 만들어 `LOAD DATA` | 문서 기준 보통 INSERT보다 약 20배 빠름 | 파일 생성·전달 과정이 필요, 행 단위 검증·에러 처리가 어려움 |
+| C. JPA 유지, PK 전략 변경 | 기존 코드 유지 | PK 생성 방식 변경은 스키마·기존 데이터에 영향이 커서 부담 |
+
+**조치와 선택 이유**
+A를 골라요. 배치 코드 범위만 바꾸면 되고, 청크 단위 커밋이라 중간 실패 때 그 청크만 다시 하면 돼요. 운영 시간과 겹치면 청크 사이에 쉬는 시간을 둬서 운영 트래픽과 DB를 나눠 써요. 데이터를 이미 파일로 받는 구조라면 B도 검토해요. 적용 뒤 1만 건 기준 시간을 재서 비교해요.
+
+**채점 포인트**: 단건 INSERT의 비용(왕복·파싱·커밋 flush), 다중 행 INSERT, `rewriteBatchedStatements` 기본 false, JPA IDENTITY와 배치, 청크 커밋, 청크 크기 트레이드오프, `LOAD DATA`, 운영 트래픽 영향.
+</details>
+
+<details>
+<summary>상황: "API가 느리다"는 보고만 들어왔습니다. 원인을 어떤 순서로 좁히겠습니까?</summary>
+
+**증상**
+"느리다"만으로는 어디가 문제인지 몰라요. 먼저 시간이 **어디서** 쓰이는지 나눠요.
+
+**지표 확인 (순서)**
+1. APM에서 요청 시간을 앱 코드, **커넥션 대기**, DB 쿼리, 외부 호출로 쪼개요.
+2. 커넥션 대기가 크면 풀 지표(사용 중·대기 수)를 봐요. 사용 중이 최대치에 붙어 있으면 고갈이에요. 이때는 "누가 오래 쥐나"를 찾아요.
+3. DB 쿼리 시간이 크면 슬로우 쿼리 로그를 서비스 기준으로 낮춰 켜고, `pt-query-digest`로 총시간이 큰 쿼리 패턴부터 뽑아요.
+4. 뽑은 쿼리를 EXPLAIN으로 보고, `Rows_examined`가 `Rows_sent`보다 훨씬 큰 것부터 고쳐요.
+
+**원인 후보**
+- 커넥션 대기가 큼: 트랜잭션 안 외부 호출, OSIV, 누수, 느린 쿼리가 커넥션을 오래 쥠.
+- 쿼리 시간이 큼: 인덱스 미사용, 깊은 OFFSET, 무거운 COUNT, N+1처럼 쿼리 수가 많음.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. 원인 쿼리·트랜잭션 수정(인덱스, 커서 페이징, 외부 호출 분리) | 근본 해결, 풀도 같이 살아남 | 분석과 코드 수정 시간이 듦 |
+| B. 풀 크기·타임아웃 조정 | 빠르게 적용 | 원인이 그대로면 재발. DB 부하 증가 위험 |
+
+**조치와 선택 이유**
+급하면 B로 피해를 줄이되, 결국 A로 가요. 측정 없이 풀부터 키우면 DB가 더 느려질 수 있고 진짜 원인을 가려요. 고친 뒤 같은 지표(대기 시간, 쿼리 시간, p99)로 효과를 확인해요.
+
+**채점 포인트**: 대기 시간 vs 실행 시간 분리, 풀 지표, 슬로우 로그 기준 시간 조정, pt-query-digest, EXPLAIN, Rows_examined/Rows_sent, 측정 후 조치·조치 후 재측정.
+</details>
+
+## 함께 보기
+
+- [@Transactional](../../spring/transactional/)
+- [JPA N+1과 OSIV](../../spring/jpa-n-plus-one/)
+- [EXPLAIN 실행 계획 읽기](../explain/)
+- [인덱스와 B+트리](../index-btree/)
+
+## 출처
+
+- [HikariCP README, Configuration](https://github.com/brettwooldridge/HikariCP)
+- [HikariCP Wiki, About Pool Sizing](https://github.com/brettwooldridge/HikariCP/wiki/About-Pool-Sizing)
+- [MySQL 8.4 Reference Manual, Optimizing INSERT Statements](https://dev.mysql.com/doc/refman/8.4/en/insert-optimization.html)
+- [MySQL 8.4 Reference Manual, The Slow Query Log](https://dev.mysql.com/doc/refman/8.4/en/slow-query-log.html)
+- [MySQL 8.4 Reference Manual, LIMIT Query Optimization](https://dev.mysql.com/doc/refman/8.4/en/limit-optimization.html)
+- [MySQL 8.4 Reference Manual, Bulk Data Loading for InnoDB Tables](https://dev.mysql.com/doc/refman/8.4/en/optimizing-innodb-bulk-data-loading.html)
+- [MySQL Connector/J, Performance Extensions](https://dev.mysql.com/doc/connector-j/en/connector-j-connp-props-performance-extensions.html)
+- [MySQL 8.4 Reference Manual, Server System Variables (wait_timeout)](https://dev.mysql.com/doc/refman/8.4/en/server-system-variables.html#sysvar_wait_timeout)
+- [Hibernate ORM 6.6 User Guide, Batching·Identifier generators](https://docs.hibernate.org/orm/6.6/userguide/html_single/Hibernate_User_Guide.html#batch)
+- [HikariCP 소스, HikariPool.java (createTimeoutException)](https://github.com/brettwooldridge/HikariCP/blob/dev/src/main/java/com/zaxxer/hikari/pool/HikariPool.java)
+- [MySQL 8.4 Reference Manual, Aggregate Function Descriptions (COUNT)](https://dev.mysql.com/doc/refman/8.4/en/aggregate-functions.html#function_count)
+- Real MySQL 8.0 (1권) 4.4.3 "슬로우 쿼리 로그"
+- 로컬 실험: MySQL 9.6.0, InnoDB, 100만 행 테이블

@@ -1,0 +1,111 @@
+---
+// 세컨더리 인덱스(ix_age) → PK로 클러스터드 인덱스 재탐색 vs 커버링(ix_age 리프만 읽고 끝).
+import Stepper from '../Stepper.astro';
+const acc = 'stroke:var(--sl-color-accent);stroke-width:3;fill:none';
+const L = 10, R = 170, W = 140; // 왼쪽 ix_age, 오른쪽 PK 트리
+const pk = ['pk'];
+const steps = [
+  { caption: '쿼리는 SELECT id, email … WHERE age = 30이에요. 쓸 수 있는 인덱스는 ix_age(age) 하나예요.', show: ['q1', ...pk, 's1'] },
+  { caption: 'ix_age를 루트 → 브랜치 → 리프로 내려가 (age 30, id 10)을 찾아요. 그런데 이 리프에는 email이 없어요.', show: ['q1', ...pk, 'l1', 'l2', 'c10', 'noEmail', 's2'] },
+  { caption: 'id 10을 들고 클러스터드 인덱스(PK)를 루트부터 다시 내려가요. 리프에 행 전체가 있으니 여기서 email을 읽어요.', show: ['q1', ...pk, 'l1', 'l2', 'c10', 'x10', 'r1', 'r2', 'row10', 's3'] },
+  { caption: '다음 항목 (30, 60)도 똑같이 PK 트리를 또 내려가요. age=30인 행이 6,000개면 왕복도 6,000번이에요. EXPLAIN Extra는 비어 있어요.', show: ['q1', ...pk, 'l1', 'l2', 'c60', 'x60', 'r1', 'r2', 'row60', 's4'] },
+  { caption: '이번엔 쿼리를 SELECT id, age … WHERE age = 30으로 바꿔요. 필요한 컬럼은 age와 id뿐이에요.', show: ['q2', 's5'] },
+  { caption: 'ix_age 리프에 age와 id가 이미 다 있어요. PK 트리로 가지 않고 리프만 옆으로 훑으면 끝나요. Extra = Using index(커버링).', show: ['q2', 'l1', 'l2', 'c10', 'c60', 'hop', 'noPk', 's6'] },
+  { caption: '실험(age=30이 6,000행): 커버링 약 0.43ms, 왕복하는 쪽 약 3.66ms. 약 8배 차이예요.', show: ['q2', 'l1', 'l2', 'c10', 'c60', 'hop', 'bars'] },
+];
+---
+<Stepper title="세컨더리 인덱스의 왕복 vs 커버링 인덱스" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 352" role="img" aria-label="ix_age 리프에서 PK를 얻어 클러스터드 인덱스를 다시 내려가는 경우와, ix_age 리프만 읽고 끝나는 커버링 경우 비교">
+    <defs>
+      <marker id="svc-a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+    </defs>
+
+    <!-- 쿼리 -->
+    <rect class="box" x="10" y="6" width="300" height="34" rx="6" />
+    <text data-id="q1" class="mono hide" x="160" y="23">SELECT id, email … age=30</text>
+    <text data-id="q2" class="mono hide" x="160" y="23">SELECT id, age … age=30</text>
+
+    <!-- 트리 이름 -->
+    <text x={L + W / 2} y="58" style="font-weight:700">ix_age (세컨더리)</text>
+    <text x={R + W / 2} y="58" style="font-weight:700">PK (클러스터드)</text>
+
+    <!-- 왼쪽: ix_age -->
+    <line class="line" x1={L + W / 2} y1="104" x2={L + W / 2} y2="124" />
+    <line class="line" x1={L + W / 2} y1="156" x2={L + W / 2} y2="176" />
+    <line data-id="l1" class="hide" x1={L + W / 2} y1="104" x2={L + W / 2} y2="124" style={acc} />
+    <line data-id="l2" class="hide" x1={L + W / 2} y1="156" x2={L + W / 2} y2="176" style={acc} />
+    <rect class="box" x={L} y="72" width={W} height="32" rx="6" />
+    <text x={L + W / 2} y="88">루트</text>
+    <rect class="box" x={L} y="124" width={W} height="32" rx="6" />
+    <text x={L + W / 2} y="140">브랜치</text>
+    <rect class="box" x={L} y="176" width={W} height="58" rx="6" />
+    <text class="sub" x={L + W / 2} y="190">리프: age, id</text>
+    <rect data-id="c10" class="chip hide" x={L + 6} y="202" width="60" height="26" rx="4" />
+    <rect data-id="c60" class="chip hide" x={L + 74} y="202" width="60" height="26" rx="4" />
+    <text x={L + 36} y="215" style="font-size:14px">30, 10</text>
+    <text x={L + 104} y="215" style="font-size:14px">30, 60</text>
+    <text data-id="noEmail" class="sub hide" x={L + W / 2} y="246">email 없음 ✗</text>
+    <path data-id="hop" class="hide" d={`M${L + 50} 232 Q${L + 70} 250 ${L + 92} 234`} style={acc} marker-end="url(#svc-a)" />
+
+    <!-- 오른쪽: PK (클러스터드) -->
+    <g data-id="pk">
+      <line class="line" x1={R + W / 2} y1="104" x2={R + W / 2} y2="124" />
+      <line class="line" x1={R + W / 2} y1="156" x2={R + W / 2} y2="176" />
+      <rect class="box" x={R} y="72" width={W} height="32" rx="6" />
+      <text x={R + W / 2} y="88">루트</text>
+      <rect class="box" x={R} y="124" width={W} height="32" rx="6" />
+      <text x={R + W / 2} y="140">브랜치</text>
+      <rect class="box" x={R} y="176" width={W} height="58" rx="6" />
+      <text class="sub" x={R + W / 2} y="190">리프: 행 전체</text>
+    </g>
+    <line data-id="r1" class="hide" x1={R + W / 2} y1="104" x2={R + W / 2} y2="124" style={acc} />
+    <line data-id="r2" class="hide" x1={R + W / 2} y1="156" x2={R + W / 2} y2="176" style={acc} />
+    <g data-id="row10" class="hide">
+      <text x={R + W / 2} y="208" style="font-size:14px">id 10 · age 30</text>
+      <text class="hi" x={R + W / 2} y="224" style="font-size:14px">email ✓</text>
+    </g>
+    <g data-id="row60" class="hide">
+      <text x={R + W / 2} y="208" style="font-size:14px">id 60 · age 30</text>
+      <text class="hi" x={R + W / 2} y="224" style="font-size:14px">email ✓</text>
+    </g>
+    <text data-id="noPk" class="sub hide" x={R + W / 2} y="246">안 감 ✗</text>
+
+    <!-- 세컨더리 리프 → PK 루트 (PK 값을 들고 이동) -->
+    <g data-id="x10" class="hide">
+      <path d={`M${L + W} 205 C 160 205, 150 88, ${R - 2} 88`} style={acc} marker-end="url(#svc-a)" />
+      <text class="hi" x="160" y="120" style="font-size:14px">id 10</text>
+    </g>
+    <g data-id="x60" class="hide">
+      <path d={`M${L + W} 215 C 160 215, 150 88, ${R - 2} 88`} style={acc} marker-end="url(#svc-a)" />
+      <text class="hi" x="160" y="120" style="font-size:14px">id 60</text>
+    </g>
+
+    <!-- 아래 상태 -->
+    <rect class="box" x="10" y="262" width="300" height="84" rx="8" />
+    <text data-id="s1" class="sub hide" x="160" y="304">ix_age에서 출발해요</text>
+    <text data-id="s2" class="sub hide" x="160" y="304">ix_age만으론 email을 못 채워요</text>
+    <g data-id="s3" class="hide">
+      <text class="sub" x="160" y="290">행 1개 = 트리 2번 내려가기</text>
+      <text class="sub" x="160" y="318">왕복 1번째</text>
+    </g>
+    <g data-id="s4" class="hide">
+      <text class="sub" x="160" y="290">왕복 2번째 … 6,000번째</text>
+      <text class="sub" x="160" y="318">Extra: (비어 있음)</text>
+    </g>
+    <text data-id="s5" class="sub hide" x="160" y="304">필요한 컬럼: age, id</text>
+    <g data-id="s6" class="hide">
+      <text class="sub" x="160" y="290">ix_age 리프만 읽고 끝</text>
+      <text class="hi" x="160" y="318">Extra: Using index</text>
+    </g>
+    <g data-id="bars" class="hide">
+      <text class="sub l" x="20" y="286">커버링</text>
+      <rect class="chip" x="84" y="276" width="18" height="20" rx="3" />
+      <text class="l" x="108" y="286" style="font-size:14px">0.43ms</text>
+      <text class="sub l" x="20" y="320">왕복</text>
+      <rect class="bad" x="84" y="310" width="150" height="20" rx="3" />
+      <text class="l" x="240" y="320" style="font-size:14px">3.66ms</text>
+    </g>
+  </svg>
+</Stepper>

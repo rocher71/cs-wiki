@@ -1,0 +1,386 @@
+---
+title: 복합 인덱스와 인덱스를 못 타는 경우
+description: "복합 인덱스는 첫 컬럼으로 정렬하고, 첫 컬럼이 같은 것끼리만 다음 컬럼으로 정렬해요. 그래서 왼쪽 컬럼부터 조건이 있어야 탐색에 쓸 수 있고, 컬럼을 가공하거나 형변환하면 인덱스를 못 타요."
+sidebar: { order: 3 }
+tags: [면접빈출, 서술형, 필기]
+---
+import { Aside } from '@astrojs/starlight/components';
+import CompositeLeftmost from '~/components/viz/CompositeLeftmost.astro';
+import RangeBetweenVsIn from '~/components/viz/RangeBetweenVsIn.astro';
+
+:::tip[한 줄 요약]
+**복합 인덱스**는 첫 번째 컬럼으로 정렬하고, 첫 컬럼 값이 같은 것끼리만 두 번째 컬럼으로 정렬해요. 그래서 **왼쪽 컬럼부터 차례로** 조건이 있어야 탐색 범위를 좁힐 수 있어요. 컬럼에 함수를 씌우거나, 문자열 컬럼을 숫자와 비교하거나, `LIKE '%abc'`처럼 앞을 비워 두면 인덱스가 있어도 시작점을 못 잡아요.
+:::
+
+<Aside type="note" title="이 페이지의 기준">
+설명은 MySQL 8.0 기준 책과 MySQL 8.4 공식문서를 바탕으로 했어요. 실험은 **MySQL 9.6.0**, 30만 행 회원 테이블에서 노트북으로 돌렸어요. 숫자는 "경향"으로만 봐 주세요. 스킵 스캔·내림차순 인덱스·함수 기반 인덱스는 **8.0부터** 생긴 기능이라 5.7 기준 글과 내용이 달라요.
+</Aside>
+
+## 쉽게 이해하기
+
+전화번호부를 떠올려 봐요. 이름이 **성 → 이름** 순서로 정렬돼 있어요. "김"씨를 찾는 건 쉬워요. "김민수"를 찾는 것도 쉬워요. "김"씨 구역으로 간 다음 그 안에서 "민수"를 찾으면 되니까요.
+
+그런데 이름이 "민수"인 사람을 성 상관없이 다 찾으라고 하면 막막해요. "김민수", "박민수", "이민수"가 전화번호부 여기저기 흩어져 있거든요. 결국 처음부터 끝까지 넘겨야 해요.
+
+복합 인덱스가 딱 이 전화번호부예요. **첫 컬럼(성)이 정해져야 두 번째 컬럼(이름) 정렬이 의미가 있어요.** 이걸 **왼쪽 접두 규칙**(leftmost prefix, 왼쪽 컬럼부터 차례로 써야 한다는 규칙)이라고 해요.
+
+단, 실제 MySQL 8.0부터는 "성" 종류가 적으면 성마다 한 번씩 찾아보는 **스킵 스캔**이라는 우회로가 있어요. 조건이 까다로워서 뒤에서 따로 설명해요.
+
+## 그림으로 보기
+
+<CompositeLeftmost />
+
+<RangeBetweenVsIn />
+
+## 제대로 알기
+
+### 1. 복합 인덱스는 어떻게 정렬돼 있나
+
+**복합 인덱스**(composite index, 여러 컬럼을 묶어 만든 인덱스)는 이렇게 정렬돼요.
+
+1. 첫 번째 컬럼 순서로 정렬해요.
+2. 첫 컬럼 값이 **같은 것끼리만** 두 번째 컬럼 순서로 정렬해요.
+3. 세 번째 컬럼도 마찬가지로, 앞 두 컬럼이 같을 때만 정렬돼 있어요.
+
+그래서 **컬럼 순서**가 아주 중요해요. `(a, b)`와 `(b, a)`는 완전히 다른 인덱스예요.
+
+이 페이지의 실험 테이블은 이래요.
+
+```sql
+-- 30만 행, 모든 컬럼 NOT NULL
+CREATE TABLE member (
+  id BIGINT PRIMARY KEY,
+  email VARCHAR(100), gender CHAR(1),   -- 'M' 또는 'F'
+  age INT,                              -- 20~69
+  created_at DATETIME,
+  phone VARCHAR(20),                    -- '010xxxxxxxx' 형태 문자열
+  nickname VARCHAR(50),                 -- 인덱스 없음
+  INDEX ix_gender_age_created (gender, age, created_at),
+  INDEX ix_phone (phone), INDEX ix_email (email), INDEX ix_created (created_at)
+);
+```
+
+### 2. 왼쪽 접두 규칙
+
+`(gender, age, created_at)` 인덱스는 이런 조건으로 찾을 수 있어요.
+
+- `gender`
+- `gender` + `age`
+- `gender` + `age` + `created_at`
+
+`age`만, 또는 `created_at`만 있는 조건으로는 탐색 시작점을 못 잡아요.
+
+실험 결과예요. **type**은 어떻게 읽었는지(ref=같은 값 찾기, range=범위 읽기, ALL=풀 스캔), **rows**는 옵티마이저가 "이만큼 읽겠다"고 추정한 행 수예요. 실행 계획 읽는 법은 [EXPLAIN](../explain/)에서 다뤄요.
+
+| 조건 | type | rows(추정) | 의미 |
+|---|---|---|---|
+| `gender='M' AND age=30 AND created_at='…'` | ref | 1 | 세 컬럼 다 써서 한 점에 착지 |
+| `gender='M' AND age=30` | ref | 6,000 | 두 컬럼까지 사용 |
+| `gender='M'` | ref | 149,455 | 첫 컬럼만 사용 |
+| `age=30` (SELECT *) | ALL | 298,910 | 첫 컬럼 조건이 없어 풀 스캔 |
+| `gender='M' AND created_at='…'` | ref | 149,455 | age를 건너뛰어 gender까지만 범위에 씀 |
+
+마지막 줄을 보면 created_at 조건이 있어도 rows가 `gender='M'`만 있을 때와 같아요. 가운데 age를 건너뛰었으니 created_at은 범위를 좁히지 못하고, 읽은 행을 걸러내기만 해요.
+
+<Aside type="tip" title="WHERE에 쓰는 순서는 상관없어요">
+`age=30 AND gender='M'`처럼 순서를 바꿔 써도 `gender='M' AND age=30`과 같은 실행 계획이 나와요. 옵티마이저(쿼리 실행 방법을 고르는 MySQL 내부 부품)가 알아서 맞춰요. 중요한 건 **어떤 컬럼에 조건이 있느냐**예요.
+</Aside>
+
+### 3. 범위를 좁히는 조건 vs 걸러내기만 하는 조건
+
+조건은 인덱스에서 하는 역할로 두 가지로 나눠요.
+
+| 구분 | 하는 일 | 성능 영향 |
+|---|---|---|
+| **작업 범위 결정 조건** | 인덱스에서 읽을 구간 자체를 좁힘 | 많을수록 빨라짐 |
+| **필터링(체크) 조건** | 이미 읽은 것 중에서 버릴 것을 고름 | 많아도 크게 안 빨라짐 |
+
+어느 쪽이 되는지는 **비교 연산자**가 정해요. MySQL 공식문서 규칙은 이래요.
+
+- 앞 컬럼이 `=`, `IN`, `IS NULL`이면 **다음 컬럼도 범위 계산에 이어서 써요.**
+- `>`, `<`, `BETWEEN`, `LIKE 'abc%'` 같은 **범위 비교**가 나오면, 그 컬럼까지만 범위 계산에 쓰고 **뒤 컬럼은 범위를 좁히는 데 못 써요.**
+
+왜 그럴까요? `age=30`이면 그 덩어리 안에서 created_at이 정렬돼 있어요. 하지만 `age BETWEEN 30 AND 31`이면 30 덩어리와 31 덩어리가 이어 붙어 있을 뿐, **둘을 합친 구간에서 created_at은 정렬돼 있지 않아요.**
+
+### 4. 실험: BETWEEN을 IN으로 바꾸면 6배 빨라져요
+
+세 쿼리 모두 결과는 259행으로 같아요. 공통 조건은 `gender='M' AND created_at BETWEEN …`이에요.
+
+| age 조건 | rows(추정) | 실제 시간 |
+|---|---|---|
+| `age = 30` | 259 | — |
+| `age BETWEEN 30 AND 31` | **5,107** | 1.16ms |
+| `age IN (30, 31)` | **260** | 0.18ms |
+
+`EXPLAIN ANALYZE`(실제로 실행해서 단계별 시간을 보여 주는 명령)로 보면 차이가 보여요.
+
+- **BETWEEN**: `(M, 30, 시작일)`부터 `(M, 31, 종료일)`까지 **한 덩어리 구간**을 훑어요. created_at은 구간의 시작과 끝을 정하는 데만 쓰이고, 중간에 있는 행은 다 읽고 걸러내요.
+- **IN**: `(M, 30, created_at 범위)`와 `(M, 31, created_at 범위)` **짧은 구간 두 개**로 쪼개서 읽어요. IN은 `=`를 여러 번 한 것처럼 취급돼서 created_at도 범위를 좁히는 데 쓰여요.
+
+<Aside type="caution" title="key_len만 보고 판단하면 틀릴 수 있어요">
+EXPLAIN의 **key_len**은 인덱스 키를 몇 바이트까지 썼는지 보여 줘요. "범위 조건 뒤 컬럼은 key_len에서 빠진다"는 설명이 많지만, 이 실험(MySQL 9.6)에서는 BETWEEN·IN·`=` 세 경우 모두 key_len이 13(세 컬럼 전부)으로 똑같이 나왔어요. 범위 뒤 컬럼도 구간의 경계값에는 쓰이기 때문이에요. 그래서 **rows 추정치**와 EXPLAIN ANALYZE에 나온 구간을 같이 봐야 해요.
+</Aside>
+
+**실무 결론:** 복합 인덱스는 보통 **동등 비교(`=`) 컬럼을 앞에, 범위 비교 컬럼을 뒤에** 둬요. 범위가 작은 정수 구간이면 BETWEEN 대신 IN으로 바꾸는 것도 방법이에요.
+
+### 5. 인덱스를 못 타는 대표 경우
+
+실험 결과를 한 표로 모았어요. 모두 30만 행 테이블이에요.
+
+| 경우 | 느린 쿼리 | 결과 | 고친 쿼리 | 결과 |
+|---|---|---|---|---|
+| 컬럼에 함수 | `DATE(created_at) = '2024-03-01'` | 풀 스캔, 49ms | `created_at >= '2024-03-01' AND created_at < '2024-03-02'` | 1,440행만 읽음, 0.78ms |
+| 문자열 컬럼에 숫자 | `phone = 01000012345` | 풀 스캔, 46ms | `phone = '01000012345'` | 1행, 0.01ms |
+| 앞이 빈 LIKE | `email LIKE '%12345@ex.com'` | 풀 스캔 | `email LIKE 'user12345%'` | 11행 |
+| 선두 컬럼 없음 | `age = 30` (SELECT *) | 풀 스캔 | `gender` 조건 추가 또는 인덱스 추가 | — |
+
+하나씩 이유를 볼게요.
+
+**① 컬럼을 가공하면 못 타요.** 인덱스에는 `created_at` 원래 값이 정렬돼 있지, `DATE(created_at)` 결과가 저장돼 있지 않아요. `SUBSTR(phone, 1, 7) = '0100001'`도 풀 스캔이었어요. 해결은 **컬럼은 그대로 두고 상수 쪽을 바꾸는 것**이에요. 날짜 함수 대신 범위 조건으로 쓰면 돼요.
+
+**② 인덱스 컬럼이 형변환되면 못 타요.** `phone`은 문자열인데 따옴표 없이 숫자를 넣으면, MySQL은 **컬럼 값을 숫자로 바꿔서** 비교해요. 실행 계획에도 `phone = 1000012345`처럼 숫자 비교로 바뀌고 맨 앞 0이 사라진 게 보여요. `'1'`, `' 1'`, `'1a'` 같은 여러 문자열이 모두 숫자 1이 될 수 있으니, 정렬된 문자열 인덱스에서 시작점을 정할 수 없어요.
+
+반대 방향은 괜찮아요. 숫자 컬럼 `age`에 `age = '30'`처럼 문자열을 넣으면 상수 하나만 숫자로 바꾸면 되니까 인덱스를 잘 탔어요. 즉 "형변환이면 무조건 못 탄다"가 아니라 **"인덱스 컬럼 쪽이 바뀌면 못 탄다"**예요. 문자셋이나 콜레이션(문자 비교 규칙)이 다른 컬럼끼리 비교할 때도 같은 이유로 인덱스를 못 쓸 수 있어요.
+
+**③ 앞이 빈 LIKE는 못 타요.** B-트리는 값을 왼쪽 글자부터 비교해 정렬해요. `'user12345%'`는 시작점이 정해지지만 `'%12345@ex.com'`은 어디서 시작할지 몰라요.
+
+**④ 부정 비교도 범위를 못 정해요.** `<>`, `NOT IN`, `NOT BETWEEN`, `IS NOT NULL`은 범위 결정 조건으로 못 써요. 반면 `IS NULL`은 쓸 수 있어요(MySQL은 NULL도 인덱스에 저장해요).
+
+**⑤ 너무 많이 읽으면 일부러 안 써요.** 인덱스를 쓸 수 있어도 읽을 행이 전체의 약 20~25%를 넘으면 옵티마이저가 풀 스캔을 골라요. 자세한 이유는 [인덱스와 B+트리](../index-btree/)에 있어요.
+
+<Aside type="caution" title="EXPLAIN에 인덱스 이름이 보인다고 잘 탄 게 아니에요">
+`SELECT email FROM member WHERE email LIKE '%12345@ex.com'`은 key에 `ix_email`이 찍혀요. 하지만 type이 **index**이고 rows가 약 30만이에요. 필요한 컬럼이 인덱스에 다 있어서 테이블 대신 **인덱스를 처음부터 끝까지** 읽은 거예요. 또 `phone = 숫자`는 possible_keys(쓸 수 있는 후보)에는 ix_phone이 있었지만 실제 key는 NULL이었어요. **type과 rows를 꼭 같이** 봐요.
+</Aside>
+
+### 6. OR 조건
+
+| 조건 | 결과 | 이유 |
+|---|---|---|
+| `phone=… OR email=…` (둘 다 인덱스 있음) | index_merge, 2행 | 두 인덱스를 각각 읽고 결과를 합침 |
+| `phone=… OR nickname=…` (nickname 인덱스 없음) | 풀 스캔 | 어차피 nickname 때문에 전부 봐야 함 |
+| `gender='M' OR age=30` (복합 인덱스 1·2번 컬럼) | 풀 스캔 | age=30 쪽은 인덱스 시작점을 못 잡음 |
+| `gender='M' AND (age=30 OR age=31)` | range | 같은 컬럼 OR는 IN과 같음 |
+
+**인덱스 머지**(index merge)는 같은 테이블의 여러 인덱스를 따로 읽어서 합치는 방법이에요. EXPLAIN Extra에 `Using union(ix_phone,ix_email)`처럼 나와요.
+
+### 7. 인덱스 스킵 스캔 (MySQL 8.0.13+)
+
+8.0부터는 선두 컬럼 조건이 없어도 인덱스를 쓸 수 있는 경우가 생겼어요. **스킵 스캔**(skip scan)은 옵티마이저가 **선두 컬럼에 가능한 값을 하나씩 넣어서** 여러 번 범위 탐색하는 방식이에요. `age=30`이면 `gender='F' AND age=30` 한 번, `gender='M' AND age=30` 한 번 찾는 식이에요.
+
+| 쿼리 | type | 시간 |
+|---|---|---|
+| `SELECT gender, age, created_at … WHERE age=30` | range, `Using index for skip scan` | 0.81ms |
+| 같은 쿼리 + `NO_SKIP_SCAN` 힌트로 끔 | index(인덱스 30만 건 전부 읽음) | 28.9ms |
+| `SELECT * … WHERE age=30` | ALL(풀 스캔) | — |
+
+조건이 까다로워요.
+
+- 쿼리가 **인덱스 안의 컬럼만** 읽어야 해요([커버링 인덱스](../clustered-covering/)). 그래서 `SELECT *`는 안 돼요.
+- 단일 테이블이고 GROUP BY·DISTINCT가 없어야 해요.
+- 책에서는 선두 컬럼의 값 종류가 **적어야** 효과가 있다고 정리해요. 종류가 많으면 시작점을 찾는 횟수가 많아져 오히려 느려져요.
+
+`optimizer_switch`의 `skip_scan`으로 켜고 끄며 기본은 켜져 있어요.
+
+### 8. ORDER BY·GROUP BY도 같은 규칙이에요
+
+인덱스는 이미 정렬돼 있으니, ORDER BY 순서가 인덱스 순서와 맞으면 정렬을 따로 안 해요. 못 맞추면 **filesort**(별도 정렬 단계. 정렬용 메모리를 넘으면 디스크 임시 파일까지 씀)가 생겨요. EXPLAIN Extra에 `Using filesort`로 나와요.
+
+| 쿼리 | 결과 |
+|---|---|
+| `gender='M' AND age=30 ORDER BY created_at LIMIT 10` | 정렬 없음, 10행만 읽고 끝, 0.14ms |
+| `gender='M' ORDER BY created_at` (age 건너뜀) | filesort, 15만 행 읽고 정렬, 105ms |
+| `gender='M' AND age BETWEEN 30 AND 32 ORDER BY created_at` | filesort (범위 뒤 컬럼이라 정렬 안 돼 있음) |
+| `gender='M' ORDER BY age DESC, created_at DESC` | 인덱스를 거꾸로 읽음(`Backward index scan`), 정렬 없음 |
+| `gender='M' ORDER BY age ASC, created_at DESC` | filesort (방향이 섞임) |
+
+- 앞 컬럼을 `=`로 고정하면 그 안은 다음 컬럼 순서로 정렬돼 있어요. 그래서 첫 줄은 앞에서 10개만 읽고 끝나요.
+- 방향이 섞인 정렬이 자주 필요하면 8.0부터 `INDEX (age ASC, created_at DESC)`처럼 **방향을 섞은 인덱스**를 만들 수 있어요. 5.7까지는 안 됐어요.
+- 표현식으로 정렬(`ORDER BY ABS(key)`)하거나 서로 다른 인덱스 컬럼을 섞어 정렬해도 인덱스를 못 써요.
+
+GROUP BY도 왼쪽 기준이에요. `GROUP BY gender, age`는 인덱스만 읽고 끝났지만, `GROUP BY age`(선두 건너뜀)는 `Using temporary`(임시 테이블을 만들어 묶음)가 붙었어요.
+
+<Aside type="note" title="옵티마이저는 정렬용 인덱스를 고르기도 해요">
+`gender='M' ORDER BY created_at LIMIT 10`을 그냥 실행하면, 옵티마이저는 복합 인덱스 대신 `ix_created`(created_at 단독 인덱스)를 순서대로 읽으며 gender를 거르는 계획을 골랐어요. LIMIT이 있으면 앞에서 몇 개만 찾으면 되니까요. 위 표의 105ms는 이 인덱스를 일부러 빼고 측정한 값이에요.
+</Aside>
+
+### 9. 컬럼 순서는 어떻게 정하나
+
+"카디널리티(서로 다른 값 개수)가 높은 컬럼을 앞에"가 흔한 일반론이에요. 실제로는 아래를 같이 봐요.
+
+1. **동등 비교 컬럼을 앞에, 범위 비교 컬럼을 뒤에** 둬요. 범위 뒤 컬럼은 범위를 좁히는 데 못 쓰니까요.
+2. **정렬까지 인덱스로** 끝낼 수 있는지 봐요. `=` 컬럼 다음에 ORDER BY 컬럼을 두면 filesort가 사라져요.
+3. **다른 쿼리가 재사용**할 수 있는지 봐요. `(a, b, c)`는 `a` 조건, `a, b` 조건 쿼리도 받아 줘요.
+
+## 면접 질문
+
+<details>
+<summary>Q. 복합 인덱스에서 컬럼 순서가 왜 중요한가요?</summary>
+
+**답변(30초)** 복합 인덱스는 첫 컬럼으로 정렬하고, 첫 컬럼이 같은 것끼리만 다음 컬럼으로 정렬하기 때문이에요. 그래서 왼쪽 컬럼부터 조건이 있어야 탐색 시작점을 잡을 수 있어요. `(a, b)` 인덱스로 `b`만 찾으면 같은 b 값이 여기저기 흩어져 있어서 범위를 못 좁혀요. 보통 동등 비교 컬럼을 앞에, 범위 비교 컬럼을 뒤에 둬요.
+
+**꼬리질문**
+- Q. WHERE 절에 쓰는 순서도 맞춰야 하나요? → 아니요. 옵티마이저가 재배열해요. 어떤 컬럼에 조건이 있느냐가 중요해요.
+- Q. 카디널리티 높은 컬럼을 무조건 앞에 두나요? → 일반론이지만, 동등·범위 비교 위치, 정렬 포함 여부, 다른 쿼리의 재사용까지 같이 봐요.
+</details>
+
+<details>
+<summary>Q. (a, b, c) 인덱스에서 `WHERE b=?`, `WHERE a=? AND c=?`, `WHERE a=? AND b>? AND c=?`는 각각 어떻게 되나요?</summary>
+
+**답변(30초)** `b=?`만 있으면 선두 a 조건이 없어서 보통 인덱스 탐색을 못 해요. 8.0의 스킵 스캔은 커버링일 때만 예외예요. `a=? AND c=?`는 b를 건너뛰어서 a까지만 범위를 좁히고, c는 읽은 행을 걸러내는 데만 써요. `a=? AND b>? AND c=?`는 a와 b로 범위를 정하고, b가 범위 비교라 c는 범위를 좁히는 데 못 쓰고 걸러내기만 해요.
+
+**꼬리질문**
+- Q. 세 번째 경우를 빠르게 하려면요? → 인덱스를 `(a, c, b)`로 해서 동등 비교를 앞으로 보내거나, b가 작은 정수 구간이면 IN으로 바꿔요. 실험에서 BETWEEN을 IN으로 바꾸니 추정 행이 5,107에서 260으로 줄고 약 6배 빨라졌어요.
+- Q. EXPLAIN의 key_len으로 확인하면 되죠? → 범위 뒤 컬럼도 경계값에 쓰여서 key_len에 포함돼 보일 수 있어요. rows 추정치를 같이 봐야 해요.
+</details>
+
+<details>
+<summary>Q. 인덱스가 있는데도 인덱스를 안 타는 경우를 말해 보세요.</summary>
+
+**답변(30초)** 대표적으로 다섯 가지예요. 컬럼에 함수나 연산을 씌울 때, 문자열 컬럼을 숫자와 비교해 컬럼 쪽이 형변환될 때, `LIKE '%abc'`처럼 앞이 비었을 때, 복합 인덱스의 선두 컬럼 조건이 없을 때, OR 한쪽에 인덱스가 없을 때예요. 또 읽을 행이 전체의 약 20~25%를 넘으면 옵티마이저가 일부러 풀 스캔을 골라요. 해결은 대부분 컬럼은 그대로 두고 상수 쪽을 바꾸는 거예요.
+
+**꼬리질문**
+- Q. `DATE(created_at) = '2024-03-01'`은 어떻게 고쳐요? → `created_at >= '2024-03-01' AND created_at < '2024-03-02'`로 바꿔요. 실험에서 49ms가 0.78ms가 됐어요. 함수 결과로 꼭 찾아야 하면 8.0.13부터 함수 기반 인덱스도 있어요.
+- Q. `IS NULL`도 못 타나요? → 탈 수 있어요. MySQL은 NULL도 인덱스에 저장해요. 못 타는 건 `IS NOT NULL`, `<>`, `NOT IN` 같은 부정 비교예요.
+</details>
+
+<details>
+<summary>Q. `WHERE phone = 01012345678`이 느린 이유는요?</summary>
+
+**답변(30초)** phone이 문자열 컬럼인데 숫자로 비교해서, MySQL이 컬럼 값 쪽을 숫자로 바꿔 비교하기 때문이에요. '1', ' 1', '1a'처럼 여러 문자열이 같은 숫자가 될 수 있어서 정렬된 문자열 인덱스에서 시작점을 못 잡고 풀 스캔해요. 실험에서 46ms였는데 따옴표만 붙이니 1행만 읽고 0.01ms였어요. 반대로 숫자 컬럼에 문자열 상수를 넣는 건 상수만 바뀌니 괜찮아요.
+
+**꼬리질문**
+- Q. 실무에서 이게 어떻게 생기나요? → JPA나 MyBatis에서 VARCHAR 컬럼에 Long 파라미터를 바인딩하면 생겨요. 파라미터 타입을 컬럼 타입과 맞춰요.
+- Q. EXPLAIN에서 어떻게 알아봐요? → possible_keys에는 인덱스가 보이는데 key가 NULL이고 type이 ALL이에요.
+</details>
+
+<details>
+<summary>Q. ORDER BY에 인덱스를 쓰려면 어떻게 해야 하나요? filesort가 뭔가요?</summary>
+
+**답변(30초)** filesort는 인덱스 순서를 못 써서 읽은 행을 따로 정렬하는 단계예요. 정렬 메모리를 넘으면 디스크 임시 파일까지 써요. 피하려면 WHERE의 `=` 컬럼 바로 다음에 ORDER BY 컬럼이 오도록 인덱스를 맞춰요. 실험에서 `gender='M' AND age=30 ORDER BY created_at LIMIT 10`은 10행만 읽고 0.14ms였고, age를 건너뛴 정렬은 15만 행을 정렬해 105ms였어요.
+
+**꼬리질문**
+- Q. 범위 조건 뒤 컬럼으로 정렬하면요? → filesort가 생겨요. 범위 안에서 다음 컬럼이 전체적으로 정렬돼 있지 않기 때문이에요.
+- Q. `ORDER BY a ASC, b DESC`는요? → 기존 인덱스로는 filesort예요. 8.0부터 방향을 섞은 인덱스를 만들어 해결할 수 있어요.
+</details>
+
+<details>
+<summary>Q. 인덱스 스킵 스캔이 뭔가요?</summary>
+
+**답변(30초)** MySQL 8.0.13부터 생긴 기능으로, 복합 인덱스의 선두 컬럼 조건이 없을 때 선두 컬럼의 값마다 조건을 붙여 여러 번 범위 탐색하는 방식이에요. `(gender, age)` 인덱스로 `age=30`을 찾으면 F일 때 한 번, M일 때 한 번 찾아요. 쿼리가 인덱스 안 컬럼만 읽어야 하고, 선두 컬럼 값 종류가 적어야 효과가 있어요. 실험에서 끄면 28.9ms, 켜면 0.81ms였어요.
+
+**꼬리질문**
+- Q. 그럼 인덱스 순서는 신경 안 써도 되나요? → 아니요. `SELECT *`면 못 쓰고, 선두 값 종류가 많으면 오히려 느려요. 자주 쓰는 쿼리면 맞는 인덱스를 두는 게 안정적이에요.
+</details>
+
+<details>
+<summary>Q. OR 조건은 인덱스를 탈 수 있나요?</summary>
+
+**답변(30초)** 양쪽 컬럼에 각각 인덱스가 있으면 탈 수 있어요. MySQL이 인덱스 머지로 두 인덱스를 따로 읽고 합쳐요. 하지만 한쪽이라도 인덱스가 없으면 그쪽 때문에 전체를 봐야 하니 풀 스캔이에요. 복합 인덱스의 1번, 2번 컬럼을 OR로 묶어도 풀 스캔이었어요. 같은 컬럼끼리 OR는 IN과 같아서 잘 타요.
+
+**꼬리질문**
+- Q. 인덱스 머지가 안 될 때 대안은요? → 빠진 컬럼에 인덱스를 추가하거나, 쿼리를 UNION으로 나눠 각각 인덱스를 타게 해요.
+</details>
+
+## 서술형 연습
+
+<details>
+<summary>상황: 주문 목록 API가 느립니다. 쿼리는 `WHERE user_id=? AND status=? AND created_at BETWEEN ? AND ? ORDER BY created_at DESC LIMIT 20`이고, 인덱스는 `(user_id, created_at, status)`가 있습니다.</summary>
+
+**상황 파악**
+인덱스는 타고 있지만 순서가 쿼리와 안 맞는 상황이에요. 먼저 [EXPLAIN](../explain/)으로 rows 추정치와 Extra에 `Using filesort`가 있는지 확인해요.
+
+**원인 후보**
+1. created_at이 **범위 비교**라서 그 뒤의 status는 범위를 좁히지 못하고 걸러내기만 해요. 기간 안의 다른 상태 주문까지 다 읽고 버려요.
+2. 사용자 한 명의 주문이 많다면, 버리는 행이 많아질수록 느려져요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. 인덱스를 `(user_id, status, created_at)`으로 교체 | user_id·status가 `=`라 created_at까지 범위를 좁히고, 그 안은 created_at 순서라 DESC 정렬도 인덱스를 거꾸로 읽어 끝냄. 20행만 읽고 멈출 수 있음 | status 없이 "기간별 전체 주문"을 보는 쿼리는 user_id까지만 사용. 교체 작업 중 영향 확인 필요 |
+| B. 기존 인덱스 유지 + `(user_id, status, created_at)` 추가 | 기존 쿼리에 영향 없음 | 인덱스가 하나 늘어 주문 INSERT마다 쓰기 비용·공간 증가 |
+| C. 인덱스는 그대로, 앱에서 status 없이 조회 후 거름 | DB 변경 없음 | 읽는 양은 그대로라 근본 해결이 아님 |
+
+**내가 고를 방법**
+status 없이 조회하는 쿼리가 거의 없다면 A를 골라요. 동등 비교를 앞에, 범위·정렬 컬럼을 뒤에 두는 원칙에 맞고, 인덱스 수도 안 늘어요. status 없는 조회가 중요하게 남아 있으면 B로 가되 쓰기 비용을 감수해요. 적용 후 EXPLAIN에서 filesort가 사라졌는지, rows가 줄었는지 확인해요.
+
+**채점 포인트**: 범위 조건 뒤 컬럼은 체크 조건, 동등 비교 앞·범위 뒤, ORDER BY까지 인덱스로 처리(filesort 제거), LIMIT으로 일찍 멈춤, 다른 쿼리의 왼쪽 접두 재사용, 인덱스 추가의 쓰기 비용, EXPLAIN으로 검증.
+</details>
+
+<details>
+<summary>상황: 배포 후 휴대폰 번호로 회원을 찾는 API가 갑자기 수십 ms로 느려졌습니다. `phone` 컬럼(VARCHAR)에는 인덱스가 있고, 이번 배포에서 파라미터 타입을 String에서 Long으로 바꿨습니다.</summary>
+
+**상황 파악**
+인덱스는 그대로인데 코드 변경 직후 느려졌어요. 쿼리 모양은 같아도 **바인딩되는 값의 타입**이 바뀐 게 단서예요.
+
+**원인 후보**
+1. 문자열 컬럼에 숫자를 비교하면 MySQL이 **컬럼 값을 숫자로 바꿔** 비교해요. 그러면 정렬된 문자열 인덱스에서 시작점을 못 잡고 풀 스캔해요. 실험에서 46ms 대 0.01ms였어요.
+2. 숫자로 바뀌면서 맨 앞 0이 사라져, 결과 자체가 달라질 위험도 있어요.
+3. (확인용) 통계가 바뀌어 옵티마이저가 다른 계획을 골랐을 가능성. EXPLAIN으로 구분해요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. 파라미터 타입을 String으로 되돌림 | 바로 인덱스를 다시 탐. 변경 범위가 작음 | 같은 실수가 다른 곳에서 또 생길 수 있음 |
+| B. 컬럼 타입을 숫자로 변경 | 타입 불일치 원인 제거 | 휴대폰 번호의 맨 앞 0이 사라짐. 대용량 테이블 스키마 변경 부담 |
+| C. 쿼리에서 컬럼에 `CAST`를 씌움 | 코드만 수정 | 컬럼을 가공하니 여전히 인덱스를 못 탐. 오답 |
+
+**내가 고를 방법**
+A를 골라요. 휴대폰 번호는 계산하는 값이 아니라 식별용 문자열이라 String이 맞아요. 재발을 막으려고 엔티티 필드 타입을 컬럼 타입과 맞추고, 느린 쿼리 로그나 EXPLAIN에서 "possible_keys엔 있는데 key가 NULL"인 쿼리를 점검해요.
+
+**채점 포인트**: 암묵적 형변환, 인덱스 컬럼 쪽이 변환될 때만 문제(반대는 괜찮음), 풀 스캔, possible_keys vs key, 앞자리 0 손실, 컬럼에 함수를 씌우는 해결은 오답, 타입 일치로 재발 방지.
+</details>
+
+<details>
+<summary>상황: `(gender, age, created_at)` 인덱스가 있는 회원 테이블에, 나이대별 회원 목록을 보여 주는 신규 기능이 생겨 `SELECT * FROM member WHERE age = ?` 쿼리가 추가됐습니다. 풀 스캔이 납니다.</summary>
+
+**상황 파악**
+선두 컬럼 gender 조건이 없어서 왼쪽 접두 규칙에 안 맞아요. `SELECT *`라 스킵 스캔도 못 써요.
+
+**원인 후보**
+1. 선두 컬럼 조건이 없어 인덱스 탐색 시작점이 없어요. 같은 age 값이 F 덩어리와 M 덩어리에 흩어져 있어요.
+2. 스킵 스캔은 쿼리가 인덱스 안 컬럼만 읽을 때만 쓸 수 있는데, `SELECT *`예요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. `(age, …)`로 시작하는 인덱스 추가 | 안정적으로 인덱스를 탐 | 인덱스 하나만큼 INSERT·UPDATE 비용과 공간 증가 |
+| B. 쿼리에 `gender IN ('F','M')`을 붙임 | 인덱스 추가 없이 두 구간으로 나눠 읽음 | gender 값 종류가 늘면 쿼리를 고쳐야 함. 의도가 코드에서 안 보임 |
+| C. 기존 인덱스 순서를 `(age, gender, created_at)`로 변경 | 인덱스 수가 안 늘어남 | gender로만 찾던 기존 쿼리가 선두 조건을 잃어 풀 스캔으로 느려질 수 있음 |
+
+**내가 고를 방법**
+조회가 자주 일어나는 기능이면 A를 골라요. 스킵 스캔은 조건(커버링, 선두 값 종류 적음)에 기대는 거라, 컬럼이 늘거나 SELECT 목록이 바뀌면 바로 풀 스캔으로 돌아가요. 쓰기가 아주 많은 테이블이면 B로 먼저 막고, 기존 인덱스를 쓰는 쿼리를 정리한 뒤 C를 검토해요.
+
+**채점 포인트**: 왼쪽 접두 규칙, 스킵 스캔의 조건(8.0.13+, 커버링, 선두 카디널리티 낮음), `SELECT *`의 한계, IN으로 구간 나누기, 인덱스 추가의 쓰기·공간 비용, 기존 쿼리 영향 확인.
+</details>
+
+## 필기 포인트
+
+- 복합 인덱스 `(a, b, c)`로 탐색 가능: `a`, `a+b`, `a+b+c`. `b`만, `c`만은 불가(8.0 스킵 스캔 예외).
+- WHERE 절 작성 순서는 무관. 어떤 컬럼에 조건이 있느냐가 중요.
+- `=`, `IN`, `IS NULL` 다음 컬럼은 계속 범위 결정에 사용. `>`, `<`, `BETWEEN`, `LIKE 'abc%'` 뒤 컬럼은 체크 조건.
+- 인덱스를 못 쓰는 경우: 컬럼 가공(함수·연산), 인덱스 컬럼의 형변환, `LIKE '%abc'`, 부정 비교(`<>`, `NOT IN`, `IS NOT NULL`), 인덱스 없는 컬럼과의 OR.
+- `IS NULL`은 인덱스 사용 가능. 숫자 컬럼 = 문자열 상수도 사용 가능.
+- EXPLAIN type=index는 인덱스 **풀 스캔**. 인덱스를 "잘" 쓴 게 아님.
+- 스킵 스캔: 8.0.13+, `Using index for skip scan`, 커버링일 때만.
+- 방향 섞인 인덱스(내림차순 인덱스)는 8.0부터.
+
+## 함께 보기
+
+- [인덱스와 B+트리](../index-btree/)
+- [클러스터드·커버링 인덱스](../clustered-covering/)
+- [EXPLAIN 실행 계획 읽기](../explain/)
+
+## 출처
+
+- [MySQL 8.4 Reference Manual, How MySQL Uses Indexes](https://dev.mysql.com/doc/refman/8.4/en/mysql-indexes.html)
+- [MySQL 8.4 Reference Manual, Multiple-Column Indexes](https://dev.mysql.com/doc/refman/8.4/en/multiple-column-indexes.html)
+- [MySQL 8.4 Reference Manual, Range Optimization](https://dev.mysql.com/doc/refman/8.4/en/range-optimization.html)
+- [MySQL 8.4 Reference Manual, Type Conversion in Expression Evaluation](https://dev.mysql.com/doc/refman/8.4/en/type-conversion.html)
+- [MySQL 8.4 Reference Manual, Index Merge Optimization](https://dev.mysql.com/doc/refman/8.4/en/index-merge-optimization.html)
+- [MySQL 8.4 Reference Manual, ORDER BY Optimization](https://dev.mysql.com/doc/refman/8.4/en/order-by-optimization.html)
+- [MySQL 8.4 Reference Manual, CREATE INDEX Statement](https://dev.mysql.com/doc/refman/8.4/en/create-index.html)
+- Real MySQL 8.0 (1권) 8장 "인덱스"
+- 로컬 실험: MySQL 9.6.0, InnoDB, 30만 행 테이블, 1회 실행

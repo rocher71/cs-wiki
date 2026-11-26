@@ -1,0 +1,100 @@
+---
+// 복합 인덱스 (gender, age, created_at) 리프를 세로로 늘어놓고, 조건별로 어디서 시작해 어디까지 읽는지 보여준다.
+import Stepper from '../Stepper.astro';
+const rows = [
+  ['F', 20, '01-05'], ['F', 20, '08-12'], ['F', 30, '02-14'], ['F', 30, '07-09'], ['F', 45, '03-21'],
+  ['M', 20, '04-02'], ['M', 30, '01-17'], ['M', 30, '06-03'], ['M', 30, '11-28'], ['M', 31, '02-10'], ['M', 52, '05-30'],
+];
+const Y0 = 84, RH = 24;
+const cy = (i: number) => Y0 + i * RH + RH / 2;
+const acc = 'stroke:var(--sl-color-accent);stroke-width:3;fill:none';
+// 오른쪽 대괄호: i~j 행
+const br = (i: number, j: number, x = 216) => `M${x} ${Y0 + i * RH + 3}h8V${Y0 + (j + 1) * RH - 3}h-8`;
+const chips = (...ids: number[]) => ids.map((i) => `c${i}`);
+const steps = [
+  { caption: '복합 인덱스 (gender, age, created_at)의 리프예요. 성별로 먼저 정렬하고, 같은 성별 안에서 나이, 같은 나이 안에서 가입일로 정렬해요.', show: ['q1', 'n1'] },
+  { caption: '세 컬럼을 모두 = 로 주면 (M, 30, 06-03) 한 점으로 바로 내려가요. 가장 좁은 탐색이에요.', show: ['q2', 'n2', 'c7', 'land'] },
+  { caption: 'gender와 age만 주면 (M, 30) 덩어리의 시작점에 착지해서 덩어리 끝까지 읽어요. 왼쪽 두 컬럼까지 탐색에 쓰여요.', show: ['q3', 'n3', ...chips(6, 7, 8), 'rng3'] },
+  { caption: 'age = 30만 주면 (F, 30)과 (M, 30)이 성별마다 따로 떨어져 있어요. 시작점을 하나로 못 정하니 처음부터 끝까지 훑어요(풀 스캔).', show: ['q4', 'n4', ...chips(2, 3, 6, 7, 8), 'scan'] },
+  { caption: '8.0의 스킵 스캔: 옵티마이저가 gender에 F, M을 차례로 넣어 (F, 30) 덩어리와 (M, 30) 덩어리를 각각 범위 탐색해요. 성별처럼 값 종류가 적을 때만 이득이에요.', show: ['q5', 'n5', ...chips(2, 3, 6, 7, 8), 'sk1', 'sk2'] },
+];
+const qs = [
+  ['인덱스 (gender, age, created_at)', '정렬 순서 보기'],
+  ["gender='M' AND age=30", "AND created_at='06-03'"],
+  ["gender='M' AND age=30", '(created_at 조건 없음)'],
+  ['age=30', '(gender 조건 없음)'],
+  ['age=30 + 스킵 스캔', 'gender를 F, M으로 채워서 탐색'],
+];
+const notes = ['성별 → 나이 → 가입일 순으로 정렬', '읽은 행: 1 (한 점 착지)', '읽은 행: 3 ((M,30) 덩어리만)', '읽은 행: 11 (전부) → 풀 스캔', '탐색 2번: (F,30) 2행 + (M,30) 3행'];
+const H = Y0 + rows.length * RH + 46;
+---
+<Stepper title="왼쪽 접두 규칙: 조건에 따라 읽는 범위" steps={steps}>
+  <svg class="viz" viewBox={`0 0 320 ${H}`} role="img" aria-label="복합 인덱스 리프에서 조건마다 시작점과 읽는 범위가 달라지는 과정">
+    <defs>
+      <marker id="cl-a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+    </defs>
+    <!-- 조건 -->
+    <rect class="box" x="6" y="6" width="308" height="50" rx="8" />
+    {qs.map((q, k) => (
+      <g data-id={`q${k + 1}`} class="hide">
+        <text x="160" y="22" style="font-weight:700">{q[0]}</text>
+        <text class="sub" x="160" y="44">{q[1]}</text>
+      </g>
+    ))}
+    <!-- 열 이름 -->
+    <text class="sub" x="62" y="72">gender</text>
+    <text class="sub" x="108" y="72">age</text>
+    <text class="sub" x="164" y="72">created_at</text>
+
+    <!-- 성별 덩어리 표시 -->
+    <path class="line" d={`M28 ${Y0 + 3}h-8V${Y0 + 5 * RH - 3}h8`} />
+    <text x="10" y={cy(2)} style="font-weight:700">F</text>
+    <path class="line" d={`M28 ${Y0 + 5 * RH + 3}h-8V${Y0 + 11 * RH - 3}h8`} />
+    <text x="10" y={cy(8)} style="font-weight:700">M</text>
+
+    <!-- 리프 행 -->
+    {rows.map((r, i) => <rect class="box" x="36" y={Y0 + i * RH + 2} width="172" height={RH - 4} rx="4" />)}
+    {rows.map((r, i) => <rect data-id={`c${i}`} class="chip hide" x="36" y={Y0 + i * RH + 2} width="172" height={RH - 4} rx="4" />)}
+    {rows.map((r, i) => (
+      <g>
+        <text x="62" y={cy(i)}>{r[0]}</text>
+        <text x="108" y={cy(i)}>{r[1]}</text>
+        <text x="164" y={cy(i)}>{r[2]}</text>
+      </g>
+    ))}
+
+    <!-- 2) 한 점 착지 -->
+    <g data-id="land" class="hide">
+      <line x1="262" y1={cy(7)} x2="214" y2={cy(7)} style={acc} marker-end="url(#cl-a)" />
+      <text class="l" x="266" y={cy(7)}>착지</text>
+    </g>
+    <!-- 3) (M,30) 덩어리 -->
+    <g data-id="rng3" class="hide">
+      <path d={br(6, 8)} style={acc} />
+      <text class="l" x="232" y={cy(6)}>시작</text>
+      <text class="l" x="232" y={cy(8)}>끝</text>
+    </g>
+    <!-- 4) 풀 스캔 -->
+    <g data-id="scan" class="hide">
+      <line x1="222" y1={Y0 + 4} x2="222" y2={Y0 + 11 * RH - 6} style={acc + ';stroke-dasharray:6 4'} marker-end="url(#cl-a)" />
+      <text class="l" x="234" y={cy(0)}>처음부터</text>
+      <text class="l" x="234" y={cy(10)}>끝까지</text>
+      <text class="sub l" x="234" y={cy(5)}>흩어짐</text>
+    </g>
+    <!-- 5) 스킵 스캔 -->
+    <g data-id="sk1" class="hide">
+      <path d={br(2, 3)} style={acc} />
+      <text class="l" x="232" y={cy(2) + RH / 2}>① F로</text>
+    </g>
+    <g data-id="sk2" class="hide">
+      <path d={br(6, 8)} style={acc} />
+      <text class="l" x="232" y={cy(7)}>② M으로</text>
+    </g>
+
+    <!-- 아래 요약 -->
+    <rect class="box" x="6" y={H - 38} width="308" height="32" rx="8" />
+    {notes.map((n, k) => <text data-id={`n${k + 1}`} class="hide" x="160" y={H - 22}>{n}</text>)}
+  </svg>
+</Stepper>

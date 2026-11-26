@@ -1,0 +1,88 @@
+---
+// MySQL RR: 일반 SELECT는 첫 읽기 때 찍은 스냅숏(사진), 잠금 읽기(FOR UPDATE)는 현재 실물을 읽는다.
+// 위 = 사진 카드 | 실물 카드, 아래 = 세션 A | 세션 B 타임라인. 읽는 쪽 카드에 테두리 + "A가 읽는 곳" 태그.
+import Stepper from '../Stepper.astro';
+const AX = 80, BX = 240, CW = 148, CH = 44;
+const PX = 80, RX = 240, KW = 148;   // 사진·실물 카드 중심, 폭
+const KY = 44, RY = [92, 116, 140];  // 카드 위쪽, 행 y
+const T0 = 226, GAP = 54;
+const rows = [
+  { side: 'A', l1: 'COUNT ≥1000', l2: '→ 2 (사진 찍음)' },
+  { side: 'B', l1: 'INSERT park', l2: '바로 커밋 성공' },
+  { side: 'A', l1: 'COUNT ≥1000', l2: '→ 2 (사진)' },
+  { side: 'A', l1: 'FOR UPDATE', l2: 'COUNT → 3 (실물)', cls: 'err', tc: 'err-t' },
+  { side: 'A', l1: 'COUNT ≥1000', l2: '→ 2 (사진)' },
+];
+const S = (n: number) => Array.from({ length: n }, (_, i) => `r${i}`);
+const steps = [
+  { caption: 'MySQL 기본값 REPEATABLE READ예요. 실물 테이블에는 kim, lee 두 행(잔액 1000)이 있어요.', show: [] },
+  { caption: 'A가 BEGIN 후 첫 SELECT로 잔액 1000 이상을 세요. 2건이에요. 이 순간 A만의 사진(스냅숏)이 찍혀요.', show: ['bA', 'photo', 'rA', 'tP', ...S(1), 'hl0'] },
+  { caption: 'B가 park을 넣고 커밋해요. 실물에만 park이 생기고 사진은 그대로예요. A가 잠근 게 없어서 B는 기다리지 않고 바로 성공해요.', show: ['bA', 'photo', 'park', ...S(2), 'hl1'] },
+  { caption: 'A가 일반 SELECT를 다시 해요. 사진을 읽으니 여전히 2건이에요. 팬텀이 안 보여요.', show: ['bA', 'photo', 'park', 'rA', 'tP', ...S(3), 'hl2'] },
+  { caption: '이번엔 SELECT … FOR UPDATE(잠금 읽기)예요. 잠그려면 지금 실물을 봐야 해서 3건이에요. 같은 트랜잭션인데 park이 팬텀으로 나타났어요.', show: ['bA', 'photo', 'parkE', 'rR', 'tR', ...S(4), 'hl3'] },
+  { caption: 'A가 다시 일반 SELECT를 하면 2건이에요. 사진은 처음 찍은 그대로예요.', show: ['bA', 'photo', 'park', 'rA', 'tP', ...S(5), 'hl4'] },
+  { caption: '정리: 일반 SELECT는 사진을 읽고 잠금이 없어요. FOR UPDATE·UPDATE·DELETE는 실물을 읽고 잠가요. 둘을 섞으면 한 트랜잭션 안에서 다른 시점을 보게 돼요.', show: ['bA', 'photo', 'park', 'sumP', 'sumR', ...S(5)] },
+];
+const card = (cx: number) => ({ x: cx - KW / 2, y: KY, w: KW, h: 112 });
+const tag = (cx: number, id: string, t: string, cls = 'badge', tc = 'on-badge') => ({ cx, id, t, cls, tc });
+const tags = [
+  tag(PX, 'tP', 'A가 읽는 곳 ▼'),
+  tag(RX, 'tR', 'A가 읽는 곳 ▼', 'err', 'err-t'),
+  tag(PX, 'sumP', '일반 SELECT', 'box', ''),
+  tag(RX, 'sumR', '잠금 읽기·변경', 'box', ''),
+];
+const lastY = T0 + (rows.length - 1) * GAP;
+---
+<Stepper title="RR: 일반 SELECT는 사진, FOR UPDATE는 실물" steps={steps}>
+  <svg class="viz" viewBox={`0 0 320 ${lastY + CH / 2 + 8}`} role="img" aria-label="REPEATABLE READ에서 일반 SELECT는 첫 읽기 때 찍은 스냅숏을, FOR UPDATE는 현재 테이블을 읽어 결과가 2와 3으로 갈리는 과정">
+    {tags.map((g) => (
+      <g data-id={g.id} class="hide">
+        <rect class={g.cls} x={g.cx - 70} y="6" width="140" height="28" rx="14" />
+        <text class={g.tc} x={g.cx} y="20" style="font-size:14px;font-weight:700">{g.t}</text>
+      </g>
+    ))}
+
+    <!-- 사진 카드 (A만 보는 스냅숏) -->
+    <g data-id="photo">
+      <rect class="frame" x={card(PX).x} y={KY} width={KW} height="112" rx="8" />
+      <text x={PX} y={KY + 20} style="font-weight:700">A의 사진</text>
+      <text class="sub" x={PX} y={RY[0]}>kim 1000</text>
+      <text class="sub" x={PX} y={RY[1]}>lee 1000</text>
+      <text class="sub" x={PX} y={RY[2]} style="font-size:14px">(park 없음)</text>
+    </g>
+    <rect data-id="rA" class="hl hide" x={card(PX).x - 3} y={KY - 3} width={KW + 6} height="118" rx="10" />
+
+    <!-- 실물 카드 -->
+    <rect class="box" x={card(RX).x} y={KY} width={KW} height="112" rx="8" />
+    <text x={RX} y={KY + 20} style="font-weight:700">현재 실물 테이블</text>
+    <text x={RX} y={RY[0]}>kim 1000</text>
+    <text x={RX} y={RY[1]}>lee 1000</text>
+    <g data-id="park" class="hide">
+      <rect class="chip" x={RX - 62} y={RY[2] - 11} width="124" height="22" rx="5" />
+      <text x={RX} y={RY[2]} style="font-size:14px">park 1000 (새 행)</text>
+    </g>
+    <g data-id="parkE" class="hide">
+      <rect class="err" x={RX - 62} y={RY[2] - 11} width="124" height="22" rx="5" />
+      <text class="err-t" x={RX} y={RY[2]} style="font-size:14px">park 1000 팬텀</text>
+    </g>
+    <rect data-id="rR" class="hl hide" x={card(RX).x - 3} y={KY - 3} width={KW + 6} height="118" rx="10" style="stroke:var(--sl-color-red)" />
+
+    <!-- 세션 열 -->
+    <text x={AX} y="174" style="font-weight:700">세션 A</text>
+    <text x={BX} y="174" style="font-weight:700">세션 B</text>
+    <g data-id="bA" class="hide"><rect class="box" x={AX - 34} y="186" width="68" height="20" rx="10" /><text x={AX} y="196" style="font-size:14px">BEGIN</text></g>
+
+    {rows.map((_, j) => <rect data-id={`hl${j}`} class="hl" x="2" y={T0 + j * GAP - CH / 2 - 4} width="316" height={CH + 8} rx="8" />)}
+    {rows.map((r, j) => {
+      const y = T0 + j * GAP, cx = r.side === 'A' ? AX : BX;
+      return (
+        <g data-id={`r${j}`} class="hide">
+          <rect class={r.cls ?? 'chip'} x={cx - CW / 2} y={y - CH / 2} width={CW} height={CH} rx="6" />
+          <text class="sub" x={cx - CW / 2 + 11} y={y - 10} style="font-size:14px">{['①', '②', '③', '④', '⑤'][j]}</text>
+          <text class="mono" x={cx + 8} y={y - 10}>{r.l1}</text>
+          <text class={r.tc} x={cx} y={y + 11} style="font-size:14px;font-weight:700">{r.l2}</text>
+        </g>
+      );
+    })}
+  </svg>
+</Stepper>

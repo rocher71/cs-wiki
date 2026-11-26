@@ -1,0 +1,96 @@
+---
+// B+트리 등호 탐색(루트→브랜치→리프, 페이지 3번) 후 범위 조회(리프만 옆으로). 리프 연결은 방향 없이 점선으로만 표시.
+import Stepper from '../Stepper.astro';
+const LW = 92, LY = 200, LH = 40;
+const leaves = [
+  { x: 5, keys: ['140', '150', '155'] },
+  { x: 114, keys: ['160', '175', '190'] },
+  { x: 223, keys: ['200', '230', '245'] },
+];
+const kx = (l: number, k: number) => leaves[l].x + 16 + k * 30;
+const read = ['150', '155', '160', '175', '190', '200', '230'];
+const acc = 'stroke:var(--sl-color-accent);stroke-width:3;fill:none';
+const desc = ['q-eq', 'p1', 'p2', 'hlLeaf1', 'c150'];
+const range = ['q-rng', 'p1', 'p2', ...read.map((k) => `c${k}`), 'hop1', 'hop2'];
+const steps = [
+  { caption: '150을 찾아요. 루트 페이지 [100 | 200]를 읽으니 150은 100과 200 사이라 가운데 자식으로 내려가요.', show: ['q-eq', 'hlRoot', 'n1'] },
+  { caption: '브랜치 페이지 [120 | 160]을 읽어요. 150은 120과 160 사이라 그 사이 칸이 가리키는 리프로 내려가요.', show: ['q-eq', 'p1', 'hlB1', 'n2'] },
+  { caption: '리프 페이지에서 150을 찾았어요. 루트·브랜치·리프, 페이지 3번만 읽었어요.', show: [...desc, 'n3'] },
+  { caption: '범위 조회 BETWEEN 150 AND 230: 150까지 똑같이 내려간 뒤, 리프 안에서 오른쪽으로 읽고 페이지 끝에 닿으면 연결된 옆 리프로 넘어가요. 위로 다시 올라가지 않아요.', show: [...range, 'n-rng'] },
+  { caption: '230보다 큰 245를 만나면 거기서 멈춰요. 리프가 정렬돼 이어져 있으니 범위 조회가 빨라요.', show: [...range, 'stop', 'n-stop'] },
+];
+---
+<Stepper title="B+트리에서 값 찾기와 범위 조회" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 336" role="img" aria-label="루트, 브랜치, 리프 순으로 내려가 150을 찾고, 범위 조회는 리프를 따라 옆으로 읽는 과정">
+    <defs>
+      <marker id="bt-a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+    </defs>
+
+    <!-- 층 이름 -->
+    <text class="sub l" x="6" y="16">루트</text>
+    <text class="sub l" x="6" y="96">브랜치</text>
+    <text class="sub l" x="6" y="180">리프</text>
+
+    <!-- 자식 포인터 (회색, 고정) -->
+    <line class="line" x1="112" y1="66" x2="64" y2="104" />
+    <text class="sub" x="52" y="118">…</text>
+    <line class="line" x1="160" y1="66" x2="155" y2="108" />
+    <line class="line" x1="208" y1="66" x2="272" y2="108" />
+    <line class="line" x1="155" y1="144" x2={leaves[0].x + LW / 2} y2={LY} />
+    <line class="line" x1="208" y1="144" x2={leaves[1].x + LW / 2} y2={LY} />
+    <line class="line" x1="102" y1="144" x2="84" y2="160" />
+    <line class="line" x1="240" y1="144" x2={leaves[2].x + LW / 2} y2={LY} />
+
+    <!-- 내려가는 경로 (강조) -->
+    <line data-id="p1" class="hide" x1="160" y1="66" x2="155" y2="108" style={acc} />
+    <line data-id="p2" class="hide" x1="155" y1="144" x2={leaves[0].x + LW / 2} y2={LY} style={acc} />
+
+    <!-- 페이지들 -->
+    <rect class="box" x="100" y="30" width="120" height="36" rx="6" />
+    <text x="160" y="49">100 | 200</text>
+    <rect class="box" x="95" y="108" width="120" height="36" rx="6" />
+    <text x="155" y="127">120 | 160</text>
+    <rect class="box" x="230" y="108" width="84" height="36" rx="6" />
+    <text x="272" y="127">250 | 300</text>
+
+    {leaves.map((l, i) => (
+      <rect class="box" x={l.x} y={LY} width={LW} height={LH} rx="6" />
+    ))}
+    <!-- 옆 리프 연결 (방향 표시 없음) -->
+    <line class="frame" x1="97" y1="220" x2="114" y2="220" />
+    <line class="frame" x1="206" y1="220" x2="223" y2="220" />
+
+    <!-- 읽은 키 칩 -->
+    {leaves.map((l, i) => l.keys.map((k, j) => read.includes(k) && (
+      <rect data-id={`c${k}`} class="chip hide" x={kx(i, j) - 13} y={LY + 8} width="26" height="24" rx="4" />
+    )))}
+    <g data-id="stop" class="hide">
+      <rect class="bad" x={kx(2, 2) - 13} y={LY + 8} width="26" height="24" rx="4" />
+      <text class="sub" x={kx(2, 2) - 6} y="256">멈춤 ✗</text>
+    </g>
+    {leaves.map((l, i) => l.keys.map((k, j) => (
+      <text x={kx(i, j)} y={LY + 21} style="font-size:14px">{k}</text>
+    )))}
+
+    <!-- 옆으로 이동 화살표 -->
+    <path data-id="hop1" class="hide" d="M88 242 Q105 262 124 244" style={acc} marker-end="url(#bt-a)" />
+    <path data-id="hop2" class="hide" d="M197 242 Q214 262 233 244" style={acc} marker-end="url(#bt-a)" />
+
+    <!-- 이번 단계 페이지 강조 -->
+    <rect data-id="hlRoot" class="hl" x="97" y="27" width="126" height="42" rx="8" />
+    <rect data-id="hlB1" class="hl" x="92" y="105" width="126" height="42" rx="8" />
+    <rect data-id="hlLeaf1" class="hl" x={leaves[0].x - 3} y={LY - 3} width={LW + 6} height={LH + 6} rx="8" />
+
+    <!-- 아래: 조건과 읽은 페이지 수 -->
+    <rect class="box" x="10" y="274" width="300" height="54" rx="8" />
+    <text data-id="q-eq" class="hide" x="160" y="290" style="font-weight:700">WHERE key = 150</text>
+    <text data-id="q-rng" class="hide" x="160" y="290" style="font-weight:700">BETWEEN 150 AND 230</text>
+    <text data-id="n1" class="sub hide" x="160" y="312">읽은 페이지: 1 (루트)</text>
+    <text data-id="n2" class="sub hide" x="160" y="312">읽은 페이지: 2 (+브랜치)</text>
+    <text data-id="n3" class="sub hide" x="160" y="312">읽은 페이지: 3 (+리프) → 찾음 ✓</text>
+    <text data-id="n-rng" class="sub hide" x="160" y="312">리프만 따라 옆으로 읽는 중</text>
+    <text data-id="n-stop" class="sub hide" x="160" y="312">245 &gt; 230 → 여기서 끝</text>
+  </svg>
+</Stepper>

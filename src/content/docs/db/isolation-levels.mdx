@@ -1,0 +1,359 @@
+---
+title: 격리 수준과 이상 현상
+description: "격리 수준은 동시에 도는 트랜잭션끼리 서로의 변경을 어디까지 보게 할지 정하는 설정이에요. 낮을수록 dirty read·non-repeatable read·phantom read가 생기고, MySQL InnoDB 기본값인 REPEATABLE READ는 첫 읽기 때 찍은 스냅숏을 계속 읽어서 dirty·non-repeatable read는 막고 phantom read도 대부분 막아요."
+sidebar: { order: 6 }
+tags: [면접빈출, 서술형, 필기]
+---
+import { Aside } from '@astrojs/starlight/components';
+import AnomalyTimelines from '~/components/viz/AnomalyTimelines.astro';
+import RRSnapshotVsLockingRead from '~/components/viz/RRSnapshotVsLockingRead.astro';
+
+:::tip[한 줄 요약]
+**격리 수준**은 동시에 도는 트랜잭션끼리 **서로의 변경을 어디까지 볼 수 있게 할지** 정하는 설정이에요. READ UNCOMMITTED → READ COMMITTED → REPEATABLE READ → SERIALIZABLE 순으로 격리가 강해지고, 대신 동시 처리 성능은 떨어져요. MySQL InnoDB 기본값은 **REPEATABLE READ**이고, 트랜잭션의 **첫 읽기 때 찍은 스냅숏**을 계속 읽어서 값이 중간에 바뀌어 보이지 않게 해요.
+:::
+
+<Aside type="note" title="이 페이지의 기준">
+설명은 MySQL 8.0 기준 책과 MySQL 8.4 공식문서를 바탕으로 했어요. 타임라인 예시는 **MySQL 9.6.0**(InnoDB, 기본 설정)에서 두 세션 A·B를 번갈아 실행한 실제 결과예요. 격리 수준 관련 동작은 8.0/8.4 매뉴얼 설명과 같았어요.
+</Aside>
+
+## 쉽게 이해하기
+
+공유 문서를 여러 사람이 동시에 고친다고 해 봐요. 내가 보고서를 쓰는 동안 옆 사람이 숫자를 고치고 있어요. 이때 정할 게 있어요. 옆 사람이 **아직 저장도 안 한 수정**까지 내 화면에 보여야 할까요? 저장은 했지만 **내가 작업을 시작한 뒤에** 저장한 수정은요?
+
+다 보여 주면 최신 상태를 보지만, 보고서를 쓰는 도중에 숫자가 계속 바뀌어요. 하나도 안 보여 주면 내 보고서는 앞뒤가 맞지만, 다른 사람과 부딪히지 않게 맞추는 비용이 커져요. 이 "어디까지 보여 줄까"를 4단계로 정해 둔 게 **격리 수준**(isolation level)이에요.
+
+MySQL 기본값(REPEATABLE READ)은 "내가 문서를 **처음 읽은 순간의 사진**을 찍어 두고, 작업이 끝날 때까지 그 사진만 본다"에 가까워요.
+
+단, 실제로는 사진만 보는 게 아니에요. 값을 **고치거나 잠그면서 읽을 때**는 사진이 아니라 지금 실물을 봐요. 이 차이가 뒤에 나오는 함정의 핵심이에요.
+
+## 그림으로 보기
+
+<AnomalyTimelines />
+
+<RRSnapshotVsLockingRead />
+
+## 제대로 알기
+
+### 1. 왜 격리 수준이 필요한가
+
+DB에는 요청이 동시에 수십, 수백 개씩 들어와요. 각 요청은 **트랜잭션**(transaction, "전부 되거나 전부 안 되거나"로 묶인 작업 단위)으로 실행돼요. 트랜잭션 기본은 [트랜잭션과 ACID](../transaction-acid/)에서 다뤄요.
+
+트랜잭션들이 서로를 전혀 못 보게 줄 세우면 안전하지만 느려요. 서로를 마음대로 보게 하면 빠르지만 이상한 값을 읽어요. 격리 수준은 이 둘 사이에서 **얼마나 안전하게, 얼마나 빠르게**를 고르는 손잡이예요.
+
+### 2. 세 가지 이상 현상
+
+격리가 약할 때 생기는 문제를 **이상 현상**(anomaly, 부정합)이라고 해요. 아래 예시는 모두 계좌 테이블 `acct`에 kim(1000), lee(1000) 두 행이 있는 상태에서 시작해요. A는 읽는 쪽, B는 바꾸는 쪽이에요.
+
+**Dirty read**(더티 리드): 다른 트랜잭션이 **아직 커밋하지 않은** 변경을 읽는 것. 그 트랜잭션이 롤백하면 존재한 적 없는 값을 읽은 셈이 돼요.
+
+| 순서 | 세션 A (READ UNCOMMITTED) | 세션 B |
+|---|---|---|
+| 1 | kim 잔액 조회 → 1000 | |
+| 2 | | kim 잔액을 500으로 변경 (커밋 안 함) |
+| 3 | 같은 조회 → **500** | |
+| 4 | | ROLLBACK |
+| 5 | 같은 조회 → 1000 | |
+
+A가 3번에서 본 500을 근거로 뭔가 결정했다면, 그 결정은 근거가 사라진 결정이에요.
+
+**Non-repeatable read**(반복 불가능한 읽기): 한 트랜잭션 안에서 **같은 행**을 두 번 읽었는데, 사이에 다른 트랜잭션이 수정·커밋해서 **값이 달라지는** 것.
+
+| 순서 | 세션 A (READ COMMITTED) | 세션 B |
+|---|---|---|
+| 1 | kim 잔액 조회 → 1000 | |
+| 2 | | kim 잔액을 500으로 변경, 커밋 |
+| 3 | 같은 조회 → **500** | |
+
+**Phantom read**(팬텀 리드, 유령 읽기): 같은 조건의 조회를 두 번 했는데, 사이에 다른 트랜잭션이 행을 추가(또는 삭제)해서 **없던 행이 나타나는** 것.
+
+| 순서 | 세션 A (READ COMMITTED) | 세션 B |
+|---|---|---|
+| 1 | 잔액 1000 이상 행 개수 → 2 | |
+| 2 | | park(1000) 추가, 커밋 |
+| 3 | 같은 조회 → **3** | |
+
+**구분 요령**: non-repeatable은 "있던 행의 **값**이 바뀜"(UPDATE 때문), phantom은 "행의 **개수**가 바뀜"(INSERT·DELETE 때문)이에요.
+
+### 3. 네 가지 격리 수준 (SQL 표준)
+
+SQL 표준이 정한 표예요. O는 "발생할 수 있음"이에요.
+
+| 격리 수준 | Dirty | Non-repeatable | Phantom |
+|---|---|---|---|
+| READ UNCOMMITTED | O | O | O |
+| READ COMMITTED | X | O | O |
+| REPEATABLE READ | X | X | O (InnoDB는 대부분 X) |
+| SERIALIZABLE | X | X | X |
+
+- **READ UNCOMMITTED**: 커밋 안 된 변경까지 보여요. 문제가 많아서 실무에선 최소 READ COMMITTED 이상을 써요.
+- **READ COMMITTED**(RC): 커밋된 것만 보여요. 오라클 같은 DB가 주로 기본값으로 써요.
+- **REPEATABLE READ**(RR): 한 트랜잭션 안에서는 같은 걸 읽으면 같은 값이 나와요. **MySQL InnoDB 기본값**이에요.
+- **SERIALIZABLE**: 트랜잭션이 하나씩 차례로 실행된 것처럼 보장해요. 가장 안전하고 가장 느려요.
+
+현재 값은 이렇게 확인하고 바꿔요.
+
+```sql
+SELECT @@transaction_isolation;   -- REPEATABLE-READ
+
+-- 이 세션에서만 바꾸기
+SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED;
+```
+
+스프링에서는 `@Transactional(isolation = ...)`으로 정하고, 기본값 `DEFAULT`는 DB 기본값을 따라요. MySQL이면 RR이에요. 자세한 건 [@Transactional](../../spring/transactional/)에서 다뤄요.
+
+### 4. RC와 RR은 스냅숏을 찍는 시점이 달라요
+
+RC와 RR은 둘 다 **MVCC**(Multi-Version Concurrency Control, 한 행의 여러 버전을 보관해 두고 트랜잭션마다 맞는 버전을 보여 주는 방식)를 써요. 다른 트랜잭션이 행을 고치고 있으면, InnoDB는 **언두 로그**(undo log, 변경 전 값을 백업해 두는 곳)에서 이전 버전을 꺼내 보여 줘요. 원리는 [트랜잭션과 ACID](../transaction-acid/)에서 다뤄요.
+
+차이는 **스냅숏**(snapshot, 특정 시점의 데이터 사진)을 언제 찍느냐예요.
+
+| 구분 | READ COMMITTED | REPEATABLE READ (InnoDB) |
+|---|---|---|
+| 스냅숏 | **SELECT마다** 새로 찍음 | 트랜잭션의 **첫 번째 읽기** 때 한 번 찍고 계속 씀 |
+| 중간에 남이 커밋한 값 | 다음 SELECT에 보임 | 안 보임 |
+| Non-repeatable read | 생김 | 안 생김 |
+| 일반 SELECT의 팬텀 | 생김 | 안 생김 |
+
+<Aside type="caution" title="스냅숏은 BEGIN 시점이 아니에요">
+"RR은 트랜잭션 시작(BEGIN) 시점 데이터를 본다"고 단순하게 설명하는 자료가 많아요. 공식 매뉴얼 표현은 **"첫 번째 읽기 시점"** 이에요. 실험에서도 A가 BEGIN만 하고 아무것도 안 읽은 사이 B가 500으로 바꿔 커밋하자, A의 첫 SELECT는 **500**을 봤어요. BEGIN 순간에 사진을 찍고 싶으면 `START TRANSACTION WITH CONSISTENT SNAPSHOT`으로 시작해요. 이렇게 하면 같은 실험에서 1000이 유지됐어요.
+</Aside>
+
+### 5. 일관된 읽기 vs 잠금 읽기
+
+MySQL RR을 이해하는 핵심이에요. SELECT에는 두 종류가 있어요.
+
+| 구분 | 일관된 읽기 (consistent read) | 잠금 읽기 (locking read) |
+|---|---|---|
+| 문법 | 그냥 `SELECT` | `SELECT ... FOR UPDATE`, `SELECT ... FOR SHARE` |
+| 보는 데이터 | 스냅숏(사진) | **최신 커밋된 행**(실물) |
+| 잠금 | 안 걸어요 | 걸어요 (커밋·롤백 때 풀림) |
+| 다른 세션의 쓰기 | 막지 않아요 | 잠근 행·범위는 대기시켜요 |
+
+- `FOR UPDATE`는 **배타 잠금**(나만 쓸 수 있게), `FOR SHARE`는 **공유 잠금**(읽기는 같이, 쓰기는 막음)이에요. `FOR SHARE`는 8.0부터의 문법이고 옛 문법 `LOCK IN SHARE MODE`도 그대로 돼요.
+- **UPDATE·DELETE도 실물을 봐요.** 언두에 백업된 옛 버전에는 잠금을 걸 수 없어서, 잠그면서 읽는 작업은 항상 최신 행을 대상으로 해요.
+
+그래서 **한 트랜잭션에서 둘을 섞으면 서로 다른 시점을 보게 돼요.**
+
+| 순서 | 세션 A (REPEATABLE READ) | 세션 B |
+|---|---|---|
+| 1 | 잔액 1000 이상 행 개수 (일반 SELECT) → 2 | |
+| 2 | | park(1000) 추가, 커밋 (A가 잠근 게 없어 바로 성공) |
+| 3 | 일반 SELECT → **2** (사진) | |
+| 4 | `... FOR UPDATE` → **3** (실물, 팬텀 등장) | |
+| 5 | 일반 SELECT → **2** (사진은 그대로) | |
+
+UPDATE도 마찬가지예요. A의 SELECT에는 park가 안 보이는데, A가 `UPDATE acct SET balance = balance + 1`을 실행하면 park 행까지 3행이 갱신돼요. 그리고 **A가 직접 고친 행이라** 그 뒤 A의 SELECT에도 park(1001)가 나타나요. 매뉴얼도 잠금 문장과 비잠금 문장을 한 트랜잭션에 섞지 말라고 권해요.
+
+### 6. MySQL RR은 팬텀을 어떻게 "대부분" 막나
+
+InnoDB RR은 표준보다 강해서 팬텀을 두 갈래로 막아요.
+
+1. **일반 SELECT**: 스냅숏을 보니까 새 행이 안 보여요.
+2. **잠금 읽기·UPDATE·DELETE**: 범위 조건이면 레코드와 그 앞뒤 **틈**(gap)까지 잠그는 **넥스트 키 락**(next-key lock)을 걸어요. 그러면 다른 세션이 그 범위에 INSERT 자체를 못 해요. 유니크 인덱스로 딱 한 행을 찾는 조건이면 그 행만 잠가요.
+
+실험에서 A가 먼저 `SELECT id FROM acct WHERE id >= 1 FOR UPDATE`로 잠그자, B의 `INSERT id=3`은 기다리다가 `ERROR 1205 Lock wait timeout`으로 실패했어요. 팬텀이 생길 틈이 없었어요.
+
+정리하면 MySQL RR에서 팬텀이 보이는 건 **일반 SELECT로 먼저 읽고, 그 사이 다른 세션이 INSERT·커밋을 끝낸 뒤에 잠금 읽기나 UPDATE를 하는** 경우예요. 갭 락의 세부는 [락](../locks/)에서 다뤄요.
+
+### 7. SERIALIZABLE
+
+InnoDB의 SERIALIZABLE은 RR과 같되, 명시적 트랜잭션 안의 **모든 일반 SELECT를 `SELECT ... FOR SHARE`로 바꿔** 공유 잠금을 걸어요. 그래서 A가 읽은 행을 B가 고치거나, A가 읽은 범위에 B가 INSERT하려 하면 기다려요. 실험에서 A가 `WHERE balance >= 1000`으로 읽기만 했는데, B의 UPDATE와 INSERT가 모두 lock wait timeout이 났어요.
+
+- 예외: autocommit이 켜진 상태의 단독 SELECT는 그 자체가 읽기 전용 트랜잭션이라 잠금 없이 읽어요.
+- 읽기끼리도 잠금으로 부딪히니 동시 처리 성능이 가장 낮아요. 매뉴얼은 XA(여러 DB에 걸친) 트랜잭션이나 동시성·데드락 문제 디버깅 같은 특수 상황용으로 소개해요.
+
+### 8. 격리 수준과 성능
+
+- 책 저자는 RU·RC·RR 사이에선 **성능 차이가 크지 않다**고 봐요. 크게 느려지는 건 읽기에도 잠금을 거는 SERIALIZABLE이에요.
+- RR에서 트랜잭션을 **오래 열어 두면** 그 트랜잭션이 볼 수도 있는 옛 버전을 언두에서 지울 수 없어서, 언두가 쌓이고 성능이 떨어질 수 있어요.
+- **RC가 잠금이 더 가벼워요.** 갭 락을 (외래키·중복키 검사 외에는) 안 쓰고, UPDATE·DELETE가 조건에 안 맞는 행의 잠금을 바로 풀어요. 대신 non-repeatable read와 팬텀을 허용해요. 또 RC를 쓰려면 바이너리 로그(복제용 변경 기록)는 ROW 포맷이어야 해요.
+
+### 9. RR이어도 lost update는 생겨요
+
+표준의 세 가지 현상 말고 실무에서 더 자주 터지는 게 **갱신 분실**(lost update)이에요. 두 트랜잭션이 같은 값을 읽고 각자 계산해서 덮어쓰면, 먼저 쓴 쪽 변경이 사라져요.
+
+| 순서 | 세션 A (RR) | 세션 B (RR) |
+|---|---|---|
+| 1 | kim 잔액 조회 → 1000 | |
+| 2 | | kim 잔액 조회 → 1000 |
+| 3 | 앱에서 1000 − 100 계산, `SET balance = 900`, 커밋 | |
+| 4 | | 앱에서 1000 − 200 계산, `SET balance = 800`, 커밋 |
+| 결과 | **800** (A의 −100이 사라짐) | |
+
+RR은 "내가 읽은 값이 안 바뀌어 보이게" 해 줄 뿐, **남이 그 사이 쓰는 걸 막지는 않아요.** 일반 SELECT는 잠금을 안 거니까요. 막는 방법은 세 가지예요.
+
+```sql
+-- 1) 잠그면서 읽기: B는 A가 커밋할 때까지 기다렸다가 900을 읽음
+SELECT balance FROM acct WHERE id = 1 FOR UPDATE;
+
+-- 2) 계산을 DB에 맡기기: 항상 현재 값 기준으로 빼고, 잔액 부족도 함께 막음
+UPDATE acct SET balance = balance - 100
+WHERE id = 1 AND balance >= 100;
+
+-- 3) 낙관적 락: version이 그대로일 때만 반영, 영향받은 행이 0이면 재시도
+UPDATE acct SET balance = 900, version = version + 1
+WHERE id = 1 AND version = 7;
+```
+
+각 방법의 트레이드오프는 [락](../locks/)에서 자세히 다뤄요.
+
+## 면접 질문
+
+<details>
+<summary>Q. 트랜잭션 격리 수준 4가지와 각각에서 생기는 이상 현상을 설명해 주세요.</summary>
+
+**답변(30초)** 격리 수준은 동시에 도는 트랜잭션이 서로의 변경을 어디까지 보게 할지 정하는 설정이에요. READ UNCOMMITTED는 커밋 안 된 값까지 보여서 dirty read가 생겨요. READ COMMITTED는 커밋된 값만 보지만 SELECT마다 새로 읽어서 non-repeatable read와 phantom read가 생겨요. REPEATABLE READ는 같은 행을 다시 읽어도 같은 값이고, 표준상 phantom만 허용해요. SERIALIZABLE은 셋 다 막지만 가장 느려요.
+
+**꼬리질문**
+- Q. MySQL 기본값은요? → InnoDB는 REPEATABLE READ예요. 오라클 같은 DB는 주로 READ COMMITTED를 써요.
+- Q. 격리 수준을 올리면 무조건 느려지나요? → RU·RC·RR 사이엔 차이가 크지 않다는 게 일반적인 평가예요. 크게 느린 건 읽기에도 공유 잠금을 거는 SERIALIZABLE이에요.
+</details>
+
+<details>
+<summary>Q. Dirty read, Non-repeatable read, Phantom read는 어떻게 다른가요?</summary>
+
+**답변(30초)** dirty read는 다른 트랜잭션이 커밋하지 않은 값을 읽는 거라, 그쪽이 롤백하면 존재한 적 없는 값을 본 게 돼요. non-repeatable read는 같은 행을 두 번 읽는 사이에 남이 그 행을 고치고 커밋해서 값이 달라지는 거예요. phantom read는 같은 조건으로 두 번 조회하는 사이에 남이 행을 추가하거나 지워서 행 개수가 달라지는 거예요. 값이 바뀌면 non-repeatable, 행 집합이 바뀌면 phantom이에요.
+
+**꼬리질문**
+- Q. non-repeatable read가 왜 문제예요? → 한 트랜잭션 안에서 앞에서 읽은 값과 뒤에서 읽은 값을 같이 써서 계산하면, 서로 다른 시점의 숫자를 섞게 돼요. 예를 들어 정산 합계가 맞지 않아요.
+</details>
+
+<details>
+<summary>Q. READ COMMITTED와 REPEATABLE READ는 어떻게 다르게 구현되나요?</summary>
+
+**답변(30초)** 둘 다 MVCC로 언두 로그의 이전 버전을 읽어요. 차이는 스냅숏 시점이에요. READ COMMITTED는 SELECT할 때마다 새 스냅숏을 찍어서 중간에 남이 커밋한 값이 보여요. InnoDB의 REPEATABLE READ는 트랜잭션의 첫 번째 읽기 때 찍은 스냅숏을 끝까지 써서, 같은 걸 다시 읽어도 결과가 같아요.
+
+**꼬리질문**
+- Q. 스냅숏은 BEGIN 할 때 찍히나요? → 아니에요. 첫 번째 읽기 때예요. BEGIN 시점에 고정하려면 `START TRANSACTION WITH CONSISTENT SNAPSHOT`을 써요.
+- Q. RR에서 트랜잭션을 오래 열어 두면요? → 그 트랜잭션이 볼 수 있는 옛 버전을 언두에서 못 지워서 언두가 쌓이고 성능이 떨어질 수 있어요.
+</details>
+
+<details>
+<summary>Q. MySQL REPEATABLE READ에서 팬텀 리드가 발생하나요?</summary>
+
+**답변(30초)** 대부분 안 생기지만, 절대 안 생기는 건 아니에요. 일반 SELECT는 스냅숏을 읽어서 새 행이 안 보이고, FOR UPDATE 같은 잠금 읽기는 넥스트 키 락으로 범위의 틈까지 잠가 INSERT를 막아요. 다만 일반 SELECT로 먼저 읽은 뒤 다른 세션이 INSERT를 커밋하고, 그다음 잠금 읽기나 UPDATE를 하면 최신 데이터를 보기 때문에 새 행이 나타나요. 그래서 한 트랜잭션에서 일반 SELECT와 잠금 읽기를 섞지 않는 게 좋아요.
+
+**꼬리질문**
+- Q. 잠금 읽기는 왜 스냅숏을 안 보나요? → 언두에 있는 옛 버전에는 잠금을 걸 수 없어서, 잠그려면 최신 커밋된 행을 읽어야 해요.
+- Q. 먼저 FOR UPDATE로 잠갔다면요? → 범위에 넥스트 키 락이 걸려 다른 세션 INSERT가 대기하다 lock wait timeout이 나요. 팬텀이 생기지 않아요.
+</details>
+
+<details>
+<summary>Q. 일관된 읽기와 잠금 읽기의 차이는 뭔가요?</summary>
+
+**답변(30초)** 일관된 읽기는 일반 SELECT로, 잠금 없이 스냅숏을 읽어요. 그래서 읽기와 쓰기가 서로 막지 않아 동시성이 좋아요. 잠금 읽기는 `SELECT ... FOR UPDATE`나 `FOR SHARE`로, 최신 커밋된 행을 읽고 커밋할 때까지 잠금을 잡아요. 읽은 값을 바탕으로 곧 수정할 거라면 잠금 읽기를 써야 다른 트랜잭션이 끼어들지 못해요.
+
+**꼬리질문**
+- Q. FOR UPDATE와 FOR SHARE 차이는요? → FOR UPDATE는 배타 잠금이라 다른 세션의 잠금 읽기와 수정을 모두 막고, FOR SHARE는 공유 잠금이라 같이 읽는 건 되지만 수정은 막아요.
+</details>
+
+<details>
+<summary>Q. RR이면 동시에 출금해도 안전한가요?</summary>
+
+**답변(30초)** 아니에요. RR은 내가 읽은 값이 트랜잭션 안에서 바뀌어 보이지 않게 할 뿐, 남이 그 사이 쓰는 걸 막지 않아요. 두 요청이 같은 잔액을 일반 SELECT로 읽고 앱에서 계산해 덮어쓰면 한쪽 차감이 사라지는 갱신 분실이 나요. 막으려면 FOR UPDATE로 잠그며 읽거나, `balance = balance - ?`처럼 DB가 현재 값 기준으로 계산하게 하거나, 버전 컬럼으로 낙관적 락을 써요.
+
+**꼬리질문**
+- Q. SERIALIZABLE로 올리면요? → 읽기에도 공유 잠금이 걸려 막을 수는 있지만 전체 동시성이 떨어져요. 문제가 되는 쿼리만 잠금 읽기나 원자적 UPDATE로 고치는 게 보통 더 나아요.
+</details>
+
+## 서술형 연습
+
+<details>
+<summary>상황: 송금 API에서 같은 계좌로 출금 요청 두 개가 동시에 들어왔는데, 한쪽 출금이 잔액에 반영되지 않았습니다. DB는 MySQL 기본 설정(REPEATABLE READ)입니다.</summary>
+
+**상황 파악**
+돈이 실제로 나갔는데 잔액이 덜 줄었으니 데이터 정합성 사고예요. 코드는 "잔액 조회 → 앱에서 차감 계산 → 계산한 값으로 UPDATE" 순서일 가능성이 커요. "RR이면 안전하다"는 가정이 깨진 상황이에요.
+
+**원인 후보**
+1. **갱신 분실**: 두 트랜잭션이 일반 SELECT로 같은 1000을 읽고, 각자 900과 800을 덮어써서 나중 값만 남았어요. 일반 SELECT는 잠금을 걸지 않아서 RR이어도 둘 다 같은 값을 읽어요.
+2. 애초에 두 요청이 같은 트랜잭션으로 묶이지 않았거나, 재시도 로직이 같은 요청을 두 번 처리했을 수도 있어요. 로그로 요청 수와 커밋 수를 확인해요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. `SELECT ... FOR UPDATE`로 읽기 | 읽는 순간부터 커밋까지 다른 출금이 대기해 확실함. 기존 코드 구조 유지 | 같은 계좌 요청이 줄 서서 처리됨. 트랜잭션이 길면 대기·타임아웃·데드락 위험 |
+| B. 원자적 UPDATE `SET balance = balance - ? WHERE id = ? AND balance >= ?` | 잠금 시간이 UPDATE 한 문장뿐이라 짧음. 잔액 부족도 같은 문장에서 막음 | 차감 전에 복잡한 검증을 하기 어려움. 영향받은 행이 0이면 실패 처리 필요 |
+| C. 버전 컬럼 낙관적 락 | 충돌이 드물면 잠금 대기가 없음 | 충돌 시 재시도 로직 필요. 같은 계좌에 요청이 몰리면 재시도가 많아짐 |
+| D. 격리 수준을 SERIALIZABLE로 | 코드 수정이 적음 | 모든 읽기에 공유 잠금이 걸려 서비스 전체 동시성이 떨어짐 |
+
+**내가 고를 방법**
+잔액 차감처럼 "현재 값에서 빼기"로 표현되는 건 B를 먼저 골라요. 잠금이 가장 짧고 잔액 부족 검증까지 한 번에 돼요. 차감 전에 한도·상태 확인 같은 로직이 꼭 필요하면 A로 해당 계좌 행만 잠가요. D는 문제 하나를 고치려고 전체 성능을 내주는 거라 고르지 않아요. 적용 후 같은 계좌에 동시 요청을 쏘는 테스트로 최종 잔액이 맞는지 확인해요.
+
+**채점 포인트**: RR도 lost update를 못 막음, 일반 SELECT는 잠금 없음, FOR UPDATE, 원자적 UPDATE와 `WHERE balance >= ?`, 낙관적 락과 재시도, SERIALIZABLE의 성능 비용, 동시성 테스트로 검증.
+</details>
+
+<details>
+<summary>상황: 잠금 대기를 줄이려고 격리 수준을 READ COMMITTED로 바꾼 뒤, 하나의 트랜잭션에서 입금 합계와 출금 합계를 따로 조회해 비교하는 정산 배치가 가끔 맞지 않습니다.</summary>
+
+**상황 파악**
+배치 로직은 그대로인데 격리 수준만 바뀐 뒤 생긴 문제예요. "가끔"이라는 건 배치가 도는 동안 다른 거래가 들어올 때만 생긴다는 뜻이에요.
+
+**원인 후보**
+1. **RC는 SELECT마다 새 스냅숏**을 찍어요. 입금 합계를 읽은 뒤 출금 합계를 읽는 사이에 다른 트랜잭션이 커밋하면, 두 숫자가 서로 다른 시점 기준이 돼요(non-repeatable read, phantom read).
+2. RR이었을 때는 첫 읽기 때의 스냅숏을 끝까지 써서, 두 합계가 같은 시점 기준이었어요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. 배치 트랜잭션만 RR로 지정 (스프링이면 `@Transactional(isolation = REPEATABLE_READ)`) | 서비스 나머지는 RC의 가벼운 잠금 유지. 배치는 한 시점 기준으로 계산 | 배치가 오래 돌면 언두가 쌓임. 설정이 섞여 관리 포인트가 늘어남 |
+| B. 두 합계를 한 쿼리로 같이 계산 | RC에서도 한 문장은 한 스냅숏이라 시점이 맞음 | 쿼리가 복잡해질 수 있고, 로직이 여러 쿼리로 나뉘는 경우엔 못 씀 |
+| C. 전체를 다시 RR로 되돌리기 | 원래 동작으로 복구 | RC로 바꾼 이유(잠금 대기 감소)를 잃음 |
+
+**내가 고를 방법**
+합계 두 개 정도라면 B로 한 쿼리에 묶는 게 가장 단순해요. 배치가 여러 쿼리로 이뤄져서 묶기 어렵다면 A로 그 배치만 RR로 실행해요. 이때 배치 트랜잭션이 너무 길어지지 않게 범위를 나눠요. 전체를 되돌리는 C는 RC 전환 효과까지 버리는 거라 마지막 선택지예요.
+
+**채점 포인트**: RC는 SELECT마다 스냅숏, RR은 첫 읽기 스냅숏 고정, non-repeatable/phantom, 트랜잭션 단위 격리 수준 지정, 한 문장은 한 시점, 긴 트랜잭션과 언두, RC 전환의 장단점.
+</details>
+
+<details>
+<summary>상황: 공연 예매에서 "남은 좌석 수"를 SELECT로 센 뒤 0보다 크면 예약을 INSERT하는데, 동시에 몰리면 정원보다 많이 예약됩니다. DB는 REPEATABLE READ입니다.</summary>
+
+**상황 파악**
+"확인 후 행동"(check-then-act) 패턴에서 생긴 초과 예약이에요. 확인과 INSERT 사이에 다른 트랜잭션이 끼어들 수 있다는 게 핵심이에요.
+
+**원인 후보**
+1. 일반 SELECT는 **잠금을 걸지 않아요.** 두 트랜잭션이 거의 동시에 "남은 좌석 1"을 보고 둘 다 INSERT해요. RR의 스냅숏은 "내가 본 값이 안 바뀌어 보이게" 할 뿐, 남의 INSERT를 막지 않아요.
+2. 좌석 중복을 막는 DB 제약(유니크 키)이 없어서 마지막 방어선도 없어요.
+
+**해결책과 트레이드오프**
+
+| 방법 | 장점 | 단점 |
+|---|---|---|
+| A. 좌석 확인을 `SELECT ... FOR UPDATE`로 | 넥스트 키 락으로 범위를 잠가 다른 예약 INSERT가 대기 | 인기 공연이면 대기가 길어지고 갭 락 때문에 데드락 가능 |
+| B. (공연, 좌석) 유니크 제약 | 동시성과 상관없이 DB가 중복을 확실히 거부 | 좌석 지정 예매일 때만 맞음. 실패한 요청은 앱에서 에러 처리 필요 |
+| C. 공연 행에 남은 수량 컬럼을 두고 `UPDATE ... SET remain = remain - 1 WHERE id = ? AND remain > 0` | 잠금이 한 행 UPDATE로 짧음. 영향 행 0이면 매진 | 수량과 실제 예약 행을 같은 트랜잭션에서 맞춰야 함 |
+
+**내가 고를 방법**
+좌석 지정이면 B를 기본 안전장치로 깔고, 수량형이면 C를 써요. 둘 다 잠금이 짧고 "확인"과 "차감"이 한 문장이라 끼어들 틈이 없어요. A는 확인 로직이 복잡해서 꼭 행을 먼저 봐야 할 때만 쓰고, 트랜잭션을 짧게 유지해요.
+
+**채점 포인트**: check-then-act 경쟁 조건, 일반 SELECT는 잠금 없음, RR이 INSERT를 막지 않음, FOR UPDATE와 넥스트 키 락, 유니크 제약, 조건부 원자적 UPDATE, 데드락·대기 비용.
+</details>
+
+## 필기 포인트
+
+- 격리 수준 순서(약 → 강): **READ UNCOMMITTED → READ COMMITTED → REPEATABLE READ → SERIALIZABLE**. 강할수록 동시성은 낮아요.
+- 표준 기준: RU는 셋 다 발생, RC는 dirty만 방지, RR은 phantom만 허용, SERIALIZABLE은 셋 다 방지.
+- Non-repeatable = **같은 행의 값**이 바뀜(UPDATE). Phantom = **행 집합**이 바뀜(INSERT·DELETE).
+- MySQL InnoDB 기본 = **REPEATABLE READ**. 오라클은 주로 READ COMMITTED.
+- RC와 RR **둘 다 MVCC**를 써요. RC는 SELECT마다 스냅숏, RR은 첫 읽기 때 스냅숏.
+- InnoDB RR은 표준보다 강해서 팬텀을 대부분 막아요(일반 SELECT는 스냅숏, 잠금 읽기는 넥스트 키 락).
+- 확인: `SELECT @@transaction_isolation;`
+- 함정: "RR이면 lost update도 막힌다"는 틀림.
+
+## 함께 보기
+
+- [트랜잭션과 ACID](../transaction-acid/) (MVCC와 언두 로그)
+- [락](../locks/) (넥스트 키 락, 비관적·낙관적 락)
+- [@Transactional](../../spring/transactional/) (스프링에서 격리 수준 지정)
+- [커넥션 풀과 쿼리](../connection-pool-query/)
+
+## 출처
+
+- [MySQL 8.4 Reference Manual, Transaction Isolation Levels](https://dev.mysql.com/doc/refman/8.4/en/innodb-transaction-isolation-levels.html)
+- [MySQL 8.4 Reference Manual, Consistent Nonlocking Reads](https://dev.mysql.com/doc/refman/8.4/en/innodb-consistent-read.html)
+- [MySQL 8.4 Reference Manual, Locking Reads](https://dev.mysql.com/doc/refman/8.4/en/innodb-locking-reads.html)
+- [MySQL 8.4 Reference Manual, Phantom Rows](https://dev.mysql.com/doc/refman/8.4/en/innodb-next-key-locking.html)
+- Real MySQL 8.0 (1권) 5장 "트랜잭션과 잠금", 5.4 "MySQL의 격리 수준"
+- 로컬 실험: MySQL 9.6.0, InnoDB, 두 세션 번갈아 실행

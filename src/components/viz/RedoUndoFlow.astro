@@ -1,0 +1,75 @@
+---
+// UPDATE bal 1000→700 커밋 흐름과 크래시 복구: undo(되돌리기) vs redo(다시 하기)
+import Stepper from '../Stepper.astro';
+const base = ['act-box', 'mem', 'disk', 'df-1000'];
+const steps = [
+  { caption: '트랜잭션이 시작돼요. 계좌 id=1의 잔액은 1000이고, 메모리의 버퍼 풀(데이터 페이지 캐시)과 디스크의 데이터 파일이 같은 값을 갖고 있어요.', show: [...base, 'act1', 'bp-1000', 'rb-empty', 'rl-empty', 'undo-empty', 'hl-act'] },
+  { caption: 'UPDATE를 실행하면 먼저 바꾸기 전 값 1000을 undo 로그에 적어 둬요. 나중에 되돌릴 때 쓰는 장부예요.', show: [...base, 'act2', 'bp-1000', 'rb-empty', 'rl-empty', 'undo-rec', 'hl-undo'] },
+  { caption: '버퍼 풀의 페이지만 700으로 바뀌어요. 디스크의 데이터 파일은 아직 1000이에요. 이렇게 메모리와 디스크 값이 다른 페이지를 더티 페이지라고 해요.', show: [...base, 'act2', 'bp-700', 'rb-empty', 'rl-empty', 'undo-rec', 'hl-bp'] },
+  { caption: '무엇을 바꿨는지(id1 bal=700)를 redo 로그 버퍼에 적어요. 다시 하기용 장부예요.', show: [...base, 'act2', 'bp-700', 'rb-rec', 'rl-empty', 'undo-rec', 'hl-rb'] },
+  { caption: 'COMMIT하면 redo 로그만 디스크에 flush하고 OK를 응답해요. 데이터 파일은 여전히 1000이에요. 흩어진 데이터 페이지 대신 작은 로그를 순서대로 쓰니 빨라요.', show: [...base, 'act5', 'bp-700', 'rb-rec', 'flush', 'rl-rec', 'undo-rec', 'res-ok', 'hl-rl', 'hl-res'] },
+  { caption: '바로 이때 서버가 꺼져요. 메모리의 700은 사라졌고 데이터 파일엔 1000만 남았어요. 하지만 디스크의 redo 로그에는 커밋된 변경이 남아 있어요.', show: [...base, 'act6', 'crash', 'bp-gone', 'rb-gone', 'rl-rec', 'undo-rec', 'hl-mem'] },
+  { caption: '재시작하면 redo 로그를 읽어 변경을 다시 적용해요. 잔액이 700으로 돌아와요. 커밋된 건 꺼져도 살아남는다, 이게 지속성이에요.', show: [...base, 'act7', 'bp-redo', 'rb-empty', 'rl-rec', 'undo-rec', 'res-redo', 'hl-bp', 'hl-rl', 'hl-res'] },
+  { caption: '만약 COMMIT 전에 꺼졌다면, 복구 때 커밋 안 된 트랜잭션을 undo 로그로 되돌려 1000으로 만들어요. 반쯤 된 일은 없던 일로, 이게 원자성이에요.', show: [...base, 'act8', 'bp-undo', 'rb-empty', 'rl-nc', 'undo-rec', 'res-undo', 'hl-bp', 'hl-undo', 'hl-res'] },
+];
+---
+<Stepper title="UPDATE 커밋과 크래시 복구: redo는 다시 하기, undo는 되돌리기" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 432" role="img" aria-label="잔액을 1000에서 700으로 바꾸는 트랜잭션에서 undo 로그, 버퍼 풀, redo 로그 버퍼, redo 로그 파일, 데이터 파일이 단계마다 어떻게 바뀌고, 서버가 꺼진 뒤 redo로 700을 복구하거나 undo로 1000으로 되돌리는 그림">
+    <rect data-id="act-box" class="box" x="8" y="4" width="304" height="34" rx="7" />
+    <text data-id="act1" class="mono hide" x="160" y="21">START TRANSACTION</text>
+    <text data-id="act2" class="mono hide" x="160" y="21">UPDATE acct SET bal=700</text>
+    <text data-id="act5" class="mono hide" x="160" y="21">COMMIT</text>
+    <text data-id="act6" class="err-t hide" x="160" y="21">서버 다운!</text>
+    <text data-id="act7" class="hide" x="160" y="21">재시작 → 크래시 복구</text>
+    <text data-id="act8" class="hide" x="160" y="21">만약 COMMIT 전에 꺼졌다면?</text>
+
+    <g data-id="mem">
+      <rect class="frame" x="8" y="48" width="304" height="132" rx="10" />
+      <text class="sub l" x="16" y="63">메모리 (꺼지면 사라져요)</text>
+      <text class="sub l" x="18" y="84">버퍼 풀 (데이터 페이지)</text>
+      <rect class="box" x="18" y="96" width="284" height="30" rx="6" />
+      <text class="sub l" x="18" y="137">redo 로그 버퍼</text>
+      <rect class="box" x="18" y="148" width="284" height="26" rx="6" />
+    </g>
+    <g data-id="crash" class="hide"><rect class="err" x="214" y="52" width="92" height="24" rx="5" /><text class="err-t" x="260" y="64">꺼짐</text></g>
+    <text data-id="bp-1000" class="mono hide" x="160" y="111">id1 bal=1000</text>
+    <text data-id="bp-700" class="mono hide" x="160" y="111">id1 bal=<tspan class="hi">700</tspan> (더티)</text>
+    <text data-id="bp-gone" class="sub hide" x="160" y="111">(사라짐)</text>
+    <text data-id="bp-redo" class="mono hide" x="160" y="111">id1 bal=<tspan class="hi">700</tspan> (redo로 복구)</text>
+    <text data-id="bp-undo" class="mono hide" x="160" y="111">id1 bal=<tspan class="hi">1000</tspan> (undo로 되돌림)</text>
+    <text data-id="rb-empty" class="sub hide" x="160" y="161">(비어 있음)</text>
+    <text data-id="rb-rec" class="mono hide" x="160" y="161">id1 bal=700</text>
+    <text data-id="rb-gone" class="sub hide" x="160" y="161">(사라짐)</text>
+
+    <text data-id="flush" class="hi hide" x="160" y="194">↓ COMMIT 때 redo만 디스크로 flush</text>
+
+    <g data-id="disk">
+      <rect class="frame" x="8" y="206" width="304" height="178" rx="10" />
+      <text class="sub l" x="16" y="221">디스크 (꺼져도 남아요)</text>
+      <text class="sub l" x="18" y="244">데이터 파일</text>
+      <rect class="box" x="18" y="252" width="284" height="28" rx="6" />
+      <text class="sub l" x="18" y="290">redo 로그 파일 (다시 하기용)</text>
+      <rect class="box" x="18" y="302" width="284" height="28" rx="6" />
+      <text class="sub l" x="18" y="340">undo 로그 (되돌리기용)</text>
+      <rect class="box" x="18" y="352" width="284" height="26" rx="6" />
+    </g>
+    <text data-id="df-1000" class="mono" x="160" y="266">id1 bal=1000</text>
+    <text data-id="rl-empty" class="sub hide" x="160" y="316">(비어 있음)</text>
+    <text data-id="rl-rec" class="mono hide" x="160" y="316">id1 bal=700 + 커밋 기록</text>
+    <text data-id="rl-nc" class="mono hide" x="160" y="316">id1 bal=700 (커밋 기록 없음)</text>
+    <text data-id="undo-empty" class="sub hide" x="160" y="365">(비어 있음)</text>
+    <text data-id="undo-rec" class="mono hide" x="160" y="365">id1 변경 전 bal=1000</text>
+
+    <text data-id="res-ok" class="hide" x="160" y="410">클라이언트 ← OK (커밋 완료)</text>
+    <text data-id="res-redo" class="hide" x="160" y="410">redo = 다시 하기 → 700 (지속성)</text>
+    <text data-id="res-undo" class="hide" x="160" y="410">undo = 되돌리기 → 1000 (원자성)</text>
+
+    <rect data-id="hl-act" class="hl" x="4" y="1" width="312" height="40" rx="9" />
+    <rect data-id="hl-mem" class="hl" x="4" y="44" width="312" height="140" rx="12" />
+    <rect data-id="hl-bp" class="hl" x="14" y="93" width="292" height="36" rx="8" />
+    <rect data-id="hl-rb" class="hl" x="14" y="145" width="292" height="32" rx="8" />
+    <rect data-id="hl-rl" class="hl" x="14" y="299" width="292" height="34" rx="8" />
+    <rect data-id="hl-undo" class="hl" x="14" y="349" width="292" height="32" rx="8" />
+    <rect data-id="hl-res" class="hl" x="4" y="392" width="312" height="36" rx="9" />
+  </svg>
+</Stepper>

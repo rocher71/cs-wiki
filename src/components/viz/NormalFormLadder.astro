@@ -1,0 +1,55 @@
+---
+// 정규형 사다리: 아래(비정규) → 위(5NF). 한 칸 오를 때마다 "제거하는 것"을 옆에 표시. 앞 글자 = 원·부·이·결·다·조
+import Stepper from '../Stepper.astro';
+const rows = [
+  { nf: '비정규', key: '', rest: '한 칸에 값 여러 개' },
+  { nf: '1NF', key: '원', rest: ': 원자값만 남김' },
+  { nf: '2NF', key: '부', rest: ': 부분 종속 제거' },
+  { nf: '3NF', key: '이', rest: ': 이행 종속 제거' },
+  { nf: 'BCNF', key: '결', rest: ': 결정자 = 후보키' },
+  { nf: '4NF', key: '다', rest: ': 다치 종속 제거' },
+  { nf: '5NF', key: '조', rest: ': 조인 종속 제거' },
+];
+const RH = 48, BH = 36, BW = 68, STEP = 12;
+const ry = (k: number) => 24 + (6 - k) * RH + (k <= 4 ? 30 : 0);
+const bx = (k: number) => 24 + k * STEP;
+const ids = (k: number) => rows.slice(0, k + 1).map((_, j) => `r${j}`);
+const steps = [
+  { caption: '출발점은 비정규형이에요. 한 칸에 "P1, P2"처럼 값이 여러 개 들어 있어요.', show: [...ids(0), 'h0'] },
+  { caption: '1NF: 모든 칸이 더 쪼갤 수 없는 값(원자값) 하나만 갖게 해요.', show: [...ids(1), 'h1'] },
+  { caption: '2NF: 1NF + 부분 종속 제거. 키가 여러 칸일 때, 키 일부에만 기대는 칸을 떼어 내요.', show: [...ids(2), 'h2'] },
+  { caption: '3NF: 2NF + 이행 종속 제거. 키가 아닌 칸이 다른 키 아닌 칸을 정하는(A → B → C) 관계를 떼어 내요.', show: [...ids(3), 'h3'] },
+  { caption: 'BCNF: 무언가를 결정하는 칸(결정자)은 모두 후보키여야 해요. 3NF보다 한 단계 엄격해요. 실무는 보통 3NF나 BCNF까지 해요.', show: [...ids(4), 'h4', 'prac'] },
+  { caption: '4NF: 다치 종속 제거. 서로 상관없는 여러 값 목록(예: 취미 목록과 자격증 목록)을 한 테이블에 같이 두지 않아요.', show: [...ids(5), 'h5', 'prac'] },
+  { caption: '5NF: 조인 종속 제거. 더 쪼갰다가 조인해도 원래대로 돌아오는 경우까지 정리해요. 위로 갈수록 아래 조건을 전부 포함해요. 외우기: 원·부·이·결·다·조.', show: [...ids(6), 'h6', 'prac'] },
+];
+const H = ry(0) + BH + 8;
+---
+<Stepper title="정규형 사다리: 한 칸 오를 때마다 하나씩 제거" steps={steps}>
+  <svg class="viz" viewBox={`0 0 320 ${H}`} role="img" aria-label="비정규형에서 1NF, 2NF, 3NF, BCNF, 4NF, 5NF로 올라가는 계단과, 각 단계에서 제거하는 것">
+    <defs>
+      <marker id="nl-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0 L10 5 L0 10 z" style="fill: var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+    <path d={`M10 ${H - 10} L10 30`} class="line" marker-end="url(#nl-arr)" />
+    <text class="sub l" x="2" y="14">엄격</text>
+    <g data-id="prac" class="hide">
+      <path d={`M24 ${ry(4) - 14} H316`} class="frame" />
+      <text class="sub l" x="24" y={ry(4) - 28}>↓ 실무는 보통 여기(3NF·BCNF)까지</text>
+    </g>
+    {rows.map((r, k) => {
+      const y = ry(k), x = bx(k);
+      return (
+        <g>
+          <rect data-id={`h${k}`} class="hl hide" x={x - 4} y={y - 4} width={316 - x + 4} height={BH + 8} rx="10" />
+          <g data-id={`r${k}`}>
+            <rect class={k === 0 ? 'bad' : 'chip'} x={x} y={y} width={BW} height={BH} rx="6" />
+            <text class="mono" x={x + BW / 2} y={y + BH / 2} style="font-weight:700;font-size:15px">{r.nf}</text>
+            <text class="l" x={x + BW + 10} y={y + BH / 2} style="font-size:14px">{r.key && <tspan class="hi">{r.key}</tspan>}{r.rest}</text>
+          </g>
+        </g>
+      );
+    })}
+  </svg>
+</Stepper>

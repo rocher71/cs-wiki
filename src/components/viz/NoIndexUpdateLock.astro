@@ -1,0 +1,88 @@
+---
+// 인덱스 없는 컬럼으로 UPDATE → PK 순서로 전부 훑으며 지나간 행마다 락(1000 + 페이지 끝 표시 3 = 1003).
+// 왼쪽: item 테이블 행 목록 + 자물쇠, 오른쪽: 다른 세션. 마지막 단계는 PK로 찾을 때 비교.
+import Stepper from '../Stepper.astro';
+const Y0 = 96, DY = 34, RH = 28;
+const TX = 12, TW = 168, SX = 190, SW = 122;
+const rows = ['id=1', 'id=2', 'id=3', '⋮', 'id=500 · C500', '⋮', 'id=999', 'id=1000', '끝 표시'].map((t, i) => ({ t, y: Y0 + i * DY }));
+const K = rows.map((_, i) => `k${i}`);
+const lock = (x: number, y: number) => ({
+  shackle: `M${x + 3} ${y + 7} v-3 a4 4 0 0 1 8 0 v3`,
+  body: { x, y: y + 7, w: 14, h: 10 },
+});
+const ENDY = rows[8].y + RH / 2 + 30;
+const steps = [
+  { caption: 'item 테이블에 1000행이 있어요. code 컬럼에는 인덱스가 없어요. code=C500인 행을 수정하려고 해요.', show: ['q'] },
+  { caption: 'code로 바로 찾을 길이 없어서 PK 순서대로 1번 행부터 하나씩 훑어요. 훑으면서 읽은 행마다 자물쇠가 걸려요.', show: ['q', 'scan', 'k0', 'k1', 'k2'] },
+  { caption: '끝까지 훑고 나면 1000행 전부와 페이지 끝 표시(supremum) 3개, 모두 1003개가 잠겨요. 커밋할 때까지 안 풀려요.', show: ['q', ...K, 'cnt'] },
+  { caption: '실제로 바뀐 행은 C500 하나뿐이에요. 1행 고치려고 1000행을 잠근 셈이에요.', show: ['q', ...K, 'cnt', 'mod'] },
+  { caption: '다른 세션이 상관없는 id=999를 수정하거나 새 행을 INSERT해도 전부 기다리다가 ERROR 1205(락 대기 타임아웃)로 실패해요.', show: ['q', ...K, 'cnt', 'mod', 'b', 'c'] },
+  { caption: '비교: PK로 WHERE id=500을 찾으면 자물쇠는 1개예요. id=999 수정도 새 행 INSERT도 기다리지 않고 바로 통과해요. 그래서 WHERE 컬럼에 인덱스가 중요해요.', show: ['q2', 'k4', 'cnt2', 'mod', 'b2', 'c2'] },
+];
+const side = [
+  { id: 'b', r: 6, t1: 'B: id=999 수정', t2: '대기 → 1205', ok: false },
+  { id: 'c', r: 8, t1: 'C: 새 행 INSERT', t2: '대기 → 1205', ok: false },
+  { id: 'b2', r: 6, t1: 'B: id=999 수정', t2: '✓ 바로 성공', ok: true },
+  { id: 'c2', r: 8, t1: 'C: 새 행 INSERT', t2: '✓ 바로 성공', ok: true },
+];
+---
+<Stepper title="인덱스 없이 UPDATE하면 훑은 행이 다 잠긴다" steps={steps}>
+  <svg class="viz" viewBox={`0 0 320 ${ENDY + 22}`} role="img" aria-label="인덱스 없는 code 컬럼으로 UPDATE하면 1000행 전체에 락이 걸려 다른 세션의 수정과 INSERT가 1205로 실패하고, PK로 찾으면 락이 1개뿐인 비교">
+    <g data-id="q" class="hide">
+      <text class="mono" x="160" y="16">UPDATE item SET qty=qty-1</text>
+      <text class="mono hi" x="160" y="38">WHERE code='C500'</text>
+      <text class="sub" x="160" y="60">(code 인덱스 없음)</text>
+    </g>
+    <g data-id="q2" class="hide">
+      <text class="mono" x="160" y="16">UPDATE item SET qty=qty-1</text>
+      <text class="mono hi" x="160" y="38">WHERE id=500</text>
+      <text class="sub" x="160" y="60">(PK로 바로 찾음)</text>
+    </g>
+
+    {rows.map((r, i) => (
+      <g>
+        {r.t === '⋮'
+          ? <text class="sub" x={TX + 60} y={r.y}>⋮</text>
+          : <rect class={i === 8 ? 'frame' : 'box'} x={TX} y={r.y - RH / 2} width={TW} height={RH} rx="6" />}
+        {r.t !== '⋮' && <text class={i === 8 ? 'sub' : ''} x={TX + 60} y={r.y} style="font-size:14px">{r.t}</text>}
+        <g data-id={K[i]} class="hide">
+          {(() => { const k = lock(TX + TW - 26, r.y - 11); return (
+            <g>
+              <path d={k.shackle} style="fill:none;stroke:var(--sl-color-accent);stroke-width:2" />
+              <rect x={k.body.x} y={k.body.y} width={k.body.w} height={k.body.h} rx="2" style="fill:var(--sl-color-accent)" />
+            </g>
+          ); })()}
+        </g>
+      </g>
+    ))}
+    <rect data-id="mod" class="hl hide" x={TX - 3} y={rows[4].y - RH / 2 - 3} width={TW + 6} height={RH + 6} rx="8" />
+
+    <!-- 훑는 방향 -->
+    <g data-id="scan" class="hide">
+      <line x1={TX + TW + 12} y1={rows[0].y - 8} x2={TX + TW + 12} y2={rows[2].y + 12} style="stroke:var(--sl-color-accent);stroke-width:2.4" marker-end="url(#nil-a)" />
+      <text class="hi l" x={TX + TW + 22} y={rows[1].y} style="font-size:14px">차례로 훑음</text>
+    </g>
+    <defs>
+      <marker id="nil-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-accent)" />
+      </marker>
+    </defs>
+
+    {side.map((s) => (
+      <g data-id={s.id} class="hide">
+        <rect class={s.ok ? 'box' : 'err'} x={SX} y={rows[s.r].y - 26} width={SW} height="52" rx="8" />
+        <text x={SX + SW / 2} y={rows[s.r].y - 10} style="font-size:14px">{s.t1}</text>
+        <text class={s.ok ? 'hi' : 'err-t'} x={SX + SW / 2} y={rows[s.r].y + 12} style="font-size:14px">{s.ok ? '' : '✗ '}{s.t2}</text>
+      </g>
+    ))}
+
+    <g data-id="cnt" class="hide">
+      <rect class="badge" x="20" y={ENDY - 14} width="280" height="30" rx="15" />
+      <text class="on-badge" x="160" y={ENDY + 1}>잠긴 레코드 1003개 · 바뀐 행 1개</text>
+    </g>
+    <g data-id="cnt2" class="hide">
+      <rect class="badge" x="20" y={ENDY - 14} width="280" height="30" rx="15" />
+      <text class="on-badge" x="160" y={ENDY + 1}>잠긴 레코드 1개 · 바뀐 행 1개</text>
+    </g>
+  </svg>
+</Stepper>

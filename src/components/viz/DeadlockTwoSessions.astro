@@ -1,0 +1,115 @@
+---
+// DB 데드락: 세션 A ─ 행 id=2 / 행 id=1 ─ 세션 B 네모 배치(DeadlockLockOrder와 같은 틀).
+// 보유(실선)·대기(점선)가 원을 이루면 InnoDB가 감지해 작은 트랜잭션(B)을 롤백(1213)하고 A가 커밋.
+import Stepper from '../Stepper.astro';
+const L = { x: 20, cx: 75 }, R = { x: 190, cx: 245 };
+const TOP = 56, BOT = 196, BH = 52, BW = 110;
+const TM = TOP + BH / 2, BM = BOT + BH / 2;
+const steps = [
+  { caption: '세션 A와 세션 B가 각각 트랜잭션을 열었어요. 둘 다 행 id=1과 id=2를 수정해야 해요(예: 이체).', show: [] },
+  { caption: 'A는 id=1을, B는 id=2를 먼저 UPDATE해서 각자 행 락(배타 락)을 잡아요.', show: ['hA1', 'hB2'] },
+  { caption: 'A가 id=2를 UPDATE하려 해요. B가 쥐고 있어서 A는 B를 기다려요. 여기까진 평범한 락 대기예요.', show: ['hA1', 'hB2', 'wA2', 'sA-wait'] },
+  { caption: 'B가 id=1을 UPDATE하려 해요. A가 쥐고 있어요. A는 B를, B는 A를 기다리는 원(사이클)이 생겨 둘 다 끝없이 멈춰요.', show: ['hA1', 'hB2', 'wA2', 'wB1', 'cyc', 'stop', 'sA-wait', 'sB-wait'] },
+  { caption: 'InnoDB가 대기 그래프에서 사이클을 찾아내요. 되돌릴 게 적은 작은 트랜잭션을 희생자로 고르는데, 여기선 B를 골라 통째로 롤백하고, B는 ERROR 1213을 받아요.', show: ['hA1', 'wA2', 'sA-wait', 'sB-rb', 'det'] },
+  { caption: 'B의 락이 풀리자 A가 id=2를 얻고 COMMIT해요. 예방은 모든 코드가 id 오름차순(1 → 2)으로 잠그기, 1213을 받으면 트랜잭션 전체를 재시도하기예요.', show: ['hA1', 'hA2', 'sA-ok', 'sB-rb', 'fix'] },
+];
+const lock = (x: number, y: number, s: number) => ({
+  shackle: `M${x + 3 * s} ${y + 8 * s} v${-3 * s} a${4 * s} ${4 * s} 0 0 1 ${8 * s} 0 v${3 * s}`,
+  body: { x, y: y + 8 * s, w: 14 * s, h: 10 * s },
+  sw: 1.6 * s,
+});
+const rowsBox = [
+  { x: R.x, y: TOP, t: '행 id=2' },
+  { x: L.x, y: BOT, t: '행 id=1' },
+].map((b) => ({ ...b, k: lock(b.x + 12, b.y + 15, 1.2) }));
+const sessions = [
+  { id: 'A', x: L.x, cx: L.cx, y: TOP, st: [['sA-wait', 'id=2 기다림'], ['sA-ok', 'COMMIT']] },
+  { id: 'B', x: R.x, cx: R.cx, y: BOT, st: [['sB-wait', 'id=1 기다림']] },
+];
+const hold = 'fill:none;stroke:var(--sl-color-accent);stroke-width:3';
+const wait = 'fill:none;stroke:var(--sl-color-gray-2);stroke-width:2;stroke-dasharray:5 4';
+---
+<Stepper title="DB 데드락: 감지하고 한쪽을 롤백" steps={steps}>
+  <svg class="viz" viewBox="0 0 320 370" role="img" aria-label="세션 A와 B가 행 id=1, id=2를 반대 순서로 잠가 사이클이 생기고, InnoDB가 B를 롤백해 ERROR 1213을 돌려준 뒤 A가 커밋하는 과정">
+    <defs>
+      <marker id="dts-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-gray-2)" />
+      </marker>
+      <marker id="dts-r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0 0L10 5L0 10z" fill="var(--sl-color-red)" />
+      </marker>
+    </defs>
+
+    <!-- 범례 -->
+    <line x1="40" y1="20" x2="68" y2="20" style={hold} />
+    <text class="sub l" x="74" y="20">락 보유</text>
+    <line x1="160" y1="20" x2="188" y2="20" style={wait} marker-end="url(#dts-g)" />
+    <text class="sub l" x="194" y="20">락 대기</text>
+
+    <!-- 보유 -->
+    <g data-id="hA1" class="hide">
+      <line x1={L.cx} y1={TOP + BH} x2={L.cx} y2={BOT} style={hold} />
+      <text class="hi l" x={L.cx + 8} y={(TOP + BH + BOT) / 2} style="font-size:14px">보유</text>
+    </g>
+    <g data-id="hB2" class="hide">
+      <line x1={R.cx} y1={TOP + BH} x2={R.cx} y2={BOT} style={hold} />
+      <text class="hi" x={R.cx - 26} y={(TOP + BH + BOT) / 2} style="font-size:14px">보유</text>
+    </g>
+    <g data-id="hA2" class="hide">
+      <line x1={L.x + BW} y1={TM} x2={R.x} y2={TM} style={hold} />
+      <text class="hi" x="150" y={TM - 14} style="font-size:14px">보유</text>
+    </g>
+    <!-- 대기 -->
+    <g data-id="wA2" class="hide">
+      <line x1={L.x + BW} y1={TM} x2={R.x - 2} y2={TM} style={wait} marker-end="url(#dts-g)" />
+      <text class="sub" x="150" y={TM - 14}>대기</text>
+    </g>
+    <g data-id="wB1" class="hide">
+      <line x1={R.x} y1={BM} x2={L.x + BW + 2} y2={BM} style={wait} marker-end="url(#dts-g)" />
+      <text class="sub" x="150" y={BM + 14}>대기</text>
+    </g>
+    <g data-id="cyc" class="hide">
+      <path d="M176 152 A26 26 0 1 1 150 126" style="fill:none;stroke:var(--sl-color-red);stroke-width:2.4" marker-end="url(#dts-r)" />
+      <text class="err-t" x="150" y="152" style="font-size:14px">사이클</text>
+    </g>
+
+    <!-- 행 -->
+    {rowsBox.map((b) => (
+      <g>
+        <rect class="box" x={b.x} y={b.y} width={BW} height={BH} rx="8" />
+        <path d={b.k.shackle} style={`fill:none;stroke:var(--sl-color-gray-2);stroke-width:${b.k.sw}`} />
+        <rect x={b.k.body.x} y={b.k.body.y} width={b.k.body.w} height={b.k.body.h} rx="2" style="fill:var(--sl-color-gray-2)" />
+        <text x={b.x + 64} y={b.y + BH / 2} style="font-weight:700">{b.t}</text>
+      </g>
+    ))}
+
+    <!-- 세션 -->
+    {sessions.map((s) => (
+      <g>
+        <rect class="chip" x={s.x} y={s.y} width={BW} height={BH} rx="8" />
+        <rect data-id="stop" class="err hide" x={s.x} y={s.y} width={BW} height={BH} rx="8" />
+        <text x={s.cx} y={s.y + 16} style="font-weight:700">세션 {s.id}</text>
+        {s.st.map(([id, t]) => <text data-id={id} class="hide" x={s.cx} y={s.y + 37} style="font-size:14px">{t}</text>)}
+      </g>
+    ))}
+    <g data-id="sB-rb" class="hide">
+      <rect class="err" x={R.x} y={BOT} width={BW} height={BH} rx="8" />
+      <text x={R.cx} y={BOT + 16} style="font-weight:700">세션 B</text>
+      <text class="err-t" x={R.cx} y={BOT + 37} style="font-size:14px">롤백됨</text>
+    </g>
+
+    <!-- 아래 패널 -->
+    <g data-id="det" class="hide">
+      <rect class="err" x="10" y="270" width="300" height="84" rx="8" />
+      <text class="err-t" x="160" y="290">B: ERROR 1213 (데드락)</text>
+      <text x="160" y="314" style="font-size:14px">B 트랜잭션 전체 롤백</text>
+      <text class="sub" x="160" y="336">B가 바꾼 id=2도 원래대로 돌아감</text>
+    </g>
+    <g data-id="fix" class="hide">
+      <rect class="chip" x="10" y="270" width="300" height="84" rx="8" />
+      <text class="hi" x="160" y="290">예방: 항상 id 오름차순으로 잠그기</text>
+      <text x="160" y="314" style="font-size:14px">A, B 모두 id=1 → id=2 순서</text>
+      <text class="sub" x="160" y="336">1213이면 트랜잭션 전체 재시도</text>
+    </g>
+  </svg>
+</Stepper>

@@ -1,0 +1,57 @@
+---
+// EXPLAIN 결과를 읽는 순서: type → key → rows×filtered → Extra → (의심되면) EXPLAIN ANALYZE.
+// 예시는 페이지 본문 실험(orders 10만 행, 인덱스 없음)과 같은 쿼리.
+import Stepper from '../Stepper.astro';
+const F0 = 100, FH = 28, VX = 128;
+const fields = [
+  ['type', 'ALL'], ['possible_keys', 'NULL'], ['key', 'NULL'], ['rows', '100,062'], ['filtered', '10.00'], ['Extra', 'Using where;'], ['', 'Using filesort'],
+];
+const fy = (i: number) => F0 + i * FH + FH / 2;
+// 강조 테두리: i~j 필드
+const hl = (i: number, j: number) => ({ x: 8, y: F0 + i * FH + 1, width: 304, height: (j - i + 1) * FH - 2, rx: 6 });
+const AY = F0 + fields.length * FH + 12;
+const H = AY + 70;
+const steps = [
+  { caption: '쿼리 앞에 EXPLAIN을 붙이면 실행하지 않고 계획만 보여 줘요. 테이블 하나당 한 줄이 나와요. 여기선 그 한 줄을 세로로 펼쳤어요.', show: ['q'] },
+  { caption: '① type부터 봐요. const, eq_ref, ref면 괜찮고, range면 구간 크기를 봐요. index나 ALL이면 경고예요. 여기선 ALL(풀 스캔)이에요.', show: ['q', 'h1', 't1'] },
+  { caption: '② key가 NULL이면 인덱스를 안 쓴 거예요. possible_keys(후보)도 NULL이라 쓸 인덱스 자체가 없어요. 후보는 있는데 key만 NULL이면 옵티마이저가 안 고른 거예요.', show: ['q', 'h2', 't2'] },
+  { caption: '③ rows × filtered로 다음 단계에 넘길 양을 가늠해요. 100,062행을 읽어 10%가 남는다는 예상이니, 곱하면 약 1만 행이에요(직접 계산한 값).', show: ['q', 'h3', 't3'] },
+  { caption: '④ Extra를 봐요. Using index는 좋은 신호, Using filesort나 Using temporary는 주의 신호예요. 여기선 인덱스로 정렬을 못 해 따로 정렬해요.', show: ['q', 'h4', 't4'] },
+  { caption: '⑤ 숫자가 의심되면 EXPLAIN ANALYZE로 진짜 실행해 비교해요. 예상은 10%였지만 PAID는 3종 중 하나라 실제로는 10만 행 중 33,333행(33.3%)이 남았어요. 통계를 의심할 차례예요.', show: ['q', 'h5', 'an'] },
+];
+---
+<Stepper title="EXPLAIN 결과, 이 순서로 읽어요" steps={steps}>
+  <svg class="viz" viewBox={`0 0 320 ${H}`} role="img" aria-label="EXPLAIN 결과에서 type, key, rows와 filtered, Extra를 차례로 확인하고 EXPLAIN ANALYZE로 예상과 실제를 비교하는 과정">
+    <!-- 쿼리 -->
+    <rect class="box" x="6" y="6" width="308" height="80" rx="8" />
+    <g data-id="q">
+      <text class="mono l" x="16" y="24"><tspan class="hi">EXPLAIN</tspan> SELECT * FROM orders</text>
+      <text class="mono l" x="16" y="46">WHERE status = 'PAID'</text>
+      <text class="mono l" x="16" y="68">ORDER BY amount LIMIT 10</text>
+    </g>
+    <!-- 결과 한 줄(세로로 펼침) -->
+    <rect class="frame" x="6" y={F0 - 4} width="308" height={fields.length * FH + 8} rx="8" />
+    {fields.map(([k, v], i) => (
+      <g>
+        <text class="sub" x={VX - 12} y={fy(i)} style="text-anchor:end">{k}</text>
+        <text class="mono l" x={VX} y={fy(i)}>{v}</text>
+      </g>
+    ))}
+    <rect data-id="h1" class="hl hide" {...hl(0, 0)} />
+    <rect data-id="h2" class="hl hide" {...hl(1, 2)} />
+    <rect data-id="h3" class="hl hide" {...hl(3, 4)} />
+    <rect data-id="h4" class="hl hide" {...hl(5, 6)} />
+    <!-- 판정 -->
+    <text data-id="t1" class="hide l err-t" x="200" y={fy(0)}>경고: 풀 스캔</text>
+    <text data-id="t2" class="hide l err-t" x="196" y={fy(1) + FH / 2}>인덱스 안 씀</text>
+    <text data-id="t3" class="hide l hi" x="190" y={fy(3) + FH / 2}>→ 약 1만 (계산)</text>
+    <text data-id="t4" class="hide l err-t" x="258" y={fy(6)}>주의</text>
+    <!-- EXPLAIN ANALYZE -->
+    <rect class="box" x="6" y={AY} width="308" height="62" rx="8" />
+    <text class="sub" x="160" y={AY + 16}>EXPLAIN ANALYZE (실제 실행)</text>
+    <g data-id="an" class="hide">
+      <text x="160" y={AY + 42}>예상 10% → 실제 <tspan class="err-t">33.3%</tspan></text>
+    </g>
+    <rect data-id="h5" class="hl hide" x="6" y={AY} width="308" height="62" rx="8" />
+  </svg>
+</Stepper>
